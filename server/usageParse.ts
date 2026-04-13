@@ -257,6 +257,193 @@ export function enrichUsageTabWithParallelData(usage: UsageTabInfo, context: Con
   return { ...usage, contextWindow: parts.join(' · ') };
 }
 
+function pctUsedFromLine(line: string): string | null {
+  const m = line.match(/(\d+(?:\.\d+)?)\s*%\s*used/i);
+  return m ? `${m[1]}% used` : null;
+}
+
+function findLineIndex(lines: string[], re: RegExp): number {
+  return lines.findIndex((l) => re.test(l.trim()));
+}
+
+function sliceUntilNextHeadings(lines: string[], startExclusive: number, stopRes: RegExp[]): string[] {
+  const out: string[] = [];
+  for (let i = startExclusive; i < lines.length; i++) {
+    const t = lines[i].trim();
+    if (t && stopRes.some((re) => re.test(t))) break;
+    out.push(lines[i]);
+  }
+  return out;
+}
+
+/**
+ * Parse `/stats` (interactive-style /usage summary): Status key lines, Usage blocks, optional Stats/Config headings.
+ */
+export function parseStatsCommandOutput(raw: string): {
+  status: SystemStatus;
+  usageTab: UsageTabInfo;
+  statsTabText: string;
+  configTabText: string;
+} {
+  const emptyU = (): UsageTabInfo => ({
+    currentSessionUsage: '—',
+    weeklyUsageAllModels: '—',
+    weeklyUsageOpus: '—',
+    contextWindow: '—',
+    rateLimitsAndResets: '—'
+  });
+
+  const norm = raw.replace(/\r\n/g, '\n');
+  if (!norm.trim() || /^unknown skill:/im.test(norm)) {
+    return {
+      status: parseStatusOutput(norm),
+      usageTab: emptyU(),
+      statsTabText: '',
+      configTabText: ''
+    };
+  }
+
+  const lines = norm.split('\n');
+
+  let usageStart = findLineIndex(lines, /^(#*\s*)?Current session(?:\s+usage)?\s*:?\s*$/i);
+  if (usageStart < 0) {
+    usageStart = findLineIndex(lines, /^Current session usage\s*:/i);
+  }
+
+  const idxWeek = findLineIndex(lines, /^#*\s*Current week\s*\(\s*all models\s*\)/i);
+  const idxExtra = findLineIndex(lines, /^#*\s*Extra usage/i);
+  const idxStats = findLineIndex(lines, /^#*\s*Stats\b/i);
+  const idxConfig = findLineIndex(lines, /^#*\s*Config\b/i);
+
+  const statusStop =
+    usageStart >= 0
+      ? usageStart
+      : idxWeek >= 0
+        ? idxWeek
+        : idxExtra >= 0
+          ? idxExtra
+          : idxStats >= 0
+            ? idxStats
+            : idxConfig >= 0
+              ? idxConfig
+              : lines.length;
+  const statusSlice = lines.slice(0, Math.max(0, statusStop)).join('\n');
+  const status = parseStatusOutput(extractSessionKeyValueLines(statusSlice) || statusSlice);
+
+  let currentSessionUsage = '—';
+  if (usageStart >= 0 && /^Current session usage\s*:/i.test(lines[usageStart].trim())) {
+    currentSessionUsage =
+      lineValue(lines.slice(usageStart, usageStart + 6).join('\n'), 'Current session usage') ||
+      lineValue(norm, 'Current session usage') ||
+      '—';
+  } else if (usageStart >= 0) {
+    const block = sliceUntilNextHeadings(lines, usageStart + 1, [
+      /^Current week\s*\(\s*all models\s*\)/i,
+      /^Extra usage/i,
+      /^Stats\b/i,
+      /^Config\b/i,
+      /^Current session\b/i
+    ]);
+    const pcts: string[] = [];
+    const resets: string[] = [];
+    for (const line of block) {
+      const p = pctUsedFromLine(line);
+      if (p && !pcts.includes(p)) pcts.push(p);
+      const rm = line.trim().match(/^Resets\s+(.+)/i);
+      if (rm) resets.push(rm[1].trim());
+    }
+    if (pcts.length) {
+      currentSessionUsage = pcts[0] + (resets[0] ? ` · Resets ${resets[0]}` : '');
+    } else {
+      const summary = block
+        .map((l) => l.trim())
+        .filter((t) => t && !/^⎿/.test(t))
+        .slice(0, 5)
+        .join(' · ');
+      if (summary) currentSessionUsage = summary;
+    }
+  }
+
+  let weeklyUsageAllModels = '—';
+  let weeklyUsageOpus = '—';
+  if (idxWeek >= 0) {
+    const block = sliceUntilNextHeadings(lines, idxWeek + 1, [
+      /^Current week\s*\(\s*opus\s*\)/i,
+      /^Extra usage/i,
+      /^Stats\b/i,
+      /^Config\b/i,
+      /^Current session\b/i
+    ]);
+    const pcts: string[] = [];
+    const resets: string[] = [];
+    for (const line of block) {
+      const p = pctUsedFromLine(line);
+      if (p && !pcts.includes(p)) pcts.push(p);
+      const rm = line.trim().match(/^Resets\s+(.+)/i);
+      if (rm) resets.push(rm[1].trim());
+    }
+    if (pcts[0]) {
+      weeklyUsageAllModels = pcts[0] + (resets[0] ? ` · Resets ${resets[0]}` : '');
+    }
+
+    const relOpus = findLineIndex(lines.slice(idxWeek), /^#*\s*Current week\s*\(\s*opus\s*\)/i);
+    if (relOpus >= 0) {
+      const abs = idxWeek + relOpus;
+      const ob = sliceUntilNextHeadings(lines, abs + 1, [/^Extra usage/i, /^Stats\b/i, /^Current week\s*\(\s*all models\s*\)/i]);
+      const op = ob
+        .map((l) => l.trim())
+        .filter(Boolean)
+        .slice(0, 8)
+        .join(' · ');
+      if (op) weeklyUsageOpus = op;
+    }
+  }
+
+  let rateLimitsAndResets = '—';
+  if (idxExtra >= 0) {
+    const block = sliceUntilNextHeadings(lines, idxExtra + 1, [
+      /^Stats\b/i,
+      /^Config\b/i,
+      /^Current session\b/i,
+      /^Current week\b/i
+    ]);
+    const t = block
+      .map((l) => l.trim())
+      .filter((x) => x && !/^Esc to cancel/i.test(x))
+      .join(' · ');
+    if (t) rateLimitsAndResets = t;
+  }
+
+  let statsTabText = '';
+  if (idxStats >= 0) {
+    const end = idxConfig > idxStats ? idxConfig : lines.length;
+    statsTabText = lines.slice(idxStats + 1, end).join('\n').trim();
+  }
+
+  let configTabText = '';
+  if (idxConfig >= 0) {
+    const block = sliceUntilNextHeadings(lines, idxConfig + 1, [
+      /^Current session\b/i,
+      /^Current week\b/i,
+      /^Stats\b/i
+    ]);
+    configTabText = block.join('\n').trim();
+  }
+
+  const fb = parseUsageTabOutput(norm);
+  const merge = (a: string, b: string) => (a === '—' && b && b !== '—' ? b : a);
+
+  const usageTab: UsageTabInfo = {
+    currentSessionUsage: merge(currentSessionUsage, fb.currentSessionUsage),
+    weeklyUsageAllModels: merge(weeklyUsageAllModels, fb.weeklyUsageAllModels),
+    weeklyUsageOpus: merge(weeklyUsageOpus, fb.weeklyUsageOpus),
+    contextWindow: fb.contextWindow,
+    rateLimitsAndResets: merge(rateLimitsAndResets, fb.rateLimitsAndResets)
+  };
+
+  return { status, usageTab, statsTabText, configTabText };
+}
+
 export function parseCostOutput(raw: string): CostInfo {
   const total =
     lineValue(raw, 'Total') ||
@@ -333,12 +520,24 @@ function parseTokensLine(raw: string): { used: string; max: string; pct: number 
   const m = raw.match(
     /\*?\*?Tokens\*?\*?\s*:\s*([\d.,kKmM]+)\s*\/\s*([\d.,kKmM]+)\s*(?:\(\s*(\d+(?:\.\d+)?)\s*%\s*\))?/i
   );
-  if (!m) return null;
-  return {
-    used: m[1].trim(),
-    max: m[2].trim(),
-    pct: m[3] != null && m[3] !== '' ? parseFloat(m[3]) : 0
-  };
+  if (m) {
+    return {
+      used: m[1].trim(),
+      max: m[2].trim(),
+      pct: m[3] != null && m[3] !== '' ? parseFloat(m[3]) : 0
+    };
+  }
+  const m2 = raw.match(
+    /([\d.,]+[kKmM]?)\s*\/\s*([\d.,]+[kKmM]?)\s+tokens?\s*\(\s*(\d+(?:\.\d+)?)\s*%\s*\)/i
+  );
+  if (m2) {
+    return {
+      used: m2[1].trim(),
+      max: m2[2].trim(),
+      pct: parseFloat(m2[3])
+    };
+  }
+  return null;
 }
 
 function parseModelFromContext(raw: string): string | null {
@@ -405,6 +604,42 @@ function skillsFromTableRows(table: string[][]): ContextSkillRow[] {
   return skills;
 }
 
+/** Tree lines like "└ agent-name: 75 tokens" under Custom agents / Skills headings. */
+function parseContextAgentsSkillsFromTree(raw: string): {
+  agents: ContextAgentRow[];
+  skills: ContextSkillRow[];
+} {
+  const agents: ContextAgentRow[] = [];
+  const skills: ContextSkillRow[] = [];
+  let mode: 'none' | 'agents' | 'skills' = 'none';
+  for (const line of raw.split('\n')) {
+    const t = line.trim();
+    if (/estimated usage by category/i.test(t)) {
+      mode = 'none';
+      continue;
+    }
+    if (/Custom agents\b/i.test(t)) {
+      mode = 'agents';
+      continue;
+    }
+    if (/^Skills\b/i.test(t) || /\bSkills\s*·\s*\/skills/i.test(t)) {
+      mode = 'skills';
+      continue;
+    }
+    if (/^#{1,3}\s/.test(t) && !/agents|skills/i.test(t)) {
+      mode = 'none';
+    }
+    const m = t.match(/^[\u2514\u251c│├└\-–]\s*([^:]+):\s*([\d.,]+[kKmM]?)\s*tokens?/i);
+    if (!m) continue;
+    const name = m[1].trim();
+    if (/^user$/i.test(name)) continue;
+    const tokens = m[2].trim();
+    if (mode === 'agents') agents.push({ name, tokens });
+    else if (mode === 'skills') skills.push({ name, tokens });
+  }
+  return { agents: agents.slice(0, 48), skills: skills.slice(0, 48) };
+}
+
 export function parseContextOutput(raw: string): ContextUsage {
   const model = parseModelFromContext(raw) || lineValue(raw, 'Model') || '—';
   const tokensInfo = parseTokensLine(raw);
@@ -424,10 +659,16 @@ export function parseContextOutput(raw: string): ContextUsage {
   }
 
   const agentTable = parsePipeTableAfterHeading(raw, /#{2,3}\s*Custom Agents\b/i);
-  const agents = agentsFromTableRows(agentTable);
+  let agents = agentsFromTableRows(agentTable);
 
   const skillTable = parsePipeTableAfterHeading(raw, /#{2,3}\s*Skills\b/i);
-  const skills = skillsFromTableRows(skillTable);
+  let skills = skillsFromTableRows(skillTable);
+
+  if (agents.length === 0 || skills.length === 0) {
+    const tree = parseContextAgentsSkillsFromTree(raw);
+    if (agents.length === 0) agents = tree.agents;
+    if (skills.length === 0) skills = tree.skills;
+  }
 
   return {
     model,

@@ -153,13 +153,18 @@ export interface UsageInfo {
   context: ContextUsage;
   /** Derived from `/cost` text (subscription plans omit API dollar breakdown). */
   billingMode: UsageBillingMode;
-  /** Fields from headless probe of interactive `/usage` → **Usage** tab only. */
+  /** Usage tab metrics (from `/stats` when available). */
   usageTab: UsageTabInfo;
+  /** Stats tab body from `/stats` when the output includes a Stats section. */
+  statsTabText?: string;
+  /** Config tab body from `/stats` when separable. */
+  configTabText?: string;
   terminals?: {
     status?: string;
     cost?: string;
     context?: string;
     usage?: string;
+    stats?: string;
   };
   exitCodes?: Record<string, number | null>;
 }

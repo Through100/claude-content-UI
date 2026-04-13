@@ -18,15 +18,10 @@ import { appendHistoryItem, groupHistory, loadHistory } from './historyStore';
 import {
   parseCostOutput,
   parseContextOutput,
-  parseStatusOutput,
-  parseUsageTabOutput,
+  parseStatsCommandOutput,
   isSubscriptionBillingMode,
-  STATUS_AND_USAGE_TAB_HEADLESS_PROMPT,
-  splitCombinedStatusUsageRaw,
-  extractSessionKeyValueLines,
   enrichUsageTabWithParallelData
 } from './usageParse';
-import { augmentUsageTabsPromptWithLocalCache } from './claudeLocalUsageCache';
 import { parseSeoOutput } from '../shared/parseSeoOutput';
 import { SEO_COMMANDS, type HistoryItem, type RunResponse, type SeoCommand } from '../src/types';
 
@@ -267,17 +262,9 @@ app.get('/api/usage', async (_req, res) => {
   const t = usageTimeoutMs();
   const modelArg = process.env.CLAUDE_USAGE_MODEL;
   try {
-    // Interactive `/usage` has Status | Config | Usage | Stats tabs; slash commands fail under `claude -p`.
-    // One combined Status+Usage headless probe plus /cost and /context (three Claude runs in parallel, not four).
-    const tabsPrompt = augmentUsageTabsPromptWithLocalCache(STATUS_AND_USAGE_TAB_HEADLESS_PROMPT);
-    const [tabsR, costR, contextR, versionProbe] = await Promise.all([
-      runClaudePrint({
-        prompt: tabsPrompt,
-        cwd,
-        model: modelArg,
-        timeoutMs: t,
-        claudeBin: bin
-      }),
+    // Fast path: `/stats` mirrors Status + Usage + optional Config/Stats tabs; `/context` + `/cost` are separate slash probes.
+    const [statsR, costR, contextR, versionProbe] = await Promise.all([
+      runClaudePrint({ prompt: '/stats', cwd, model: modelArg, timeoutMs: t, claudeBin: bin }),
       runClaudePrint({ prompt: '/cost', cwd, model: modelArg, timeoutMs: t, claudeBin: bin }),
       runClaudePrint({ prompt: '/context', cwd, model: modelArg, timeoutMs: t, claudeBin: bin }),
       runClaudeVersion(bin).catch((): ClaudeRunResult => {
@@ -285,19 +272,17 @@ app.get('/api/usage', async (_req, res) => {
       })
     ]);
 
-    const combinedRaw = [tabsR.stdout, tabsR.stderr].filter(Boolean).join('\n');
-    const { status: statusRaw, usage: usageTabRaw } = splitCombinedStatusUsageRaw(combinedRaw);
-    const statusText = extractSessionKeyValueLines(statusRaw);
-    const usageTabText = extractSessionKeyValueLines(usageTabRaw);
+    const statsRaw = [statsR.stdout, statsR.stderr].filter(Boolean).join('\n');
     const costText = [costR.stdout, costR.stderr].filter(Boolean).join('\n');
     const contextText = [contextR.stdout, contextR.stderr].filter(Boolean).join('\n');
     const billingMode = isSubscriptionBillingMode(costText) ? 'subscription' : 'api_credits';
 
     const cliVersionLine = (versionProbe.stdout || '').trim().split('\n')[0]?.trim() || '';
 
-    let status = parseStatusOutput(statusText);
+    const parsed = parseStatsCommandOutput(statsRaw);
+    let status = parsed.status;
     const context = parseContextOutput(contextText);
-    const usageTab = enrichUsageTabWithParallelData(parseUsageTabOutput(usageTabText), context);
+    const usageTab = enrichUsageTabWithParallelData(parsed.usageTab, context);
     if (status.version === '—' && cliVersionLine) {
       status = { ...status, version: cliVersionLine };
     }
@@ -311,17 +296,17 @@ app.get('/api/usage', async (_req, res) => {
       context,
       billingMode,
       usageTab,
+      statsTabText: parsed.statsTabText || undefined,
+      configTabText: parsed.configTabText || undefined,
       terminals: {
-        status: statusRaw,
+        stats: statsRaw,
         cost: costText,
-        context: contextText,
-        usage: usageTabRaw
+        context: contextText
       },
       exitCodes: {
-        status: tabsR.code,
+        stats: statsR.code,
         cost: costR.code,
-        context: contextR.code,
-        usage: tabsR.code
+        context: contextR.code
       }
     });
   } catch (e) {
