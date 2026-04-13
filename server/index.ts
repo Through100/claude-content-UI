@@ -3,6 +3,7 @@ import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
+import fs from 'node:fs';
 import {
   formatClaudeSpawnError,
   runClaudeInitOnly,
@@ -388,8 +389,10 @@ app.post('/api/run/stream', async (req, res) => {
       /* ignore */
     }
   };
-  req.on('close', killOnClient);
-  req.on('aborted', killOnClient);
+  // Listen on res, not req: req 'close' can fire as soon as the POST body is
+  // consumed (TCP half-close), killing Claude before it starts.  res 'close'
+  // only fires when the SSE response stream itself is torn down.
+  res.on('close', killOnClient);
 
   let result: ClaudeRunResult;
   try {
@@ -409,8 +412,7 @@ app.post('/api/run/stream', async (req, res) => {
     };
   } finally {
     cleanupTimers();
-    req.off('close', killOnClient);
-    req.off('aborted', killOnClient);
+    res.off('close', killOnClient);
   }
 
   try {
@@ -442,6 +444,15 @@ async function startupClaude(): Promise<void> {
   console.log(
     `[claude-seo-ui] Effective timeouts: CLAUDE_TIMEOUT_MS=${runTimeoutMs()}ms, CLAUDE_USAGE_TIMEOUT_MS=${usageTimeoutMs()}ms`
   );
+
+  // Validate workdir exists — a missing directory causes spawn ENOENT (misleadingly blames the binary).
+  if (!fs.existsSync(cwd)) {
+    console.error(
+      `[claude-seo-ui] ERROR: CLAUDE_WORKDIR does not exist: "${cwd}"\n` +
+      `  All SEO runs will fail with "spawn claude ENOENT" until this is fixed.\n` +
+      `  Set CLAUDE_WORKDIR in your .env to an existing directory.`
+    );
+  }
   try {
     const v = await runClaudeVersion(bin);
     console.log(`[claude-seo-ui] claude -v:\n${v.stdout || v.stderr || '(no output)'}`);
