@@ -151,8 +151,25 @@ app.post('/api/run', async (req, res) => {
     });
     const finishedAt = new Date().toISOString();
     const durationMs = Date.now() - t0;
-    const rawOutput = [result.stdout, result.stderr].filter(Boolean).join('\n');
+    let rawOutput = [result.stdout, result.stderr].filter(Boolean).join('\n');
     const ok = result.code === 0;
+    if (!ok && !rawOutput.trim()) {
+      rawOutput = [
+        '(Claude exited before any stdout/stderr was captured. If this persists, the process may be failing immediately — e.g. missing auth, wrong cwd, or claude not on PATH.)',
+        '',
+        '--- diagnostics ---',
+        `exit code: ${result.code}`,
+        result.signal ? `signal: ${result.signal}` : null,
+        `cwd: ${cwd}`,
+        `argv: ${JSON.stringify(result.argv)}`,
+        `CLAUDE_BIN: ${claudeBin()}`,
+        `ANTHROPIC_API_KEY set: ${process.env.ANTHROPIC_API_KEY ? 'yes' : 'no'}`,
+        '',
+        'Try the same argv in a shell from CLAUDE_WORKDIR to see the real error.'
+      ]
+        .filter(Boolean)
+        .join('\n');
+    }
     const parsedReport = parseSeoOutput(rawOutput);
 
     const body: RunResponse = {

@@ -5,6 +5,8 @@ export interface ClaudeRunResult {
   stderr: string;
   code: number | null;
   signal: NodeJS.Signals | null;
+  /** Full argv for diagnostics when output is empty */
+  argv: string[];
 }
 
 export interface RunClaudePrintOptions {
@@ -31,7 +33,8 @@ function buildArgs(prompt: string, model?: string): string[] {
 
 function collectProcess(
   child: ReturnType<typeof spawn>,
-  timeoutMs: number
+  timeoutMs: number,
+  argv: string[]
 ): Promise<ClaudeRunResult> {
   let stdout = '';
   let stderr = '';
@@ -52,13 +55,15 @@ function collectProcess(
       clearTimeout(timer);
       reject(err);
     });
-    child.once('exit', (code, signal) => {
+    // Use 'close' so stdout/stderr are fully flushed (exit can fire too early).
+    child.once('close', (code, signal) => {
       clearTimeout(timer);
       resolve({
         stdout,
         stderr,
         code: typeof code === 'number' ? code : null,
-        signal: signal || null
+        signal: signal || null,
+        argv
       });
     });
   });
@@ -66,24 +71,27 @@ function collectProcess(
 
 export async function runClaudePrint(opts: RunClaudePrintOptions): Promise<ClaudeRunResult> {
   const args = buildArgs(opts.prompt, opts.model);
+  const argv = [opts.claudeBin, ...args];
   const child = spawn(opts.claudeBin, args, {
     cwd: opts.cwd,
     env: { ...process.env },
     stdio: ['ignore', 'pipe', 'pipe']
   });
-  return collectProcess(child, opts.timeoutMs);
+  return collectProcess(child, opts.timeoutMs, argv);
 }
 
 export async function runClaudeVersion(claudeBin: string): Promise<ClaudeRunResult> {
+  const argv = [claudeBin, '-v'];
   const child = spawn(claudeBin, ['-v'], { stdio: ['ignore', 'pipe', 'pipe'] });
-  return collectProcess(child, 30_000);
+  return collectProcess(child, 30_000, argv);
 }
 
 export async function runClaudeInitOnly(claudeBin: string, cwd: string): Promise<ClaudeRunResult> {
+  const argv = [claudeBin, '--init-only'];
   const child = spawn(claudeBin, ['--init-only'], {
     cwd,
     env: { ...process.env },
     stdio: ['ignore', 'pipe', 'pipe']
   });
-  return collectProcess(child, 120_000);
+  return collectProcess(child, 120_000, argv);
 }

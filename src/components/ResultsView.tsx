@@ -114,7 +114,9 @@ export default function ResultsView({ result, isLoading }: ResultsViewProps) {
               <div className="w-12"></div>
             </div>
             <pre className="p-6 text-sm font-mono text-gray-300 overflow-auto max-h-[500px] leading-relaxed">
-              {result.rawOutput}
+              {result.rawOutput?.trim()
+                ? result.rawOutput
+                : `(no terminal output captured)\n\n${result.error ? `Summary: ${result.error}` : ''}`}
             </pre>
           </motion.div>
         )}
