@@ -41,6 +41,15 @@ function buildArgs(prompt: string, model?: string): string[] {
     args.push('--model', model);
   }
   const extra = process.env.CLAUDE_EXTRA_ARGS?.trim();
+  const extraForScan = ` ${extra ?? ''} `;
+  const disableAutoPerm = ['1', 'true', 'yes'].includes(
+    (process.env.CLAUDE_DISABLE_AUTO_PERMISSION_MODE ?? '').toLowerCase()
+  );
+  const extraAlreadyHasPermission = /--permission-mode\b/.test(extraForScan);
+  if (!disableAutoPerm && !extraAlreadyHasPermission) {
+    const mode = process.env.CLAUDE_PERMISSION_MODE?.trim() || 'bypassPermissions';
+    args.push('--permission-mode', mode);
+  }
   if (extra) {
     args.push(...extra.split(/\s+/).filter(Boolean));
   }
