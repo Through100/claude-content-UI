@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { FileText, Terminal, Copy, Download, ChevronRight, AlertTriangle, CheckCircle, Info, ExternalLink } from 'lucide-react';
 import { Finding, ParsedReport, ReportSection, RunResponse, RunStats, Severity } from '../types';
-import { AuditMarkdownSections } from './AuditMarkdown';
+import { AuditMarkdownSections, hasVisibleAuditNarrative } from './AuditMarkdown';
 import { motion, AnimatePresence } from 'motion/react';
 import { GENERIC_FINDING_RECOMMENDATION } from '../../shared/parseSeoOutput';
 import { inferClaudeActivity } from '../../shared/inferClaudeActivity';
@@ -297,6 +297,12 @@ export default function ResultsView({ result, isLoading, loadingStartedAt, liveT
 function PrettyReport({ report, stats, rawOutput }: { report: ParsedReport; stats: RunStats; rawOutput: string }) {
   const scorecard = hasParsedScorecard(report);
   const sectionCount = report.sections?.length ?? 0;
+  const hidePageScoreCardNarrative =
+    scorecard &&
+    !!report.summary.categories &&
+    report.summary.categories.length > 0;
+  const showAuditNarrativeCaption =
+    !!rawOutput?.trim() && hasVisibleAuditNarrative(rawOutput, hidePageScoreCardNarrative);
 
   return (
     <div className="space-y-6">
@@ -433,10 +439,12 @@ function PrettyReport({ report, stats, rawOutput }: { report: ParsedReport; stat
 
       {rawOutput?.trim() ? (
         <div className="space-y-2">
-          <p className="text-xs text-gray-400 px-1">
-            Run finished in {(stats.durationMs / 1000).toFixed(1)}s — narrative below matches captured stdout/stderr.
-          </p>
-          <AuditMarkdownSections source={rawOutput} />
+          {showAuditNarrativeCaption ? (
+            <p className="text-xs text-gray-400 px-1">
+              Run finished in {(stats.durationMs / 1000).toFixed(1)}s — narrative below matches captured stdout/stderr.
+            </p>
+          ) : null}
+          <AuditMarkdownSections source={rawOutput} hidePageScoreCardNarrative={hidePageScoreCardNarrative} />
         </div>
       ) : (
         <p className="text-sm text-gray-500 px-1">No stdout/stderr was captured for this run.</p>

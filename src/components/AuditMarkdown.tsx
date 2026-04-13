@@ -39,6 +39,23 @@ export function hasH2Sections(md: string): boolean {
   return /^##\s+/m.test(stripAnsi(md).replace(/\r\n/g, '\n'));
 }
 
+/** True when this H2 duplicates the in-app Page Score Card (category bars). */
+export function isPageScoreCardMarkdownHeading(title: string): boolean {
+  const t = title.trim();
+  return /^page\s+score\s*card\b/i.test(t);
+}
+
+/** Whether Pretty narrative will render anything after optional H2 filtering. */
+export function hasVisibleAuditNarrative(source: string, hidePageScoreCardNarrative: boolean): boolean {
+  const text = stripAnsi(source ?? '').trim();
+  if (!text) return false;
+  if (!hasH2Sections(text)) return true;
+  const sections = splitMarkdownByH2(text).filter(
+    (sec) => !(hidePageScoreCardNarrative && isPageScoreCardMarkdownHeading(sec.title))
+  );
+  return sections.length > 0;
+}
+
 const PROSE_CLASSES = [
   'prose prose-slate max-w-none',
   'prose-sm md:prose-base',
@@ -87,7 +104,14 @@ export function AuditMarkdown({ source, title = 'Full report' }: { source: strin
 }
 
 /** Pretty narrative: each `## …` block is a titled card; body keeps ###, tables, and code fences. */
-export function AuditMarkdownSections({ source }: { source: string }) {
+export function AuditMarkdownSections({
+  source,
+  hidePageScoreCardNarrative = false,
+}: {
+  source: string;
+  /** When true, drop `## Page Score Card` blocks — Pretty Report already shows the parsed score card. */
+  hidePageScoreCardNarrative?: boolean;
+}) {
   const text = stripAnsi(source ?? '').trim();
   if (!text) return null;
 
@@ -95,7 +119,13 @@ export function AuditMarkdownSections({ source }: { source: string }) {
     return <AuditMarkdown source={text} title="Full audit narrative" />;
   }
 
-  const sections = splitMarkdownByH2(text);
+  const sections = splitMarkdownByH2(text).filter(
+    (sec) => !(hidePageScoreCardNarrative && isPageScoreCardMarkdownHeading(sec.title))
+  );
+
+  if (sections.length === 0) {
+    return null;
+  }
 
   return (
     <div className="space-y-5">
