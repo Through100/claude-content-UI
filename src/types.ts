@@ -4,6 +4,13 @@ export interface Finding {
   severity: Severity;
   issue: string;
   recommendation: string;
+  /** From `- **Issue:**` (or `- Issue:`) bullet under the finding title */
+  issueDetail?: string;
+  impact?: string;
+  fix?: string;
+  example?: string;
+  /** Raw issue body when structured bullets were not detected (expand fallback) */
+  detailNotes?: string;
 }
 
 export interface ReportSection {

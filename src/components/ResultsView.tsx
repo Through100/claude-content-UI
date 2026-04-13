@@ -1,8 +1,10 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { FileText, Terminal, Copy, Download, ChevronRight, AlertTriangle, CheckCircle, Info, ExternalLink } from 'lucide-react';
-import { ParsedReport, RunResponse, RunStats, Severity } from '../types';
+import { Finding, ParsedReport, ReportSection, RunResponse, RunStats, Severity } from '../types';
 import { AuditMarkdownSections } from './AuditMarkdown';
 import { motion, AnimatePresence } from 'motion/react';
+import { GENERIC_FINDING_RECOMMENDATION } from '../../shared/parseSeoOutput';
+import { inferClaudeActivity } from '../../shared/inferClaudeActivity';
 
 interface ResultsViewProps {
   result: RunResponse | null;
@@ -17,6 +19,76 @@ const EMPTY_PARSED_REPORT: ParsedReport = {
   summary: { overallScore: 0, status: 'Unknown', highPriorityIssues: 0, categories: [] },
   sections: [],
 };
+
+function FindingDetailsExpand({ finding }: { finding: Finding }) {
+  const [open, setOpen] = useState(false);
+
+  const rows: { key: string; label: string; value: string }[] = [];
+  if (finding.issueDetail?.trim()) {
+    rows.push({ key: 'issue', label: 'Issue', value: finding.issueDetail.trim() });
+  }
+  if (finding.impact?.trim()) {
+    rows.push({ key: 'impact', label: 'Impact', value: finding.impact.trim() });
+  }
+  if (finding.fix?.trim()) {
+    rows.push({ key: 'fix', label: 'Fix', value: finding.fix.trim() });
+  }
+  if (finding.example?.trim()) {
+    rows.push({ key: 'example', label: 'Example', value: finding.example.trim() });
+  }
+
+  const isGenericRec = finding.recommendation === GENERIC_FINDING_RECOMMENDATION;
+  if (rows.length === 0 && !isGenericRec && finding.recommendation?.trim()) {
+    rows.push({
+      key: 'recommendation',
+      label: 'Recommendation',
+      value: finding.recommendation.trim(),
+    });
+  }
+  if (rows.length === 0 && finding.detailNotes?.trim()) {
+    rows.push({ key: 'notes', label: 'Details', value: finding.detailNotes.trim() });
+  }
+
+  if (rows.length === 0) {
+    return (
+      <p className="text-sm text-indigo-900/70 leading-relaxed">
+        No structured Issue / Impact / Fix / Example bullets were detected. Check the raw output tab for the full
+        text.
+      </p>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="w-full flex items-center justify-between gap-3 px-3 py-2.5 text-left text-sm font-semibold text-indigo-900 hover:bg-indigo-50/80 transition-colors"
+      >
+        <span className="flex items-center gap-2 min-w-0">
+          <Info size={16} className="text-indigo-600 shrink-0" />
+          <span className="truncate">{open ? 'Hide details' : 'Show details'}</span>
+        </span>
+        <ChevronRight
+          className={`shrink-0 text-indigo-600 transition-transform duration-200 ${open ? 'rotate-90' : ''}`}
+          size={18}
+          aria-hidden
+        />
+      </button>
+      {open && (
+        <div className="px-3 pb-3 pt-0 space-y-4 border-t border-indigo-100/80">
+          {rows.map((row) => (
+            <div key={row.key}>
+              <p className="text-xs font-bold uppercase tracking-wide text-indigo-800/90">{row.label}</p>
+              <p className="text-sm text-indigo-950 leading-relaxed mt-1 whitespace-pre-wrap">{row.value}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function hasParsedScorecard(report: ParsedReport): boolean {
   if (report.summary.overallScore > 0) return true;
@@ -38,6 +110,8 @@ export default function ResultsView({ result, isLoading, loadingStartedAt, liveT
   const [activeTab, setActiveTab] = useState<'pretty' | 'raw'>('pretty');
   const livePreRef = useRef<HTMLPreElement>(null);
 
+  const liveActivity = useMemo(() => inferClaudeActivity(liveTerminal), [liveTerminal]);
+
   useEffect(() => {
     const el = livePreRef.current;
     if (!el || !liveTerminal) return;
@@ -45,6 +119,9 @@ export default function ResultsView({ result, isLoading, loadingStartedAt, liveT
   }, [liveTerminal]);
 
   if (isLoading) {
+    const elapsedMs = loadingStartedAt != null ? Date.now() - loadingStartedAt : 0;
+    const showLongRunHint = elapsedMs > 40_000;
+
     return (
       <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-8 md:p-12 flex flex-col items-stretch space-y-6 max-w-6xl mx-auto w-full">
         <div className="flex flex-col items-center space-y-4">
@@ -52,12 +129,48 @@ export default function ResultsView({ result, isLoading, loadingStartedAt, liveT
             <div className="w-16 h-16 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
             <Terminal className="absolute inset-0 m-auto text-indigo-600" size={24} />
           </div>
-          <div className="text-center">
+          <div className="text-center w-full max-w-xl mx-auto">
             <h3 className="text-lg font-semibold text-gray-900">Executing SEO Command</h3>
             <p className="text-sm text-gray-500">Live output from Claude appears below as it is produced.</p>
             {loadingStartedAt != null && (
               <p className="text-sm font-mono text-indigo-600 mt-3">Elapsed: {formatElapsed(loadingStartedAt)}</p>
             )}
+
+            <div
+              className="mt-4 flex flex-col items-center gap-2 text-left w-full"
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+            >
+              {liveActivity ? (
+                <div className="inline-flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 rounded-xl border border-indigo-100 bg-indigo-50/80 px-4 py-3 w-full max-w-lg">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="relative flex h-2.5 w-2.5 shrink-0">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-indigo-400 opacity-40" />
+                      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-indigo-600" />
+                    </span>
+                    <span className="text-sm font-semibold text-indigo-950 truncate">{liveActivity.label}…</span>
+                  </div>
+                  {liveActivity.detail ? (
+                    <p
+                      className="text-xs text-indigo-900/75 leading-snug sm:border-l sm:border-indigo-200 sm:pl-3 sm:ml-0 line-clamp-2 sm:line-clamp-3 text-center sm:text-left break-words"
+                      title={liveActivity.detail}
+                    >
+                      {liveActivity.detail}
+                    </p>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500">Waiting for the first bytes from Claude…</p>
+              )}
+              {showLongRunHint ? (
+                <p className="text-xs text-amber-800/90 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 max-w-lg">
+                  Full-site SEO audits can take several minutes. If the timer above keeps increasing and the terminal
+                  scrolls, the run is still active—not frozen.
+                </p>
+              ) : null}
+            </div>
+
             <p className="text-xs text-gray-400 mt-4 max-w-lg mx-auto">
               Uses <code className="bg-gray-100 px-1 rounded">/api/run/stream</code>. Ensure the API is running; set{' '}
               <code className="bg-gray-100 px-1 rounded">VITE_RUN_STREAM=0</code> to fall back to buffered{' '}
@@ -284,7 +397,7 @@ function PrettyReport({ report, stats, rawOutput }: { report: ParsedReport; stat
       {/* Sections */}
       {scorecard && (
       <div className="space-y-4">
-        {(report.sections || []).map((section: any, idx: number) => (
+        {(report.sections || []).map((section: ReportSection, idx: number) => (
           <div key={idx} className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/30">
               <div className="flex items-center gap-3">
@@ -301,18 +414,13 @@ function PrettyReport({ report, stats, rawOutput }: { report: ParsedReport; stat
               </div>
             </div>
             <div className="divide-y divide-gray-100">
-              {section.findings.map((finding: any, fIdx: number) => (
+              {section.findings.map((finding: Finding, fIdx: number) => (
                 <div key={fIdx} className="p-6 hover:bg-gray-50/50 transition-colors">
                   <div className="flex gap-4">
                     <SeverityBadge severity={finding.severity} />
                     <div className="flex-1 space-y-2">
                       <h5 className="font-semibold text-gray-900 text-sm">{finding.issue}</h5>
-                      <div className="bg-indigo-50/50 border border-indigo-100 rounded-xl p-3 flex gap-3">
-                        <Info size={16} className="text-indigo-600 shrink-0 mt-0.5" />
-                        <p className="text-sm text-indigo-900 leading-relaxed">
-                          <span className="font-bold">Recommendation:</span> {finding.recommendation}
-                        </p>
-                      </div>
+                      <FindingDetailsExpand finding={finding} />
                     </div>
                   </div>
                 </div>
