@@ -1,146 +1,113 @@
 from playwright.sync_api import sync_playwright
-import json
+import os
 
-URL = "https://www.salehoo.com/learn/marketing"
+URL = "https://www.salehoo.com/"
+OUTPUT_DIR = "/opt/claude-seo-UI/screenshots"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-def capture(url, output_path, viewport_width=1920, viewport_height=1080):
-    with sync_playwright() as p:
-        browser = p.chromium.launch(args=["--no-sandbox", "--disable-setuid-sandbox"])
-        page = browser.new_page(viewport={'width': viewport_width, 'height': viewport_height})
-        page.goto(url, wait_until='networkidle', timeout=60000)
+VIEWPORTS = [
+    {"name": "desktop", "width": 1920, "height": 1080},
+    {"name": "laptop",  "width": 1366, "height": 768},
+    {"name": "tablet",  "width": 768,  "height": 1024},
+    {"name": "mobile",  "width": 375,  "height": 812},
+]
+
+with sync_playwright() as p:
+    browser = p.chromium.launch(args=["--no-sandbox", "--disable-setuid-sandbox"])
+
+    for vp in VIEWPORTS:
+        print(f"\n--- {vp['name'].upper()} ({vp['width']}x{vp['height']}) ---")
+        ua = (
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) "
+            "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1"
+            if vp["name"] == "mobile" else
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        )
+        context = browser.new_context(
+            viewport={"width": vp["width"], "height": vp["height"]},
+            user_agent=ua
+        )
+        page = context.new_page()
+        page.goto(URL, wait_until="networkidle", timeout=60000)
         page.wait_for_timeout(2000)
-        page.screenshot(path=output_path, full_page=False)
-        browser.close()
 
-def extract_metadata(url):
-    results = {}
-    with sync_playwright() as p:
-        browser = p.chromium.launch(args=["--no-sandbox", "--disable-setuid-sandbox"])
-        page = browser.new_page(viewport={'width': 1920, 'height': 1080})
-        page.goto(url, wait_until='networkidle', timeout=60000)
-        page.wait_for_timeout(2000)
+        # Above-the-fold screenshot
+        atf_path = f"{OUTPUT_DIR}/salehoo_{vp['name']}_atf.png"
+        page.screenshot(path=atf_path, full_page=False)
+        print(f"  Saved ATF: {atf_path}")
 
-        # OG / social meta tags
-        og_tags = page.evaluate("""() => {
-            const metas = document.querySelectorAll('meta');
-            const result = {};
-            metas.forEach(m => {
-                const prop = m.getAttribute('property') || m.getAttribute('name');
-                if (prop) result[prop] = m.getAttribute('content');
-            });
-            return result;
-        }""")
+        # Full-page screenshot
+        full_path = f"{OUTPUT_DIR}/salehoo_{vp['name']}_full.png"
+        page.screenshot(path=full_path, full_page=True)
+        print(f"  Saved full: {full_path}")
 
-        # Viewport meta
-        viewport_meta = page.evaluate("""() => {
-            const vm = document.querySelector('meta[name="viewport"]');
-            return vm ? vm.getAttribute('content') : null;
-        }""")
-
-        # H1 tags
-        h1_tags = page.evaluate("""() => {
-            return Array.from(document.querySelectorAll('h1')).map(h => ({
-                text: h.innerText.trim(),
-                rect: h.getBoundingClientRect()
-            }));
-        }""")
-
-        # Title and description
-        title = page.title()
-        canonical = page.evaluate("() => { const c = document.querySelector('link[rel=canonical]'); return c ? c.href : null; }")
-
-        # Check for popups/interstitials (common patterns)
-        interstitials = page.evaluate("""() => {
-            const selectors = [
-                '[class*="popup"]', '[class*="modal"]', '[class*="overlay"]',
-                '[class*="interstitial"]', '[id*="popup"]', '[id*="modal"]',
-                '[class*="lightbox"]', '[class*="dialog"]', '[role="dialog"]'
+        # Gather metrics
+        metrics = page.evaluate("""(vpHeight) => {
+            const h1 = document.querySelector('h1');
+            const ctaSelectors = [
+                'a[href*="pricing"]', 'a[href*="signup"]', 'a[href*="register"]',
+                'a[href*="trial"]', 'a[href*="start"]', '.btn', '[class*="cta"]',
+                '[class*="hero"] a', 'header a[class*="btn"]'
             ];
-            return selectors.map(sel => {
-                const els = document.querySelectorAll(sel);
-                return {
-                    selector: sel,
-                    count: els.length,
-                    visible: Array.from(els).filter(el => {
-                        const s = window.getComputedStyle(el);
-                        return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0';
-                    }).length
-                };
-            }).filter(r => r.count > 0);
-        }""")
-
-        # Above-the-fold checks (viewport height = 1080)
-        atf = page.evaluate("""() => {
-            const vh = window.innerHeight;
-            const vw = window.innerWidth;
-            const h1s = Array.from(document.querySelectorAll('h1'));
-            const nav = document.querySelector('nav, header, [role=navigation]');
-            const ctas = Array.from(document.querySelectorAll('a[class*="btn"], a[class*="cta"], button[class*="cta"], .btn-primary, [class*="button"]'));
-
-            return {
-                viewport_height: vh,
-                viewport_width: vw,
-                h1_above_fold: h1s.map(h => {
-                    const r = h.getBoundingClientRect();
-                    return { text: h.innerText.trim().substring(0,80), top: r.top, bottom: r.bottom, above_fold: r.top < vh };
-                }),
-                nav_visible: nav ? nav.getBoundingClientRect().top < vh : false,
-                ctas_above_fold: ctas.slice(0,5).map(c => {
-                    const r = c.getBoundingClientRect();
-                    return { text: c.innerText.trim().substring(0,40), top: r.top, above_fold: r.top < vh };
-                })
-            };
-        }""")
-
-        # CLS risk signals: images without dimensions, ads, banners
-        cls_risks = page.evaluate("""() => {
-            const imgs = Array.from(document.querySelectorAll('img'));
-            const noDims = imgs.filter(img => !img.getAttribute('width') && !img.getAttribute('height')).length;
-            const lazyImgs = imgs.filter(img => img.getAttribute('loading') === 'lazy').length;
-            const adSlots = document.querySelectorAll('[class*="ad-"], [id*="ad-"], [class*="banner"], iframe').length;
-            const fontsLink = Array.from(document.querySelectorAll('link[rel="stylesheet"]')).filter(l => l.href.includes('font')).length;
-            return {
-                total_images: imgs.length,
-                images_without_dimensions: noDims,
-                lazy_loaded_images: lazyImgs,
-                ad_or_banner_elements: adSlots,
-                external_font_links: fontsLink
-            };
-        }""")
-
-        # Mobile tap target sizes (run on mobile viewport would be ideal, but collect data)
-        nav_links = page.evaluate("""() => {
-            const links = Array.from(document.querySelectorAll('nav a, header a'));
-            return links.slice(0, 10).map(a => {
+            let cta = null;
+            for (const sel of ctaSelectors) {
+                cta = document.querySelector(sel);
+                if (cta) break;
+            }
+            const nav = document.querySelector('nav, header');
+            const bodyWidth = document.body.scrollWidth;
+            const viewWidth = window.innerWidth;
+            const allLinks = Array.from(document.querySelectorAll('nav a, header a')).slice(0, 12);
+            const smallTargets = allLinks.filter(a => {
                 const r = a.getBoundingClientRect();
-                return { text: a.innerText.trim().substring(0,30), width: Math.round(r.width), height: Math.round(r.height) };
+                return r.width > 0 && r.height > 0 && (r.width < 48 || r.height < 48);
             });
-        }""")
+            const imgsMissingDims = Array.from(document.querySelectorAll('img'))
+                .filter(i => !i.getAttribute('width') && !i.getAttribute('height')).length;
 
-        results = {
-            'title': title,
-            'canonical': canonical,
-            'viewport_meta': viewport_meta,
-            'og_tags': og_tags,
-            'h1_tags': h1_tags,
-            'interstitials': interstitials,
-            'above_the_fold': atf,
-            'cls_risks': cls_risks,
-            'nav_links': nav_links
-        }
+            const h1Rect = h1 ? h1.getBoundingClientRect() : null;
+            const ctaRect = cta ? cta.getBoundingClientRect() : null;
 
-        browser.close()
-        return results
+            return {
+                h1Text: h1 ? h1.innerText.trim().substring(0, 120) : 'NOT FOUND',
+                h1InViewport: h1Rect ? (h1Rect.top < vpHeight && h1Rect.bottom > 0) : false,
+                h1Top: h1Rect ? Math.round(h1Rect.top) : null,
+                ctaText: cta ? cta.innerText.trim().substring(0, 80) : 'NOT FOUND',
+                ctaHref: cta ? cta.href : null,
+                ctaInViewport: ctaRect ? (ctaRect.top < vpHeight && ctaRect.bottom > 0) : false,
+                ctaTop: ctaRect ? Math.round(ctaRect.top) : null,
+                navPresent: !!nav,
+                hasHorizontalScroll: bodyWidth > viewWidth,
+                bodyScrollWidth: bodyWidth,
+                viewportWidth: viewWidth,
+                baseFontSize: window.getComputedStyle(document.body).fontSize,
+                smallTouchTargets: smallTargets.map(a => ({
+                    text: a.innerText.trim().substring(0,30),
+                    w: Math.round(a.getBoundingClientRect().width),
+                    h: Math.round(a.getBoundingClientRect().height)
+                })),
+                imgsMissingDimensions: imgsMissingDims,
+                viewportMeta: (() => {
+                    const vm = document.querySelector('meta[name="viewport"]');
+                    return vm ? vm.getAttribute('content') : 'MISSING';
+                })(),
+            };
+        }""", vp["height"])
 
-if __name__ == "__main__":
-    print("Capturing desktop screenshot (1920x1080)...")
-    capture(URL, "/opt/claude-seo-UI/screenshots/salehoo_desktop.png", 1920, 1080)
-    print("Done: salehoo_desktop.png")
+        print(f"  H1: \"{metrics['h1Text']}\"")
+        print(f"  H1 in viewport: {metrics['h1InViewport']} (top={metrics['h1Top']}px)")
+        print(f"  CTA: \"{metrics['ctaText']}\"")
+        print(f"  CTA in viewport: {metrics['ctaInViewport']} (top={metrics['ctaTop']}px)")
+        print(f"  Nav present: {metrics['navPresent']}")
+        print(f"  Horizontal scroll: {metrics['hasHorizontalScroll']} (body={metrics['bodyScrollWidth']}px, vp={metrics['viewportWidth']}px)")
+        print(f"  Base font size: {metrics['baseFontSize']}")
+        print(f"  Viewport meta: {metrics['viewportMeta']}")
+        print(f"  Small touch targets (<48px): {len(metrics['smallTouchTargets'])}")
+        for t in metrics['smallTouchTargets']:
+            print(f"    - \"{t['text']}\" {t['w']}x{t['h']}px")
+        print(f"  Images missing dimensions: {metrics['imgsMissingDimensions']}")
 
-    print("Capturing mobile screenshot (375x812)...")
-    capture(URL, "/opt/claude-seo-UI/screenshots/salehoo_mobile.png", 375, 812)
-    print("Done: salehoo_mobile.png")
+        context.close()
 
-    print("Extracting metadata and page signals...")
-    data = extract_metadata(URL)
-    print(json.dumps(data, indent=2))
+    browser.close()
+    print("\nAll screenshots captured successfully.")
