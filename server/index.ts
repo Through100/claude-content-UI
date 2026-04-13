@@ -3,13 +3,13 @@ import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
-import { once } from 'node:events';
 import {
   formatClaudeSpawnError,
   runClaudeInitOnly,
   runClaudePrint,
   runClaudeVersion,
   spawnClaudeChild,
+  watchClaudeProcess,
   type ClaudeRunResult
 } from './claudeRunner';
 import { appendHistoryItem, groupHistory, loadHistory } from './historyStore';
@@ -362,23 +362,12 @@ app.post('/api/run/stream', async (req, res) => {
     claudeBin: claudeBin()
   });
 
-  let stdout = '';
-  let stderr = '';
   let timersCleaned = false;
   const cleanupTimers = () => {
     if (timersCleaned) return;
     timersCleaned = true;
-    clearTimeout(runTimer);
     clearInterval(heartbeat);
   };
-
-  const runTimer = setTimeout(() => {
-    try {
-      child.kill('SIGTERM');
-    } catch {
-      /* ignore */
-    }
-  }, runTimeoutMs());
 
   const heartbeat = setInterval(() => {
     if (!res.writableEnded) {
@@ -400,45 +389,27 @@ app.post('/api/run/stream', async (req, res) => {
   req.on('close', killOnClient);
   req.on('aborted', killOnClient);
 
-  child.stdout?.on('data', (c: Buffer) => {
-    const t = c.toString('utf8');
-    stdout += t;
-    sse({ type: 'stdout', chunk: t });
-  });
-  child.stderr?.on('data', (c: Buffer) => {
-    const t = c.toString('utf8');
-    stderr += t;
-    sse({ type: 'stderr', chunk: t });
-  });
-
-  let spawnDiag: string | null = null;
+  let result: ClaudeRunResult;
   try {
-    await Promise.race([
-      once(child, 'error').then(([err]) => {
-        throw err instanceof Error ? err : new Error(String(err));
-      }),
-      once(child, 'close')
-    ]);
+    result = await watchClaudeProcess(child, runTimeoutMs(), argv, {
+      onStdoutChunk: (t) => sse({ type: 'stdout', chunk: t }),
+      onStderrChunk: (t) => sse({ type: 'stderr', chunk: t })
+    });
   } catch (e) {
-    spawnDiag = formatClaudeSpawnError(e, argv);
+    const spawnDiag = formatClaudeSpawnError(e, argv);
     sse({ type: 'error', message: spawnDiag });
+    result = {
+      stdout: '',
+      stderr: spawnDiag,
+      code: null,
+      signal: null,
+      argv
+    };
   } finally {
     cleanupTimers();
     req.off('close', killOnClient);
     req.off('aborted', killOnClient);
   }
-
-  if (spawnDiag) {
-    stderr = stderr ? `${stderr}\n${spawnDiag}` : spawnDiag;
-  }
-
-  const result: ClaudeRunResult = {
-    stdout,
-    stderr,
-    code: typeof child.exitCode === 'number' ? child.exitCode : null,
-    signal: child.signalCode ?? null,
-    argv
-  };
 
   try {
     const { body, item } = buildRunBody({

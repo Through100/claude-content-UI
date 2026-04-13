@@ -1,5 +1,4 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { once } from 'node:events';
 
 export interface ClaudeRunResult {
   stdout: string;
@@ -17,6 +16,11 @@ export interface RunClaudePrintOptions {
   timeoutMs: number;
   claudeBin: string;
 }
+
+export type ClaudeStreamChunkHandlers = {
+  onStdoutChunk?: (chunk: string) => void;
+  onStderrChunk?: (chunk: string) => void;
+};
 
 /** Human-readable spawn failure (ENOENT, etc.) for logs and API responses. */
 export function formatClaudeSpawnError(err: unknown, argv: string[]): string {
@@ -43,20 +47,18 @@ function buildArgs(prompt: string, model?: string): string[] {
   return args;
 }
 
-function collectProcess(
-  child: ReturnType<typeof spawn>,
+/**
+ * Attach stdout/stderr capture and wait for exit or spawn error.
+ * Handles ENOENT ordering: if `close` fires before `error`, a later `error` must not become an uncaught exception.
+ */
+export function watchClaudeProcess(
+  child: ChildProcess,
   timeoutMs: number,
-  argv: string[]
+  argv: string[],
+  stream?: ClaudeStreamChunkHandlers
 ): Promise<ClaudeRunResult> {
   let stdout = '';
   let stderr = '';
-
-  child.stdout?.on('data', (c: Buffer) => {
-    stdout += c.toString('utf8');
-  });
-  child.stderr?.on('data', (c: Buffer) => {
-    stderr += c.toString('utf8');
-  });
 
   const timer = setTimeout(() => {
     try {
@@ -66,31 +68,55 @@ function collectProcess(
     }
   }, timeoutMs);
 
-  const cleanup = () => clearTimeout(timer);
+  const clearTimer = () => clearTimeout(timer);
 
-  return Promise.race([
-    once(child, 'error').then(([err]) => {
-      throw err instanceof Error ? err : new Error(String(err));
-    }),
-    once(child, 'close').then(([code, signal]) => ({
-      code: typeof code === 'number' ? code : null,
-      signal: (signal || null) as NodeJS.Signals | null
-    }))
-  ])
-    .then((out) => {
-      cleanup();
-      return {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+
+    const detach = () => {
+      child.off('error', onError);
+      child.off('close', onClose);
+      child.stdout?.removeAllListeners('data');
+      child.stderr?.removeAllListeners('data');
+    };
+
+    const onError = (err: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimer();
+      detach();
+      reject(err instanceof Error ? err : new Error(String(err)));
+    };
+
+    const onClose = (code: number | null, signal: NodeJS.Signals | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimer();
+      detach();
+      child.on('error', () => {});
+      resolve({
         stdout,
         stderr,
-        code: out.code,
-        signal: out.signal,
+        code: typeof code === 'number' ? code : null,
+        signal: signal || null,
         argv
-      };
-    })
-    .catch((err: unknown) => {
-      cleanup();
-      return Promise.reject(err);
+      });
+    };
+
+    child.on('error', onError);
+    child.on('close', onClose);
+
+    child.stdout?.on('data', (c: Buffer) => {
+      const t = c.toString('utf8');
+      stdout += t;
+      stream?.onStdoutChunk?.(t);
     });
+    child.stderr?.on('data', (c: Buffer) => {
+      const t = c.toString('utf8');
+      stderr += t;
+      stream?.onStderrChunk?.(t);
+    });
+  });
 }
 
 export interface SpawnClaudeOpts {
@@ -119,13 +145,13 @@ export async function runClaudePrint(opts: RunClaudePrintOptions): Promise<Claud
     model: opts.model,
     claudeBin: opts.claudeBin
   });
-  return collectProcess(child, opts.timeoutMs, argv);
+  return watchClaudeProcess(child, opts.timeoutMs, argv);
 }
 
 export async function runClaudeVersion(claudeBin: string): Promise<ClaudeRunResult> {
   const argv = [claudeBin, '-v'];
   const child = spawn(claudeBin, ['-v'], { stdio: ['ignore', 'pipe', 'pipe'] });
-  return collectProcess(child, 30_000, argv);
+  return watchClaudeProcess(child, 30_000, argv);
 }
 
 export async function runClaudeInitOnly(claudeBin: string, cwd: string): Promise<ClaudeRunResult> {
@@ -135,5 +161,5 @@ export async function runClaudeInitOnly(claudeBin: string, cwd: string): Promise
     env: { ...process.env },
     stdio: ['ignore', 'pipe', 'pipe']
   });
-  return collectProcess(child, 120_000, argv);
+  return watchClaudeProcess(child, 120_000, argv);
 }
