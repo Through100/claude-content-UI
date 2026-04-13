@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { once } from 'node:events';
 
 export interface ClaudeRunResult {
   stdout: string;
@@ -15,6 +16,19 @@ export interface RunClaudePrintOptions {
   model?: string;
   timeoutMs: number;
   claudeBin: string;
+}
+
+/** Human-readable spawn failure (ENOENT, etc.) for logs and API responses. */
+export function formatClaudeSpawnError(err: unknown, argv: string[]): string {
+  const msg = err instanceof Error ? err.message : String(err);
+  const code = (err as NodeJS.ErrnoException)?.code;
+  if (code === 'ENOENT') {
+    const bin = argv[0] ?? 'claude';
+    return `${msg}\n\nExecutable not found: ${JSON.stringify(
+      bin
+    )}. The API process must be able to spawn Claude Code — set CLAUDE_BIN to the full path (same as \`which claude\` / \`where claude\` on the host that runs Node).`;
+  }
+  return msg;
 }
 
 function buildArgs(prompt: string, model?: string): string[] {
@@ -45,26 +59,38 @@ function collectProcess(
   });
 
   const timer = setTimeout(() => {
-    child.kill('SIGTERM');
+    try {
+      child.kill('SIGTERM');
+    } catch {
+      /* ignore */
+    }
   }, timeoutMs);
 
-  return new Promise((resolve, reject) => {
-    child.once('error', err => {
-      clearTimeout(timer);
-      reject(err);
-    });
-    // Use 'close' so stdout/stderr are fully flushed (exit can fire too early).
-    child.once('close', (code, signal) => {
-      clearTimeout(timer);
-      resolve({
+  const cleanup = () => clearTimeout(timer);
+
+  return Promise.race([
+    once(child, 'error').then(([err]) => {
+      throw err instanceof Error ? err : new Error(String(err));
+    }),
+    once(child, 'close').then(([code, signal]) => ({
+      code: typeof code === 'number' ? code : null,
+      signal: (signal || null) as NodeJS.Signals | null
+    }))
+  ])
+    .then((out) => {
+      cleanup();
+      return {
         stdout,
         stderr,
-        code: typeof code === 'number' ? code : null,
-        signal: signal || null,
+        code: out.code,
+        signal: out.signal,
         argv
-      });
+      };
+    })
+    .catch((err: unknown) => {
+      cleanup();
+      return Promise.reject(err);
     });
-  });
 }
 
 export interface SpawnClaudeOpts {

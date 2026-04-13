@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import {
+  formatClaudeSpawnError,
   runClaudeInitOnly,
   runClaudePrint,
   runClaudeVersion,
@@ -314,7 +315,8 @@ app.post('/api/run', async (req, res) => {
   } catch (e) {
     const durationMs = Date.now() - t0;
     const finishedAt = new Date().toISOString();
-    const message = e instanceof Error ? e.message : String(e);
+    const argv = [claudeBin(), '-p', prompt];
+    const message = formatClaudeSpawnError(e, argv);
     console.error('[claude-seo-ui] POST /api/run spawn error:', message);
     res.status(500).json({
       success: false,
@@ -409,16 +411,25 @@ app.post('/api/run/stream', async (req, res) => {
     sse({ type: 'stderr', chunk: t });
   });
 
-  child.once('error', err => {
-    sse({ type: 'error', message: String(err) });
-  });
-
+  let spawnDiag: string | null = null;
   try {
-    await once(child, 'close');
+    await Promise.race([
+      once(child, 'error').then(([err]) => {
+        throw err instanceof Error ? err : new Error(String(err));
+      }),
+      once(child, 'close')
+    ]);
+  } catch (e) {
+    spawnDiag = formatClaudeSpawnError(e, argv);
+    sse({ type: 'error', message: spawnDiag });
   } finally {
     cleanupTimers();
     req.off('close', killOnClient);
     req.off('aborted', killOnClient);
+  }
+
+  if (spawnDiag) {
+    stderr = stderr ? `${stderr}\n${spawnDiag}` : spawnDiag;
   }
 
   const result: ClaudeRunResult = {
