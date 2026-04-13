@@ -78,6 +78,10 @@ export interface SystemStatus {
   organization: string;
   email: string;
   model: string;
+  /** Status tab, e.g. "Claude Pro Account" */
+  loginMethod?: string;
+  /** Status tab: e.g. "Project local settings" */
+  settingSources?: string;
 }
 
 export interface ModelUsage {
@@ -129,17 +133,15 @@ export interface ContextUsage {
   skills: ContextSkillRow[];
 }
 
-/** Parsed `/usage` (subscription / Pro) screen — complements `/status` when cost data is N/A. */
-export interface UsageSlashInfo {
-  version: string;
-  sessionName: string;
-  sessionId: string;
-  cwd: string;
-  loginMethod: string;
-  organization: string;
-  email: string;
-  model: string;
-  settingSources: string;
+/**
+ * Parsed **Usage** tab of interactive `/usage` (plan limits, rolling window, weekly quotas — not Status/Config/Stats).
+ */
+export interface UsageTabInfo {
+  currentSessionUsage: string;
+  weeklyUsageAllModels: string;
+  weeklyUsageOpus: string;
+  contextWindow: string;
+  rateLimitsAndResets: string;
 }
 
 export type UsageBillingMode = 'api_credits' | 'subscription';
@@ -151,8 +153,8 @@ export interface UsageInfo {
   context: ContextUsage;
   /** Derived from `/cost` text (subscription plans omit API dollar breakdown). */
   billingMode: UsageBillingMode;
-  /** Fields from headless `/usage` for subscription-style accounts. */
-  usageSlash: UsageSlashInfo;
+  /** Fields from headless probe of interactive `/usage` → **Usage** tab only. */
+  usageTab: UsageTabInfo;
   terminals?: {
     status?: string;
     cost?: string;

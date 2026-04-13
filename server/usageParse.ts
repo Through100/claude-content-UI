@@ -6,19 +6,80 @@ import type {
   ModelUsage,
   ContextAgentRow,
   ContextSkillRow,
-  UsageSlashInfo
+  UsageTabInfo
 } from '../src/types';
 
 function lineValue(raw: string, label: string): string | undefined {
-  const re = new RegExp(`^${label}\\s*[:：]\\s*(.+)$`, 'im');
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`^${escaped}\\s*[:：]\\s*(.+)$`, 'im');
   const m = raw.match(re);
   return m?.[1]?.trim();
+}
+
+/**
+ * Headless probe for the **Status** tab of interactive `/usage` (or `/status` settings): version, session, account, model.
+ * Slash commands do not work under `claude -p`.
+ */
+export const STATUS_TAB_HEADLESS_PROMPT = `You are filling a read-only web dashboard for Claude Code.
+
+CRITICAL: Do NOT use slash commands (/status, /usage, etc.). This is non-interactive print (-p) mode — they become "Unknown skill" errors.
+
+Reproduce ONLY what a user would see on the **Status** tab after opening /usage (or the Status tab in settings) — NOT the Usage, Config, or Stats tabs.
+
+You MAY use Bash (e.g. \`claude --version\` or \`claude -v\`) and Read on \`.claude\` / project config if readable.
+
+Reply with NOTHING else — no markdown, no preamble. Exactly 9 lines, this shape (real values; use — when unknown):
+
+Version: 2.1.104
+Session name: —
+Session ID: —
+cwd: /path/to/project
+Login method: Claude Pro Account
+Organization: —
+Email: —
+Model: Sonnet
+Setting sources: Project local settings`;
+
+/**
+ * Headless probe for the **Usage** tab only (plan limits, rolling window, weekly quotas, resets) — not Status/Config/Stats.
+ */
+export const USAGE_TAB_HEADLESS_PROMPT = `You are filling a read-only web dashboard for Claude Code.
+
+CRITICAL: Do NOT use slash commands. This is non-interactive print (-p) mode.
+
+Reproduce ONLY what appears on the **Usage** tab when a user runs interactive \`/usage\` — rate-limit window ("current session" usage), weekly usage for all models, weekly Opus usage, context window %, and reset timers / rate-limit notes. Do NOT include Version, Session ID, Email, cwd, Login method, or other **Status** tab fields.
+
+You MAY use Bash, Read, and if present readable files such as \`~/.claude/usage-exact.json\` for accurate numbers.
+
+Reply with NOTHING else — no markdown, no preamble. Exactly 5 lines:
+
+Current session usage: 46% · resets in 3h 20m
+Weekly usage all models: 42% · resets Mon 14:00
+Weekly usage Opus: — 
+Context window: 34% used
+Rate limits and resets: (extra usage, plan notes, or —)
+
+Use — on a line when that metric does not apply (e.g. no Opus line).`;
+
+/**
+ * Strip model chatter; keep lines that look like "Label: value" for reliable parsing.
+ */
+export function extractSessionKeyValueLines(raw: string): string {
+  const text = raw.replace(/\r\n/g, '\n').trim();
+  if (!text) return text;
+  const lines = text.split('\n');
+  const kv = lines.filter((line) => {
+    const t = line.trim();
+    if (!t || t.startsWith('```') || /^#{1,6}\s/.test(t)) return false;
+    return /^[A-Za-z][A-Za-z0-9 /&.+\-]*\s*[:：]\s*\S/.test(t);
+  });
+  return kv.length >= 2 ? kv.join('\n') : text;
 }
 
 /** Best-effort parse of `/status` style text into dashboard fields. */
 export function parseStatusOutput(raw: string): SystemStatus {
   const text = raw.trim() || '(empty)';
-  if (/^unknown skill:/im.test(text)) {
+  if (/unknown skill:/im.test(text)) {
     return {
       version: '—',
       sessionName: '—',
@@ -28,19 +89,28 @@ export function parseStatusOutput(raw: string): SystemStatus {
       apiKey: '—',
       organization: '—',
       email: '—',
-      model: '—'
+      model: '—',
+      loginMethod: undefined,
+      settingSources: undefined
     };
   }
   return {
     version: lineValue(raw, 'Version') || lineValue(raw, 'Claude Code') || text.split('\n')[0]?.slice(0, 80) || '—',
-    sessionName: lineValue(raw, 'Session') || lineValue(raw, 'Name') || '—',
+    sessionName:
+      lineValue(raw, 'Session name') ||
+      lineValue(raw, 'Session Name') ||
+      lineValue(raw, 'Session') ||
+      lineValue(raw, 'Name') ||
+      '—',
     sessionId: lineValue(raw, 'Session ID') || lineValue(raw, 'session id') || '—',
     cwd: lineValue(raw, 'cwd') || lineValue(raw, 'CWD') || lineValue(raw, 'Working directory') || '—',
     authToken: lineValue(raw, 'Auth') || lineValue(raw, 'Token') || '—',
     apiKey: lineValue(raw, 'API key') || lineValue(raw, 'API Key') || '—',
     organization: lineValue(raw, 'Organization') || lineValue(raw, 'Org') || '—',
     email: lineValue(raw, 'Email') || lineValue(raw, 'Account') || '—',
-    model: lineValue(raw, 'Model') || lineValue(raw, 'Current model') || '—'
+    model: lineValue(raw, 'Model') || lineValue(raw, 'Current model') || '—',
+    loginMethod: lineValue(raw, 'Login method') || lineValue(raw, 'Login Method') || undefined,
+    settingSources: lineValue(raw, 'Setting sources') || lineValue(raw, 'Setting Sources') || undefined
   };
 }
 
@@ -72,33 +142,46 @@ export function isSubscriptionBillingMode(costRaw: string): boolean {
   return false;
 }
 
-/** Headless `/usage` output (Version, Session ID, Model, …). */
-export function parseUsageSlashOutput(raw: string): UsageSlashInfo {
-  const dash = '—';
+const emptyUsageTab = (): UsageTabInfo => ({
+  currentSessionUsage: '—',
+  weeklyUsageAllModels: '—',
+  weeklyUsageOpus: '—',
+  contextWindow: '—',
+  rateLimitsAndResets: '—'
+});
+
+/** Parsed **Usage** tab lines from headless probe (see USAGE_TAB_HEADLESS_PROMPT). */
+export function parseUsageTabOutput(raw: string): UsageTabInfo {
   const text = raw.trim() || '';
-  if (!text) {
-    return {
-      version: dash,
-      sessionName: dash,
-      sessionId: dash,
-      cwd: dash,
-      loginMethod: dash,
-      organization: dash,
-      email: dash,
-      model: dash,
-      settingSources: dash
-    };
+  if (!text || /^unknown skill:/im.test(text)) {
+    return emptyUsageTab();
   }
   return {
-    version: lineValue(raw, 'Version') || dash,
-    sessionName: lineValue(raw, 'Session name') || lineValue(raw, 'Session Name') || dash,
-    sessionId: lineValue(raw, 'Session ID') || lineValue(raw, 'session id') || dash,
-    cwd: lineValue(raw, 'cwd') || lineValue(raw, 'CWD') || dash,
-    loginMethod: lineValue(raw, 'Login method') || lineValue(raw, 'Login Method') || dash,
-    organization: lineValue(raw, 'Organization') || dash,
-    email: lineValue(raw, 'Email') || dash,
-    model: lineValue(raw, 'Model') || dash,
-    settingSources: lineValue(raw, 'Setting sources') || lineValue(raw, 'Setting Sources') || dash
+    currentSessionUsage:
+      lineValue(raw, 'Current session usage') ||
+      lineValue(raw, 'Current Session Usage') ||
+      lineValue(raw, 'Session usage') ||
+      '—',
+    weeklyUsageAllModels:
+      lineValue(raw, 'Weekly usage all models') ||
+      lineValue(raw, 'Current Week Usage (All Models)') ||
+      lineValue(raw, 'Weekly usage (all models)') ||
+      '—',
+    weeklyUsageOpus:
+      lineValue(raw, 'Weekly usage Opus') ||
+      lineValue(raw, 'Current Week Usage (Opus)') ||
+      lineValue(raw, 'Weekly usage (Opus)') ||
+      '—',
+    contextWindow:
+      lineValue(raw, 'Context window') ||
+      lineValue(raw, 'Context Window') ||
+      lineValue(raw, 'Context') ||
+      '—',
+    rateLimitsAndResets:
+      lineValue(raw, 'Rate limits and resets') ||
+      lineValue(raw, 'Rate limits') ||
+      lineValue(raw, 'Resets') ||
+      '—'
   };
 }
 

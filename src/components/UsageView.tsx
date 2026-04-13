@@ -10,37 +10,21 @@ import {
   Info,
   BarChart3,
   PieChart,
-  Gauge
+  Gauge,
+  Clock,
+  RefreshCw,
+  Sparkles
 } from 'lucide-react';
 import { apiService } from '../services/api';
-import type { UsageInfo, UsageSlashInfo, SystemStatus } from '../types';
+import type { UsageInfo, UsageTabInfo } from '../types';
 
-const EMPTY_USAGE_SLASH: UsageSlashInfo = {
-  version: '—',
-  sessionName: '—',
-  sessionId: '—',
-  cwd: '—',
-  loginMethod: '—',
-  organization: '—',
-  email: '—',
-  model: '—',
-  settingSources: '—'
+const EMPTY_USAGE_TAB: UsageTabInfo = {
+  currentSessionUsage: '—',
+  weeklyUsageAllModels: '—',
+  weeklyUsageOpus: '—',
+  contextWindow: '—',
+  rateLimitsAndResets: '—'
 };
-
-function mergeUsageSlashDisplay(usage: UsageSlashInfo, status: SystemStatus): UsageSlashInfo {
-  const pick = (u: string, s: string) => (u && u !== '—' ? u : s && s !== '—' ? s : '—');
-  return {
-    version: pick(usage.version, status.version),
-    sessionName: pick(usage.sessionName, status.sessionName),
-    sessionId: pick(usage.sessionId, status.sessionId),
-    cwd: pick(usage.cwd, status.cwd),
-    loginMethod: usage.loginMethod,
-    organization: pick(usage.organization, status.organization),
-    email: pick(usage.email, status.email),
-    model: pick(usage.model, status.model),
-    settingSources: usage.settingSources
-  };
-}
 
 export default function UsageView() {
   const [data, setData] = useState<UsageInfo | null>(null);
@@ -88,8 +72,7 @@ export default function UsageView() {
   const t = data.terminals;
   const billingMode = data.billingMode ?? 'api_credits';
   const subscriptionMode = billingMode === 'subscription';
-  const usageSlash = data.usageSlash ?? EMPTY_USAGE_SLASH;
-  const usageDisplay = mergeUsageSlashDisplay(usageSlash, data.status);
+  const usageTab = data.usageTab ?? EMPTY_USAGE_TAB;
   const statusLooksLikeUnknownSkill = (t?.status ?? '').toLowerCase().includes('unknown skill');
 
   return (
@@ -107,52 +90,65 @@ export default function UsageView() {
         </div>
         {statusLooksLikeUnknownSkill && (
           <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-            <p className="font-semibold">`/status` was not available in this non-interactive run.</p>
+            <p className="font-semibold">Probe output mentions &quot;Unknown skill&quot;</p>
             <p className="mt-1 text-amber-900/90">
-              Claude Code often treats <code className="rounded bg-amber-100/80 px-1">/status</code> as an interactive
-              command (press Esc to leave). Fields below stay empty until print mode supports it. Use the raw output
-              block to confirm; plan details may appear under{' '}
-              <code className="rounded bg-amber-100/80 px-1">/usage</code> (subscription) or billing under{' '}
-              <code className="rounded bg-amber-100/80 px-1">/cost</code> (API credits), and context from{' '}
-              <code className="rounded bg-amber-100/80 px-1">/context</code>.
+              Slash commands are not available under <code className="rounded bg-amber-100/80 px-1">claude -p</code>. The
+              server uses two separate prompts: one for the <strong>Status</strong> tab and one for the{' '}
+              <strong>Usage</strong> tab of interactive <code className="rounded bg-amber-100/80 px-1">/usage</code>. Check
+              the raw blocks below if fields stay empty.
             </p>
           </div>
         )}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          <StatusCard 
+          <StatusCard
             icon={<Info className="text-blue-600" size={18} />}
             label="Version"
             value={data.status.version}
           />
-          <StatusCard 
+          <StatusCard
             icon={<Terminal className="text-gray-600" size={18} />}
             label="Session Name"
             value={data.status.sessionName}
           />
-          <StatusCard 
+          <StatusCard
             icon={<Shield className="text-indigo-600" size={18} />}
-            label="Organization"
-            value={data.status.organization}
+            label="Session ID"
+            value={data.status.sessionId}
           />
-          <StatusCard 
-            icon={<User className="text-green-600" size={18} />}
-            label="Email"
-            value={data.status.email}
-          />
-          <StatusCard 
-            icon={<Cpu className="text-purple-600" size={18} />}
-            label="Current Model"
-            value={data.status.model}
-          />
-          <StatusCard 
+          <StatusCard
             icon={<HardDrive className="text-orange-600" size={18} />}
             label="CWD"
             value={data.status.cwd}
           />
+          <StatusCard
+            icon={<User className="text-violet-600" size={18} />}
+            label="Login method"
+            value={data.status.loginMethod ?? '—'}
+          />
+          <StatusCard
+            icon={<Shield className="text-indigo-600" size={18} />}
+            label="Organization"
+            value={data.status.organization}
+          />
+          <StatusCard
+            icon={<User className="text-green-600" size={18} />}
+            label="Email"
+            value={data.status.email}
+          />
+          <StatusCard
+            icon={<Cpu className="text-purple-600" size={18} />}
+            label="Current Model"
+            value={data.status.model}
+          />
+          <StatusCard
+            icon={<BarChart3 className="text-slate-600" size={18} />}
+            label="Setting sources"
+            value={data.status.settingSources ?? '—'}
+          />
         </div>
         {t?.status && (
           <details className="bg-white rounded-2xl border border-gray-200 p-4 text-sm">
-            <summary className="cursor-pointer font-bold text-gray-700">Raw /status output</summary>
+            <summary className="cursor-pointer font-bold text-gray-700">Raw Status tab (headless probe)</summary>
             <pre className="mt-3 text-xs font-mono text-gray-600 overflow-auto max-h-64 whitespace-pre-wrap">{t.status}</pre>
           </details>
         )}
@@ -167,61 +163,47 @@ export default function UsageView() {
               <h3 className="text-lg font-bold text-gray-900">Usage Analysis</h3>
             </div>
             <p className="text-sm text-gray-600 px-1 leading-relaxed max-w-3xl">
-              Your account is on a <span className="font-semibold text-gray-800">subscription plan</span>, so Claude Code
-              does not expose per-request dollar totals like API credits. The fields below are parsed from headless{' '}
-              <code className="rounded bg-gray-100 px-1 text-xs">/usage</code> (same information as the interactive
-              Usage screen).
+              Your account is on a <span className="font-semibold text-gray-800">subscription plan</span>, so per-token
+              dollar totals live under API-style billing instead of here. The cards below mirror only the{' '}
+              <strong>Usage</strong> tab of interactive <code className="rounded bg-gray-100 px-1 text-xs">/usage</code>{' '}
+              (rolling window quota, weekly limits, context, resets)—not Status, Config, or Stats. Filled by a separate
+              headless probe; <code className="rounded bg-gray-100 px-1 text-xs">claude -p</code> cannot run slash
+              commands.
+            </p>
+            <p className="text-xs text-gray-500 px-1">
+              &quot;Current session usage&quot; in Claude Code is usually a <strong>server-side time window</strong>{' '}
+              (often ~5 hours), not tied to restarting the CLI.
             </p>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               <StatusCard
-                icon={<Info className="text-blue-600" size={18} />}
-                label="Version"
-                value={usageDisplay.version}
+                icon={<Clock className="text-amber-600" size={18} />}
+                label="Current session usage"
+                value={usageTab.currentSessionUsage}
               />
               <StatusCard
-                icon={<Terminal className="text-gray-600" size={18} />}
-                label="Session name"
-                value={usageDisplay.sessionName}
+                icon={<BarChart3 className="text-indigo-600" size={18} />}
+                label="Weekly usage (all models)"
+                value={usageTab.weeklyUsageAllModels}
               />
               <StatusCard
-                icon={<Shield className="text-indigo-600" size={18} />}
-                label="Session ID"
-                value={usageDisplay.sessionId}
+                icon={<Sparkles className="text-violet-600" size={18} />}
+                label="Weekly usage (Opus)"
+                value={usageTab.weeklyUsageOpus}
               />
               <StatusCard
-                icon={<HardDrive className="text-orange-600" size={18} />}
-                label="cwd"
-                value={usageDisplay.cwd}
+                icon={<PieChart className="text-teal-600" size={18} />}
+                label="Context window"
+                value={usageTab.contextWindow}
               />
               <StatusCard
-                icon={<User className="text-violet-600" size={18} />}
-                label="Login method"
-                value={usageDisplay.loginMethod}
-              />
-              <StatusCard
-                icon={<Shield className="text-indigo-600" size={18} />}
-                label="Organization"
-                value={usageDisplay.organization}
-              />
-              <StatusCard
-                icon={<User className="text-green-600" size={18} />}
-                label="Email"
-                value={usageDisplay.email}
-              />
-              <StatusCard
-                icon={<Cpu className="text-purple-600" size={18} />}
-                label="Model"
-                value={usageDisplay.model}
-              />
-              <StatusCard
-                icon={<BarChart3 className="text-slate-600" size={18} />}
-                label="Setting sources"
-                value={usageDisplay.settingSources}
+                icon={<RefreshCw className="text-slate-600" size={18} />}
+                label="Rate limits & resets"
+                value={usageTab.rateLimitsAndResets}
               />
             </div>
             {t?.usage && (
               <details className="bg-white rounded-2xl border border-gray-200 p-4 text-sm">
-                <summary className="cursor-pointer font-bold text-gray-700">Raw /usage output</summary>
+                <summary className="cursor-pointer font-bold text-gray-700">Raw Usage tab (headless probe)</summary>
                 <pre className="mt-3 text-xs font-mono text-gray-600 overflow-auto max-h-64 whitespace-pre-wrap">
                   {t.usage}
                 </pre>
