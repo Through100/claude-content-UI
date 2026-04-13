@@ -110,6 +110,27 @@ export interface ContextUsage {
   skills: { name: string; tokens: number }[];
 }
 
+/** API GET /api/usage — structured fields are best-effort parses of Claude slash-command output. */
+export interface UsageInfo {
+  status: SystemStatus;
+  cost: CostInfo;
+  context: ContextUsage;
+  terminals?: {
+    status?: string;
+    cost?: string;
+    context?: string;
+    usage?: string;
+    stats?: string;
+  };
+  exitCodes?: Record<string, number | null>;
+}
+
+export interface ModelOption {
+  id: string;
+  label: string;
+  description?: string;
+}
+
 export interface SeoCommand {
   key: string;
   label: string;

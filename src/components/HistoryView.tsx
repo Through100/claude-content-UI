@@ -10,7 +10,8 @@ import {
   ArrowLeft,
   Calendar,
   Clock,
-  Globe
+  Globe,
+  History
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ResultsView from './ResultsView';

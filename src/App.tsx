@@ -15,15 +15,19 @@ export default function App() {
   const [result, setResult] = useState<RunResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const handleRun = async (commandKey: string, target: string) => {
+  const handleRun = async (commandKey: string, target: string, model?: string) => {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await apiService.runSeoCommand(commandKey, target);
+      const response = await apiService.runSeoCommand(commandKey, target, model);
       setResult(response);
+      if (!response.success && response.error) {
+        setError(response.error);
+      }
     } catch (err) {
       console.error('Failed to run SEO command:', err);
-      setError('The backend terminal environment is currently unreachable or returned an error. Please check system status.');
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg || 'The backend terminal environment is unreachable or returned an error.');
     } finally {
       setIsLoading(false);
     }

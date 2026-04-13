@@ -1,24 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import { Activity, DollarSign, Cpu, User, Shield, HardDrive, Terminal, Info, BarChart3, PieChart } from 'lucide-react';
 import { apiService } from '../services/api';
-import { SystemStatus, CostInfo, ContextUsage } from '../types';
-import { motion } from 'motion/react';
+import type { UsageInfo } from '../types';
 
 export default function UsageView() {
-  const [data, setData] = useState<{
-    status: SystemStatus;
-    cost: CostInfo;
-    context: ContextUsage;
-  } | null>(null);
+  const [data, setData] = useState<UsageInfo | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
+      setFetchError(null);
       try {
         const usageInfo = await apiService.getUsageInfo();
         setData(usageInfo);
       } catch (error) {
         console.error('Failed to fetch usage info:', error);
+        setFetchError(error instanceof Error ? error.message : String(error));
       } finally {
         setIsLoading(false);
       }
@@ -35,10 +33,28 @@ export default function UsageView() {
     );
   }
 
+  if (!data && !fetchError) return null;
+
+  if (fetchError && !data) {
+    return (
+      <div className="bg-red-50 border border-red-200 rounded-2xl p-6 text-red-800 text-sm">
+        <p className="font-bold">Could not load usage from Claude Code</p>
+        <p className="mt-2 font-mono text-xs">{fetchError}</p>
+      </div>
+    );
+  }
+
   if (!data) return null;
+
+  const t = data.terminals;
 
   return (
     <div className="space-y-8 pb-12">
+      {fetchError && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-amber-900 text-sm">
+          Partial load: {fetchError}
+        </div>
+      )}
       {/* Account & Status Section */}
       <section className="space-y-4">
         <div className="flex items-center gap-2 px-1">
@@ -77,6 +93,12 @@ export default function UsageView() {
             value={data.status.cwd}
           />
         </div>
+        {t?.status && (
+          <details className="bg-white rounded-2xl border border-gray-200 p-4 text-sm">
+            <summary className="cursor-pointer font-bold text-gray-700">Raw /status output</summary>
+            <pre className="mt-3 text-xs font-mono text-gray-600 overflow-auto max-h-64 whitespace-pre-wrap">{t.status}</pre>
+          </details>
+        )}
       </section>
 
       {/* Cost Analysis Section */}
@@ -127,6 +149,12 @@ export default function UsageView() {
             </table>
           </div>
         </div>
+        {t?.cost && (
+          <details className="bg-white rounded-2xl border border-gray-200 p-4 text-sm">
+            <summary className="cursor-pointer font-bold text-gray-700">Raw /cost output</summary>
+            <pre className="mt-3 text-xs font-mono text-gray-600 overflow-auto max-h-64 whitespace-pre-wrap">{t.cost}</pre>
+          </details>
+        )}
       </section>
 
       {/* Context Usage Section */}
@@ -218,7 +246,44 @@ export default function UsageView() {
             ))}
           </div>
         </div>
+
+        {t?.context && (
+          <details className="bg-white rounded-2xl border border-gray-200 p-4 text-sm">
+            <summary className="cursor-pointer font-bold text-gray-700">Raw /context output</summary>
+            <pre className="mt-3 text-xs font-mono text-gray-600 overflow-auto max-h-64 whitespace-pre-wrap">{t.context}</pre>
+          </details>
+        )}
       </section>
+
+      {(t?.usage || t?.stats) && (
+        <section className="space-y-4">
+          <div className="flex items-center gap-2 px-1">
+            <Terminal className="text-gray-700" size={20} />
+            <h3 className="text-lg font-bold text-gray-900">Plan usage &amp; stats</h3>
+          </div>
+          <p className="text-xs text-gray-500 px-1">
+            From <code className="bg-gray-100 px-1 rounded">/usage</code> and <code className="bg-gray-100 px-1 rounded">/stats</code> (same as Claude Code terminal).
+          </p>
+          {t.usage && (
+            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
+              <h4 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-3">/usage</h4>
+              <pre className="text-xs font-mono text-gray-700 overflow-auto max-h-96 whitespace-pre-wrap">{t.usage}</pre>
+            </div>
+          )}
+          {t.stats && (
+            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
+              <h4 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-3">/stats</h4>
+              <pre className="text-xs font-mono text-gray-700 overflow-auto max-h-96 whitespace-pre-wrap">{t.stats}</pre>
+            </div>
+          )}
+        </section>
+      )}
+
+      {data.exitCodes && (
+        <p className="text-[10px] font-mono text-gray-400 px-1">
+          Process exit codes: {JSON.stringify(data.exitCodes)}
+        </p>
+      )}
     </div>
   );
 }

@@ -1,27 +1,47 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Play, AlertCircle, CheckCircle2 } from 'lucide-react';
-import { SEO_COMMANDS, SeoCommand } from '../types';
+import { SEO_COMMANDS } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
+import { apiService } from '../services/api';
+import type { ModelOption } from '../types';
 
 interface SeoCommandFormProps {
-  onRun: (commandKey: string, target: string) => void;
+  onRun: (commandKey: string, target: string, model?: string) => void;
   isLoading: boolean;
 }
+
+const FALLBACK_MODELS: ModelOption[] = [
+  { id: 'default', label: 'Default (recommended)', description: 'Account default model' },
+  { id: 'sonnet', label: 'Sonnet', description: 'Latest Sonnet' },
+  { id: 'sonnet[1m]', label: 'Sonnet (1M context)', description: 'Long context' },
+  { id: 'opus', label: 'Opus', description: 'Most capable' },
+  { id: 'opus[1m]', label: 'Opus (1M context)', description: 'Long context Opus' },
+  { id: 'haiku', label: 'Haiku', description: 'Fast / efficient' }
+];
 
 export default function SeoCommandForm({ onRun, isLoading }: SeoCommandFormProps) {
   const [selectedKey, setSelectedKey] = useState(SEO_COMMANDS[0].key);
   const [target, setTarget] = useState('');
-  const [model, setModel] = useState('sonnet-4.6');
+  const [model, setModel] = useState('default');
   const [error, setError] = useState<string | null>(null);
+  const [models, setModels] = useState<ModelOption[]>(FALLBACK_MODELS);
 
   const selectedCommand = SEO_COMMANDS.find(c => c.key === selectedKey)!;
 
-  const models = [
-    { id: 'sonnet-4.6', label: 'Default (Sonnet 4.6)', description: '$3/$15 per Mtok' },
-    { id: 'sonnet-1m', label: 'Sonnet (1M context)', description: '$3/$15 per Mtok' },
-    { id: 'opus-1m', label: 'Opus (1M context)', description: 'Most capable' },
-    { id: 'haiku-4.5', label: 'Haiku 4.5', description: 'Fastest · $1/$5 per Mtok' },
-  ];
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const list = await apiService.getModels();
+        if (!cancelled && list.length) setModels(list);
+      } catch {
+        /* keep fallback */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     setError(null);
@@ -40,7 +60,7 @@ export default function SeoCommandForm({ onRun, isLoading }: SeoCommandFormProps
       return;
     }
 
-    onRun(selectedKey, target);
+    onRun(selectedKey, target, model);
   };
 
   return (
@@ -59,7 +79,9 @@ export default function SeoCommandForm({ onRun, isLoading }: SeoCommandFormProps
             className="bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-xs font-semibold text-gray-700 outline-none focus:ring-2 focus:ring-indigo-500 transition-all shadow-sm"
           >
             {models.map(m => (
-              <option key={m.id} value={m.id}>{m.label}</option>
+              <option key={m.id} value={m.id}>
+                {m.description ? `${m.label} — ${m.description}` : m.label}
+              </option>
             ))}
           </select>
         </div>
