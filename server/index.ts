@@ -21,10 +21,12 @@ import {
   parseStatusOutput,
   parseUsageTabOutput,
   isSubscriptionBillingMode,
-  STATUS_TAB_HEADLESS_PROMPT,
-  USAGE_TAB_HEADLESS_PROMPT,
-  extractSessionKeyValueLines
+  STATUS_AND_USAGE_TAB_HEADLESS_PROMPT,
+  splitCombinedStatusUsageRaw,
+  extractSessionKeyValueLines,
+  enrichUsageTabWithParallelData
 } from './usageParse';
+import { augmentUsageTabsPromptWithLocalCache } from './claudeLocalUsageCache';
 import { parseSeoOutput } from '../shared/parseSeoOutput';
 import { SEO_COMMANDS, type HistoryItem, type RunResponse, type SeoCommand } from '../src/types';
 
@@ -266,17 +268,11 @@ app.get('/api/usage', async (_req, res) => {
   const modelArg = process.env.CLAUDE_USAGE_MODEL;
   try {
     // Interactive `/usage` has Status | Config | Usage | Stats tabs; slash commands fail under `claude -p`.
-    // Two headless probes: Status-tab fields vs Usage-tab fields only.
-    const [statusTabR, usageTabR, costR, contextR, versionProbe] = await Promise.all([
+    // One combined Status+Usage headless probe plus /cost and /context (three Claude runs in parallel, not four).
+    const tabsPrompt = augmentUsageTabsPromptWithLocalCache(STATUS_AND_USAGE_TAB_HEADLESS_PROMPT);
+    const [tabsR, costR, contextR, versionProbe] = await Promise.all([
       runClaudePrint({
-        prompt: STATUS_TAB_HEADLESS_PROMPT,
-        cwd,
-        model: modelArg,
-        timeoutMs: t,
-        claudeBin: bin
-      }),
-      runClaudePrint({
-        prompt: USAGE_TAB_HEADLESS_PROMPT,
+        prompt: tabsPrompt,
         cwd,
         model: modelArg,
         timeoutMs: t,
@@ -289,8 +285,8 @@ app.get('/api/usage', async (_req, res) => {
       })
     ]);
 
-    const statusRaw = [statusTabR.stdout, statusTabR.stderr].filter(Boolean).join('\n');
-    const usageTabRaw = [usageTabR.stdout, usageTabR.stderr].filter(Boolean).join('\n');
+    const combinedRaw = [tabsR.stdout, tabsR.stderr].filter(Boolean).join('\n');
+    const { status: statusRaw, usage: usageTabRaw } = splitCombinedStatusUsageRaw(combinedRaw);
     const statusText = extractSessionKeyValueLines(statusRaw);
     const usageTabText = extractSessionKeyValueLines(usageTabRaw);
     const costText = [costR.stdout, costR.stderr].filter(Boolean).join('\n');
@@ -300,7 +296,8 @@ app.get('/api/usage', async (_req, res) => {
     const cliVersionLine = (versionProbe.stdout || '').trim().split('\n')[0]?.trim() || '';
 
     let status = parseStatusOutput(statusText);
-    const usageTab = parseUsageTabOutput(usageTabText);
+    const context = parseContextOutput(contextText);
+    const usageTab = enrichUsageTabWithParallelData(parseUsageTabOutput(usageTabText), context);
     if (status.version === '—' && cliVersionLine) {
       status = { ...status, version: cliVersionLine };
     }
@@ -311,7 +308,7 @@ app.get('/api/usage', async (_req, res) => {
     res.json({
       status,
       cost: parseCostOutput(costText),
-      context: parseContextOutput(contextText),
+      context,
       billingMode,
       usageTab,
       terminals: {
@@ -321,10 +318,10 @@ app.get('/api/usage', async (_req, res) => {
         usage: usageTabRaw
       },
       exitCodes: {
-        status: statusTabR.code,
+        status: tabsR.code,
         cost: costR.code,
         context: contextR.code,
-        usage: usageTabR.code
+        usage: tabsR.code
       }
     });
   } catch (e) {

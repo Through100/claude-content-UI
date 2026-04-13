@@ -13,6 +13,17 @@ function runTimeoutMs(): number {
   return n;
 }
 
+/** Browser abort for GET /api/usage (server runs several Claude probes in parallel). */
+const DEFAULT_USAGE_FETCH_TIMEOUT_MS = 360_000;
+
+function usageFetchTimeoutMs(): number {
+  const raw = import.meta.env.VITE_USAGE_FETCH_TIMEOUT_MS;
+  if (raw === undefined || raw === '') return DEFAULT_USAGE_FETCH_TIMEOUT_MS;
+  const n = parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < 15_000) return DEFAULT_USAGE_FETCH_TIMEOUT_MS;
+  return n;
+}
+
 function useRunStream(): boolean {
   return import.meta.env.VITE_RUN_STREAM !== '0';
 }
@@ -190,9 +201,29 @@ export const apiService = {
   },
 
   async getUsageInfo(): Promise<UsageInfo> {
-    const res = await fetch(`${apiBase()}/api/usage`);
+    const ms = usageFetchTimeoutMs();
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), ms);
+    let res: Response;
+    try {
+      res = await fetch(`${apiBase()}/api/usage`, { signal: ctrl.signal });
+    } catch (e) {
+      clearTimeout(timer);
+      const aborted =
+        (typeof DOMException !== 'undefined' && e instanceof DOMException && e.name === 'AbortError') ||
+        (e instanceof Error && e.name === 'AbortError');
+      if (aborted) {
+        const min = Math.round(ms / 60000);
+        throw new Error(
+          `Usage request timed out after ${min} minute(s). The API runs multiple Claude probes (/cost, /context, and two metadata prompts) — each can take several minutes. Check the server terminal, or raise CLAUDE_USAGE_TIMEOUT_MS and VITE_USAGE_FETCH_TIMEOUT_MS (client must stay higher than the server timeout).`
+        );
+      }
+      throw e;
+    }
+    clearTimeout(timer);
     if (!res.ok) {
-      throw new Error(`Usage request failed (${res.status})`);
+      const t = await res.text();
+      throw new Error(t || `Usage request failed (${res.status})`);
     }
     return parseJson<UsageInfo>(res);
   },
