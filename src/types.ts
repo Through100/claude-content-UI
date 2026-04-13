@@ -144,26 +144,32 @@ export interface UsageTabInfo {
   rateLimitsAndResets: string;
 }
 
+/** One quota row (session / week) with % used and reset timing for Antigravity-style UI. */
+export interface UsageQuotaSlot {
+  label: string;
+  percentUsed: number | null;
+  resetRaw: string | null;
+  /** Parsed reset instant in ISO UTC when `resetRaw` could be interpreted. */
+  resetAtIso: string | null;
+  /** Server-computed phrase like "Refreshes in 2 days, 5 hours" at fetch time. */
+  refreshCountdown: string | null;
+}
+
+export interface UsageQuotasPanel {
+  session: UsageQuotaSlot;
+  weekAllModels: UsageQuotaSlot;
+  extraUsageLine: string | null;
+}
+
 export type UsageBillingMode = 'api_credits' | 'subscription';
 
-/** API GET /api/usage — structured fields are best-effort parses of Claude slash-command output. */
+/** API GET /api/usage — `/stats` + version only; Status + Usage quotas. */
 export interface UsageInfo {
   status: SystemStatus;
-  cost: CostInfo;
-  context: ContextUsage;
-  /** Derived from `/cost` text (subscription plans omit API dollar breakdown). */
-  billingMode: UsageBillingMode;
-  /** Usage tab metrics (from `/stats` when available). */
+  usageQuotas: UsageQuotasPanel;
+  /** Combined strings for debugging / fallbacks. */
   usageTab: UsageTabInfo;
-  /** Stats tab body from `/stats` when the output includes a Stats section. */
-  statsTabText?: string;
-  /** Config tab body from `/stats` when separable. */
-  configTabText?: string;
   terminals?: {
-    status?: string;
-    cost?: string;
-    context?: string;
-    usage?: string;
     stats?: string;
   };
   exitCodes?: Record<string, number | null>;

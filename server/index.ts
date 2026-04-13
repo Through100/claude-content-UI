@@ -15,13 +15,7 @@ import {
   type ClaudeRunResult
 } from './claudeRunner';
 import { appendHistoryItem, groupHistory, loadHistory } from './historyStore';
-import {
-  parseCostOutput,
-  parseContextOutput,
-  parseStatsCommandOutput,
-  isSubscriptionBillingMode,
-  enrichUsageTabWithParallelData
-} from './usageParse';
+import { parseStatsCommandOutput } from './usageParse';
 import { parseSeoOutput } from '../shared/parseSeoOutput';
 import { SEO_COMMANDS, type HistoryItem, type RunResponse, type SeoCommand } from '../src/types';
 
@@ -262,27 +256,20 @@ app.get('/api/usage', async (_req, res) => {
   const t = usageTimeoutMs();
   const modelArg = process.env.CLAUDE_USAGE_MODEL;
   try {
-    // Fast path: `/stats` mirrors Status + Usage + optional Config/Stats tabs; `/context` + `/cost` are separate slash probes.
-    const [statsR, costR, contextR, versionProbe] = await Promise.all([
+    // `/stats` mirrors interactive `/usage` (Status + Usage); `claude -v` fills Version when missing.
+    const [statsR, versionProbe] = await Promise.all([
       runClaudePrint({ prompt: '/stats', cwd, model: modelArg, timeoutMs: t, claudeBin: bin }),
-      runClaudePrint({ prompt: '/cost', cwd, model: modelArg, timeoutMs: t, claudeBin: bin }),
-      runClaudePrint({ prompt: '/context', cwd, model: modelArg, timeoutMs: t, claudeBin: bin }),
       runClaudeVersion(bin).catch((): ClaudeRunResult => {
         return { stdout: '', stderr: '', code: null, signal: null, argv: [bin, '-v'] };
       })
     ]);
 
     const statsRaw = [statsR.stdout, statsR.stderr].filter(Boolean).join('\n');
-    const costText = [costR.stdout, costR.stderr].filter(Boolean).join('\n');
-    const contextText = [contextR.stdout, contextR.stderr].filter(Boolean).join('\n');
-    const billingMode = isSubscriptionBillingMode(costText) ? 'subscription' : 'api_credits';
 
     const cliVersionLine = (versionProbe.stdout || '').trim().split('\n')[0]?.trim() || '';
 
-    const parsed = parseStatsCommandOutput(statsRaw);
+    const parsed = parseStatsCommandOutput(statsRaw, new Date());
     let status = parsed.status;
-    const context = parseContextOutput(contextText);
-    const usageTab = enrichUsageTabWithParallelData(parsed.usageTab, context);
     if (status.version === '—' && cliVersionLine) {
       status = { ...status, version: cliVersionLine };
     }
@@ -292,21 +279,13 @@ app.get('/api/usage', async (_req, res) => {
 
     res.json({
       status,
-      cost: parseCostOutput(costText),
-      context,
-      billingMode,
-      usageTab,
-      statsTabText: parsed.statsTabText || undefined,
-      configTabText: parsed.configTabText || undefined,
+      usageTab: parsed.usageTab,
+      usageQuotas: parsed.usageQuotas,
       terminals: {
-        stats: statsRaw,
-        cost: costText,
-        context: contextText
+        stats: statsRaw
       },
       exitCodes: {
-        stats: statsR.code,
-        cost: costR.code,
-        context: contextR.code
+        stats: statsR.code
       }
     });
   } catch (e) {

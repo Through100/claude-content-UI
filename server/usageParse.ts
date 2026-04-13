@@ -6,8 +6,11 @@ import type {
   ModelUsage,
   ContextAgentRow,
   ContextSkillRow,
-  UsageTabInfo
+  UsageTabInfo,
+  UsageQuotaSlot,
+  UsageQuotasPanel
 } from '../src/types';
+import { formatRefreshCountdown, parseResetToUtcDate } from './usageResetCountdown';
 
 function lineValue(raw: string, label: string): string | undefined {
   const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -233,30 +236,6 @@ export function parseUsageTabOutput(raw: string): UsageTabInfo {
   };
 }
 
-function usageLineLooksWeak(s: string): boolean {
-  const t = s.trim();
-  if (!t || t === '—') return true;
-  if (/^—\s*[·•]/.test(t)) return true;
-  if (/no usage data|data unavailable|not available|usage-exact\.json not found|no usage-exact/i.test(t)) return true;
-  return false;
-}
-
-/** When the Usage-tab probe is vague but /context returned a real context %, fill Context window from /context. */
-export function enrichUsageTabWithParallelData(usage: UsageTabInfo, context: ContextUsage): UsageTabInfo {
-  if (!usageLineLooksWeak(usage.contextWindow)) return usage;
-  if (!(context.percentage > 0)) return usage;
-  const parts: string[] = [`${context.percentage}% used`];
-  if (
-    context.totalTokens &&
-    context.totalTokens !== '—' &&
-    context.maxTokens &&
-    context.maxTokens !== '—'
-  ) {
-    parts.push(`${context.totalTokens} / ${context.maxTokens}`);
-  }
-  return { ...usage, contextWindow: parts.join(' · ') };
-}
-
 function pctUsedFromLine(line: string): string | null {
   const m = line.match(/(\d+(?:\.\d+)?)\s*%\s*used/i);
   return m ? `${m[1]}% used` : null;
@@ -276,14 +255,41 @@ function sliceUntilNextHeadings(lines: string[], startExclusive: number, stopRes
   return out;
 }
 
+function emptyQuotaSlot(label: string): UsageQuotaSlot {
+  return {
+    label,
+    percentUsed: null,
+    resetRaw: null,
+    resetAtIso: null,
+    refreshCountdown: null
+  };
+}
+
+function buildQuotaSlotFromLines(label: string, blockLines: string[], now: Date): UsageQuotaSlot {
+  let percentUsed: number | null = null;
+  let resetRaw: string | null = null;
+  for (const line of blockLines) {
+    const pm = line.match(/(\d+(?:\.\d+)?)\s*%\s*used/i);
+    if (pm && percentUsed === null) percentUsed = parseFloat(pm[1]);
+    const rm = line.trim().match(/^Resets\s+(.+)/i);
+    if (rm) resetRaw = rm[1].trim();
+  }
+  const target = parseResetToUtcDate(resetRaw, now);
+  const resetAtIso = target ? target.toISOString() : null;
+  const refreshCountdown = formatRefreshCountdown(target, now);
+  return { label, percentUsed, resetRaw, resetAtIso, refreshCountdown };
+}
+
 /**
  * Parse `/stats` (interactive-style /usage summary): Status key lines, Usage blocks, optional Stats/Config headings.
  */
-export function parseStatsCommandOutput(raw: string): {
+export function parseStatsCommandOutput(
+  raw: string,
+  now: Date = new Date()
+): {
   status: SystemStatus;
   usageTab: UsageTabInfo;
-  statsTabText: string;
-  configTabText: string;
+  usageQuotas: UsageQuotasPanel;
 } {
   const emptyU = (): UsageTabInfo => ({
     currentSessionUsage: '—',
@@ -293,13 +299,18 @@ export function parseStatsCommandOutput(raw: string): {
     rateLimitsAndResets: '—'
   });
 
+  const emptyQuotas = (): UsageQuotasPanel => ({
+    session: emptyQuotaSlot('Current session'),
+    weekAllModels: emptyQuotaSlot('Current week (all models)'),
+    extraUsageLine: null
+  });
+
   const norm = raw.replace(/\r\n/g, '\n');
   if (!norm.trim() || /^unknown skill:/im.test(norm)) {
     return {
       status: parseStatusOutput(norm),
       usageTab: emptyU(),
-      statsTabText: '',
-      configTabText: ''
+      usageQuotas: emptyQuotas()
     };
   }
 
@@ -337,13 +348,14 @@ export function parseStatsCommandOutput(raw: string): {
       lineValue(norm, 'Current session usage') ||
       '—';
   } else if (usageStart >= 0) {
-    const block = sliceUntilNextHeadings(lines, usageStart + 1, [
+    const sessionBlock = sliceUntilNextHeadings(lines, usageStart + 1, [
       /^Current week\s*\(\s*all models\s*\)/i,
       /^Extra usage/i,
       /^Stats\b/i,
       /^Config\b/i,
       /^Current session\b/i
     ]);
+    const block = sessionBlock;
     const pcts: string[] = [];
     const resets: string[] = [];
     for (const line of block) {
@@ -367,13 +379,14 @@ export function parseStatsCommandOutput(raw: string): {
   let weeklyUsageAllModels = '—';
   let weeklyUsageOpus = '—';
   if (idxWeek >= 0) {
-    const block = sliceUntilNextHeadings(lines, idxWeek + 1, [
+    const weekBlock = sliceUntilNextHeadings(lines, idxWeek + 1, [
       /^Current week\s*\(\s*opus\s*\)/i,
       /^Extra usage/i,
       /^Stats\b/i,
       /^Config\b/i,
       /^Current session\b/i
     ]);
+    const block = weekBlock;
     const pcts: string[] = [];
     const resets: string[] = [];
     for (const line of block) {
@@ -414,21 +427,26 @@ export function parseStatsCommandOutput(raw: string): {
     if (t) rateLimitsAndResets = t;
   }
 
-  let statsTabText = '';
-  if (idxStats >= 0) {
-    const end = idxConfig > idxStats ? idxConfig : lines.length;
-    statsTabText = lines.slice(idxStats + 1, end).join('\n').trim();
-  }
-
-  let configTabText = '';
-  if (idxConfig >= 0) {
-    const block = sliceUntilNextHeadings(lines, idxConfig + 1, [
-      /^Current session\b/i,
-      /^Current week\b/i,
-      /^Stats\b/i
-    ]);
-    configTabText = block.join('\n').trim();
-  }
+  const sessionBlockLines =
+    usageStart >= 0 && !/^Current session usage\s*:/i.test(lines[usageStart].trim())
+      ? sliceUntilNextHeadings(lines, usageStart + 1, [
+          /^Current week\s*\(\s*all models\s*\)/i,
+          /^Extra usage/i,
+          /^Stats\b/i,
+          /^Config\b/i,
+          /^Current session\b/i
+        ])
+      : [];
+  const weekBlockLines =
+    idxWeek >= 0
+      ? sliceUntilNextHeadings(lines, idxWeek + 1, [
+          /^Current week\s*\(\s*opus\s*\)/i,
+          /^Extra usage/i,
+          /^Stats\b/i,
+          /^Config\b/i,
+          /^Current session\b/i
+        ])
+      : [];
 
   const fb = parseUsageTabOutput(norm);
   const merge = (a: string, b: string) => (a === '—' && b && b !== '—' ? b : a);
@@ -441,7 +459,53 @@ export function parseStatsCommandOutput(raw: string): {
     rateLimitsAndResets: merge(rateLimitsAndResets, fb.rateLimitsAndResets)
   };
 
-  return { status, usageTab, statsTabText, configTabText };
+  const usageQuotas: UsageQuotasPanel = {
+    session:
+      sessionBlockLines.length > 0
+        ? buildQuotaSlotFromLines('Current session', sessionBlockLines, now)
+        : emptyQuotaSlot('Current session'),
+    weekAllModels:
+      weekBlockLines.length > 0
+        ? buildQuotaSlotFromLines('Current week (all models)', weekBlockLines, now)
+        : emptyQuotaSlot('Current week (all models)'),
+    extraUsageLine:
+      usageTab.rateLimitsAndResets && usageTab.rateLimitsAndResets !== '—'
+        ? usageTab.rateLimitsAndResets
+        : null
+  };
+
+  if (usageQuotas.session.percentUsed === null && usageTab.currentSessionUsage !== '—') {
+    const m = usageTab.currentSessionUsage.match(/(\d+(?:\.\d+)?)\s*%/);
+    if (m) {
+      const r = usageTab.currentSessionUsage.match(/Resets\s+([^·]+)/i);
+      const resetRaw = r?.[1]?.trim() ?? null;
+      const target = parseResetToUtcDate(resetRaw, now);
+      usageQuotas.session = {
+        label: 'Current session',
+        percentUsed: parseFloat(m[1]),
+        resetRaw,
+        resetAtIso: target ? target.toISOString() : null,
+        refreshCountdown: formatRefreshCountdown(target, now)
+      };
+    }
+  }
+  if (usageQuotas.weekAllModels.percentUsed === null && usageTab.weeklyUsageAllModels !== '—') {
+    const m = usageTab.weeklyUsageAllModels.match(/(\d+(?:\.\d+)?)\s*%/);
+    if (m) {
+      const r = usageTab.weeklyUsageAllModels.match(/Resets\s+([^·]+)/i);
+      const resetRaw = r?.[1]?.trim() ?? null;
+      const target = parseResetToUtcDate(resetRaw, now);
+      usageQuotas.weekAllModels = {
+        label: 'Current week (all models)',
+        percentUsed: parseFloat(m[1]),
+        resetRaw,
+        resetAtIso: target ? target.toISOString() : null,
+        refreshCountdown: formatRefreshCountdown(target, now)
+      };
+    }
+  }
+
+  return { status, usageTab, usageQuotas };
 }
 
 export function parseCostOutput(raw: string): CostInfo {
