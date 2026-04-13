@@ -129,15 +129,35 @@ export interface ContextUsage {
   skills: ContextSkillRow[];
 }
 
+/** Parsed `/usage` (subscription / Pro) screen — complements `/status` when cost data is N/A. */
+export interface UsageSlashInfo {
+  version: string;
+  sessionName: string;
+  sessionId: string;
+  cwd: string;
+  loginMethod: string;
+  organization: string;
+  email: string;
+  model: string;
+  settingSources: string;
+}
+
+export type UsageBillingMode = 'api_credits' | 'subscription';
+
 /** API GET /api/usage — structured fields are best-effort parses of Claude slash-command output. */
 export interface UsageInfo {
   status: SystemStatus;
   cost: CostInfo;
   context: ContextUsage;
+  /** Derived from `/cost` text (subscription plans omit API dollar breakdown). */
+  billingMode: UsageBillingMode;
+  /** Fields from headless `/usage` for subscription-style accounts. */
+  usageSlash: UsageSlashInfo;
   terminals?: {
     status?: string;
     cost?: string;
     context?: string;
+    usage?: string;
   };
   exitCodes?: Record<string, number | null>;
 }

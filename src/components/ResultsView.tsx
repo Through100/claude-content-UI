@@ -1,10 +1,11 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { FileText, Terminal, Copy, Download, ChevronRight, AlertTriangle, CheckCircle, Info, ExternalLink } from 'lucide-react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { FileText, Terminal, Copy, Download, ChevronRight, AlertTriangle, CheckCircle, Info, ExternalLink, FileDown } from 'lucide-react';
 import { Finding, ParsedReport, ReportSection, RunResponse, RunStats, Severity } from '../types';
 import { AuditMarkdownSections, hasVisibleAuditNarrative } from './AuditMarkdown';
 import { motion, AnimatePresence } from 'motion/react';
 import { GENERIC_FINDING_RECOMMENDATION } from '../../shared/parseSeoOutput';
 import { inferClaudeActivity } from '../../shared/inferClaudeActivity';
+import { downloadElementAsPdf } from '../utils/downloadReportPdf';
 
 interface ResultsViewProps {
   result: RunResponse | null;
@@ -108,9 +109,47 @@ function formatElapsed(startedAt: number) {
 
 export default function ResultsView({ result, isLoading, loadingStartedAt, liveTerminal = '' }: ResultsViewProps) {
   const [activeTab, setActiveTab] = useState<'pretty' | 'raw'>('pretty');
+  const [pdfExporting, setPdfExporting] = useState(false);
   const livePreRef = useRef<HTMLPreElement>(null);
+  const prettyReportRef = useRef<HTMLDivElement>(null);
+  const pdfAfterPrettySwitchRef = useRef(false);
 
   const liveActivity = useMemo(() => inferClaudeActivity(liveTerminal), [liveTerminal]);
+
+  const runPdfExport = useCallback(async () => {
+    const el = prettyReportRef.current;
+    if (!el) return;
+    setPdfExporting(true);
+    try {
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+      await downloadElementAsPdf(el, `seo-audit-report-${stamp}.pdf`);
+    } catch (e) {
+      console.error(e);
+      window.alert(
+        'Could not create PDF. If the report is very long, try the Raw Output tab and save from your browser, or try again after scrolling through the full Pretty Report once.'
+      );
+    } finally {
+      setPdfExporting(false);
+    }
+  }, []);
+
+  const handlePdfClick = () => {
+    if (activeTab !== 'pretty') {
+      pdfAfterPrettySwitchRef.current = true;
+      setActiveTab('pretty');
+      return;
+    }
+    void runPdfExport();
+  };
+
+  useEffect(() => {
+    if (!pdfAfterPrettySwitchRef.current || activeTab !== 'pretty') return;
+    pdfAfterPrettySwitchRef.current = false;
+    const t = window.setTimeout(() => {
+      void runPdfExport();
+    }, 450);
+    return () => clearTimeout(t);
+  }, [activeTab, runPdfExport]);
 
   useEffect(() => {
     const el = livePreRef.current;
@@ -240,7 +279,17 @@ export default function ResultsView({ result, isLoading, loadingStartedAt, liveT
           </button>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 flex-wrap justify-end">
+          <button
+            type="button"
+            onClick={handlePdfClick}
+            disabled={pdfExporting}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold border border-gray-200 bg-white text-gray-800 shadow-sm hover:bg-gray-50 hover:border-gray-300 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+            title="Save the Pretty Report as a PDF"
+          >
+            <FileDown size={16} className="text-indigo-600 shrink-0" aria-hidden />
+            <span className="whitespace-nowrap">{pdfExporting ? 'Preparing PDF…' : 'Download Report in PDF'}</span>
+          </button>
           <button className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors" title="Copy results">
             <Copy size={18} />
           </button>
@@ -253,6 +302,7 @@ export default function ResultsView({ result, isLoading, loadingStartedAt, liveT
       <AnimatePresence mode="wait">
         {activeTab === 'pretty' ? (
           <motion.div
+            ref={prettyReportRef}
             key="pretty"
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}

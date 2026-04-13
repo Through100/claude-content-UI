@@ -15,7 +15,13 @@ import {
   type ClaudeRunResult
 } from './claudeRunner';
 import { appendHistoryItem, groupHistory, loadHistory } from './historyStore';
-import { parseCostOutput, parseContextOutput, parseStatusOutput } from './usageParse';
+import {
+  parseCostOutput,
+  parseContextOutput,
+  parseStatusOutput,
+  parseUsageSlashOutput,
+  isSubscriptionBillingMode
+} from './usageParse';
 import { parseSeoOutput } from '../shared/parseSeoOutput';
 import { SEO_COMMANDS, type HistoryItem, type RunResponse, type SeoCommand } from '../src/types';
 
@@ -256,29 +262,36 @@ app.get('/api/usage', async (_req, res) => {
   const t = usageTimeoutMs();
   const modelArg = process.env.CLAUDE_USAGE_MODEL;
   try {
-    const [statusR, costR, contextR] = await Promise.all([
+    const [statusR, costR, contextR, usageR] = await Promise.all([
       runClaudePrint({ prompt: '/status', cwd, model: modelArg, timeoutMs: t, claudeBin: bin }),
       runClaudePrint({ prompt: '/cost', cwd, model: modelArg, timeoutMs: t, claudeBin: bin }),
-      runClaudePrint({ prompt: '/context', cwd, model: modelArg, timeoutMs: t, claudeBin: bin })
+      runClaudePrint({ prompt: '/context', cwd, model: modelArg, timeoutMs: t, claudeBin: bin }),
+      runClaudePrint({ prompt: '/usage', cwd, model: modelArg, timeoutMs: t, claudeBin: bin })
     ]);
 
     const statusText = [statusR.stdout, statusR.stderr].filter(Boolean).join('\n');
     const costText = [costR.stdout, costR.stderr].filter(Boolean).join('\n');
     const contextText = [contextR.stdout, contextR.stderr].filter(Boolean).join('\n');
+    const usageText = [usageR.stdout, usageR.stderr].filter(Boolean).join('\n');
+    const billingMode = isSubscriptionBillingMode(costText) ? 'subscription' : 'api_credits';
 
     res.json({
       status: parseStatusOutput(statusText),
       cost: parseCostOutput(costText),
       context: parseContextOutput(contextText),
+      billingMode,
+      usageSlash: parseUsageSlashOutput(usageText),
       terminals: {
         status: statusText,
         cost: costText,
-        context: contextText
+        context: contextText,
+        usage: usageText
       },
       exitCodes: {
         status: statusR.code,
         cost: costR.code,
-        context: contextR.code
+        context: contextR.code,
+        usage: usageR.code
       }
     });
   } catch (e) {

@@ -5,7 +5,8 @@ import type {
   ContextCategory,
   ModelUsage,
   ContextAgentRow,
-  ContextSkillRow
+  ContextSkillRow,
+  UsageSlashInfo
 } from '../src/types';
 
 function lineValue(raw: string, label: string): string | undefined {
@@ -60,6 +61,45 @@ function parseMoneyTable(raw: string): ModelUsage[] {
     }
   }
   return rows.slice(0, 20);
+}
+
+/** True when `/cost` indicates Pro/subscription billing (no per-token dollar table). */
+export function isSubscriptionBillingMode(costRaw: string): boolean {
+  const t = costRaw.toLowerCase();
+  if (/using your subscription\b/i.test(costRaw)) return true;
+  if (/subscription to power your claude code/i.test(t)) return true;
+  if (/power your claude code usage/i.test(t)) return true;
+  return false;
+}
+
+/** Headless `/usage` output (Version, Session ID, Model, …). */
+export function parseUsageSlashOutput(raw: string): UsageSlashInfo {
+  const dash = '—';
+  const text = raw.trim() || '';
+  if (!text) {
+    return {
+      version: dash,
+      sessionName: dash,
+      sessionId: dash,
+      cwd: dash,
+      loginMethod: dash,
+      organization: dash,
+      email: dash,
+      model: dash,
+      settingSources: dash
+    };
+  }
+  return {
+    version: lineValue(raw, 'Version') || dash,
+    sessionName: lineValue(raw, 'Session name') || lineValue(raw, 'Session Name') || dash,
+    sessionId: lineValue(raw, 'Session ID') || lineValue(raw, 'session id') || dash,
+    cwd: lineValue(raw, 'cwd') || lineValue(raw, 'CWD') || dash,
+    loginMethod: lineValue(raw, 'Login method') || lineValue(raw, 'Login Method') || dash,
+    organization: lineValue(raw, 'Organization') || dash,
+    email: lineValue(raw, 'Email') || dash,
+    model: lineValue(raw, 'Model') || dash,
+    settingSources: lineValue(raw, 'Setting sources') || lineValue(raw, 'Setting Sources') || dash
+  };
 }
 
 export function parseCostOutput(raw: string): CostInfo {

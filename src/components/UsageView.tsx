@@ -1,7 +1,46 @@
 import React, { useState, useEffect } from 'react';
-import { Activity, DollarSign, Cpu, User, Shield, HardDrive, Terminal, Info, BarChart3, PieChart } from 'lucide-react';
+import {
+  Activity,
+  DollarSign,
+  Cpu,
+  User,
+  Shield,
+  HardDrive,
+  Terminal,
+  Info,
+  BarChart3,
+  PieChart,
+  Gauge
+} from 'lucide-react';
 import { apiService } from '../services/api';
-import type { UsageInfo } from '../types';
+import type { UsageInfo, UsageSlashInfo, SystemStatus } from '../types';
+
+const EMPTY_USAGE_SLASH: UsageSlashInfo = {
+  version: '—',
+  sessionName: '—',
+  sessionId: '—',
+  cwd: '—',
+  loginMethod: '—',
+  organization: '—',
+  email: '—',
+  model: '—',
+  settingSources: '—'
+};
+
+function mergeUsageSlashDisplay(usage: UsageSlashInfo, status: SystemStatus): UsageSlashInfo {
+  const pick = (u: string, s: string) => (u && u !== '—' ? u : s && s !== '—' ? s : '—');
+  return {
+    version: pick(usage.version, status.version),
+    sessionName: pick(usage.sessionName, status.sessionName),
+    sessionId: pick(usage.sessionId, status.sessionId),
+    cwd: pick(usage.cwd, status.cwd),
+    loginMethod: usage.loginMethod,
+    organization: pick(usage.organization, status.organization),
+    email: pick(usage.email, status.email),
+    model: pick(usage.model, status.model),
+    settingSources: usage.settingSources
+  };
+}
 
 export default function UsageView() {
   const [data, setData] = useState<UsageInfo | null>(null);
@@ -47,6 +86,10 @@ export default function UsageView() {
   if (!data) return null;
 
   const t = data.terminals;
+  const billingMode = data.billingMode ?? 'api_credits';
+  const subscriptionMode = billingMode === 'subscription';
+  const usageSlash = data.usageSlash ?? EMPTY_USAGE_SLASH;
+  const usageDisplay = mergeUsageSlashDisplay(usageSlash, data.status);
   const statusLooksLikeUnknownSkill = (t?.status ?? '').toLowerCase().includes('unknown skill');
 
   return (
@@ -68,8 +111,10 @@ export default function UsageView() {
             <p className="mt-1 text-amber-900/90">
               Claude Code often treats <code className="rounded bg-amber-100/80 px-1">/status</code> as an interactive
               command (press Esc to leave). Fields below stay empty until print mode supports it. Use the raw output
-              block to confirm; billing and context still come from <code className="rounded bg-amber-100/80 px-1">/cost</code>{' '}
-              and <code className="rounded bg-amber-100/80 px-1">/context</code>.
+              block to confirm; plan details may appear under{' '}
+              <code className="rounded bg-amber-100/80 px-1">/usage</code> (subscription) or billing under{' '}
+              <code className="rounded bg-amber-100/80 px-1">/cost</code> (API credits), and context from{' '}
+              <code className="rounded bg-amber-100/80 px-1">/context</code>.
             </p>
           </div>
         )}
@@ -113,59 +158,147 @@ export default function UsageView() {
         )}
       </section>
 
-      {/* Cost Analysis Section */}
+      {/* Cost Analysis (API credits) or Usage Analysis (subscription / Pro) */}
       <section className="space-y-4">
-        <div className="flex items-center gap-2 px-1">
-          <DollarSign className="text-green-600" size={20} />
-          <h3 className="text-lg font-bold text-gray-900">Cost Analysis</h3>
-        </div>
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-          <div className="p-6 bg-gray-50/50 border-b border-gray-100 grid grid-cols-1 sm:grid-cols-3 gap-6">
-            <div>
-              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Total Cost</span>
-              <div className="text-2xl font-bold text-gray-900 mt-1">{data.cost.totalCost}</div>
+        {subscriptionMode ? (
+          <>
+            <div className="flex items-center gap-2 px-1">
+              <Gauge className="text-indigo-600" size={20} />
+              <h3 className="text-lg font-bold text-gray-900">Usage Analysis</h3>
             </div>
-            <div>
-              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">API Duration</span>
-              <div className="text-2xl font-bold text-gray-900 mt-1">{data.cost.apiDuration}</div>
+            <p className="text-sm text-gray-600 px-1 leading-relaxed max-w-3xl">
+              Your account is on a <span className="font-semibold text-gray-800">subscription plan</span>, so Claude Code
+              does not expose per-request dollar totals like API credits. The fields below are parsed from headless{' '}
+              <code className="rounded bg-gray-100 px-1 text-xs">/usage</code> (same information as the interactive
+              Usage screen).
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <StatusCard
+                icon={<Info className="text-blue-600" size={18} />}
+                label="Version"
+                value={usageDisplay.version}
+              />
+              <StatusCard
+                icon={<Terminal className="text-gray-600" size={18} />}
+                label="Session name"
+                value={usageDisplay.sessionName}
+              />
+              <StatusCard
+                icon={<Shield className="text-indigo-600" size={18} />}
+                label="Session ID"
+                value={usageDisplay.sessionId}
+              />
+              <StatusCard
+                icon={<HardDrive className="text-orange-600" size={18} />}
+                label="cwd"
+                value={usageDisplay.cwd}
+              />
+              <StatusCard
+                icon={<User className="text-violet-600" size={18} />}
+                label="Login method"
+                value={usageDisplay.loginMethod}
+              />
+              <StatusCard
+                icon={<Shield className="text-indigo-600" size={18} />}
+                label="Organization"
+                value={usageDisplay.organization}
+              />
+              <StatusCard
+                icon={<User className="text-green-600" size={18} />}
+                label="Email"
+                value={usageDisplay.email}
+              />
+              <StatusCard
+                icon={<Cpu className="text-purple-600" size={18} />}
+                label="Model"
+                value={usageDisplay.model}
+              />
+              <StatusCard
+                icon={<BarChart3 className="text-slate-600" size={18} />}
+                label="Setting sources"
+                value={usageDisplay.settingSources}
+              />
             </div>
-            <div>
-              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Wall Duration</span>
-              <div className="text-2xl font-bold text-gray-900 mt-1">{data.cost.wallDuration}</div>
+            {t?.usage && (
+              <details className="bg-white rounded-2xl border border-gray-200 p-4 text-sm">
+                <summary className="cursor-pointer font-bold text-gray-700">Raw /usage output</summary>
+                <pre className="mt-3 text-xs font-mono text-gray-600 overflow-auto max-h-64 whitespace-pre-wrap">
+                  {t.usage}
+                </pre>
+              </details>
+            )}
+            {t?.cost && (
+              <details className="bg-white rounded-2xl border border-gray-200 p-4 text-sm">
+                <summary className="cursor-pointer font-bold text-gray-700">Raw /cost output (plan message)</summary>
+                <pre className="mt-3 text-xs font-mono text-gray-600 overflow-auto max-h-64 whitespace-pre-wrap">
+                  {t.cost}
+                </pre>
+              </details>
+            )}
+          </>
+        ) : (
+          <>
+            <div className="flex items-center gap-2 px-1">
+              <DollarSign className="text-green-600" size={20} />
+              <h3 className="text-lg font-bold text-gray-900">Cost Analysis</h3>
             </div>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-gray-50/30">
-                  <th className="px-6 py-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Model</th>
-                  <th className="px-6 py-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Input</th>
-                  <th className="px-6 py-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Output</th>
-                  <th className="px-6 py-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Cache Read</th>
-                  <th className="px-6 py-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Cache Write</th>
-                  <th className="px-6 py-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-right">Cost</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {data.cost.usageByModel.map((m, idx) => (
-                  <tr key={idx} className="hover:bg-gray-50/50 transition-colors">
-                    <td className="px-6 py-4 text-sm font-semibold text-gray-900">{m.model}</td>
-                    <td className="px-6 py-4 text-sm text-gray-600 font-mono">{m.input}</td>
-                    <td className="px-6 py-4 text-sm text-gray-600 font-mono">{m.output}</td>
-                    <td className="px-6 py-4 text-sm text-gray-600 font-mono">{m.cacheRead}</td>
-                    <td className="px-6 py-4 text-sm text-gray-600 font-mono">{m.cacheWrite}</td>
-                    <td className="px-6 py-4 text-sm font-bold text-indigo-600 text-right">{m.cost}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-        {t?.cost && (
-          <details className="bg-white rounded-2xl border border-gray-200 p-4 text-sm">
-            <summary className="cursor-pointer font-bold text-gray-700">Raw /cost output</summary>
-            <pre className="mt-3 text-xs font-mono text-gray-600 overflow-auto max-h-64 whitespace-pre-wrap">{t.cost}</pre>
-          </details>
+            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+              <div className="p-6 bg-gray-50/50 border-b border-gray-100 grid grid-cols-1 sm:grid-cols-3 gap-6">
+                <div>
+                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Total Cost</span>
+                  <div className="text-2xl font-bold text-gray-900 mt-1">{data.cost.totalCost}</div>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">API Duration</span>
+                  <div className="text-2xl font-bold text-gray-900 mt-1">{data.cost.apiDuration}</div>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Wall Duration</span>
+                  <div className="text-2xl font-bold text-gray-900 mt-1">{data.cost.wallDuration}</div>
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50/30">
+                      <th className="px-6 py-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Model</th>
+                      <th className="px-6 py-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Input</th>
+                      <th className="px-6 py-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Output</th>
+                      <th className="px-6 py-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                        Cache Read
+                      </th>
+                      <th className="px-6 py-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                        Cache Write
+                      </th>
+                      <th className="px-6 py-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-right">
+                        Cost
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {data.cost.usageByModel.map((m, idx) => (
+                      <tr key={idx} className="hover:bg-gray-50/50 transition-colors">
+                        <td className="px-6 py-4 text-sm font-semibold text-gray-900">{m.model}</td>
+                        <td className="px-6 py-4 text-sm text-gray-600 font-mono">{m.input}</td>
+                        <td className="px-6 py-4 text-sm text-gray-600 font-mono">{m.output}</td>
+                        <td className="px-6 py-4 text-sm text-gray-600 font-mono">{m.cacheRead}</td>
+                        <td className="px-6 py-4 text-sm text-gray-600 font-mono">{m.cacheWrite}</td>
+                        <td className="px-6 py-4 text-sm font-bold text-indigo-600 text-right">{m.cost}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            {t?.cost && (
+              <details className="bg-white rounded-2xl border border-gray-200 p-4 text-sm">
+                <summary className="cursor-pointer font-bold text-gray-700">Raw /cost output</summary>
+                <pre className="mt-3 text-xs font-mono text-gray-600 overflow-auto max-h-64 whitespace-pre-wrap">
+                  {t.cost}
+                </pre>
+              </details>
+            )}
+          </>
         )}
       </section>
 
