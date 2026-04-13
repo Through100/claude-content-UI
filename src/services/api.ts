@@ -2,10 +2,15 @@ import type { GroupedHistory, ModelOption, RunResponse, UsageInfo } from '../typ
 
 const apiBase = () => (import.meta.env.VITE_API_BASE_URL as string | undefined) || '';
 
+const DEFAULT_CLIENT_TIMEOUT_MS = 1_800_000;
+const MIN_CLIENT_TIMEOUT_MS = 1_000;
+
 function runTimeoutMs(): number {
   const raw = import.meta.env.VITE_RUN_TIMEOUT_MS;
-  const n = parseInt(raw || '1800000', 10);
-  return Number.isFinite(n) && n > 0 ? n : 1_800_000;
+  if (raw === undefined || raw === '') return DEFAULT_CLIENT_TIMEOUT_MS;
+  const n = parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < MIN_CLIENT_TIMEOUT_MS) return DEFAULT_CLIENT_TIMEOUT_MS;
+  return n;
 }
 
 function useRunStream(): boolean {

@@ -28,14 +28,44 @@ function workdir(): string {
   return path.resolve(w);
 }
 
+const DEFAULT_RUN_TIMEOUT_MS = 1_800_000;
+const DEFAULT_USAGE_TIMEOUT_MS = 180_000;
+/** Reject 0/NaN/tiny values — they schedule SIGTERM immediately and look like "broken" Claude runs. */
+const MIN_TIMEOUT_MS = 1_000;
+
+let warnedRunTimeout = false;
+let warnedUsageTimeout = false;
+
 function runTimeoutMs(): number {
-  const n = parseInt(process.env.CLAUDE_TIMEOUT_MS || '1800000', 10);
-  return Number.isFinite(n) ? n : 1_800_000;
+  const raw = process.env.CLAUDE_TIMEOUT_MS;
+  if (raw === undefined || raw === '') return DEFAULT_RUN_TIMEOUT_MS;
+  const n = parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < MIN_TIMEOUT_MS) {
+    if (!warnedRunTimeout) {
+      warnedRunTimeout = true;
+      console.warn(
+        `[claude-seo-ui] CLAUDE_TIMEOUT_MS=${JSON.stringify(raw)} is invalid or <${MIN_TIMEOUT_MS}ms; using ${DEFAULT_RUN_TIMEOUT_MS}ms`
+      );
+    }
+    return DEFAULT_RUN_TIMEOUT_MS;
+  }
+  return n;
 }
 
 function usageTimeoutMs(): number {
-  const n = parseInt(process.env.CLAUDE_USAGE_TIMEOUT_MS || '180000', 10);
-  return Number.isFinite(n) ? n : 180_000;
+  const raw = process.env.CLAUDE_USAGE_TIMEOUT_MS;
+  if (raw === undefined || raw === '') return DEFAULT_USAGE_TIMEOUT_MS;
+  const n = parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < MIN_TIMEOUT_MS) {
+    if (!warnedUsageTimeout) {
+      warnedUsageTimeout = true;
+      console.warn(
+        `[claude-seo-ui] CLAUDE_USAGE_TIMEOUT_MS=${JSON.stringify(raw)} is invalid or <${MIN_TIMEOUT_MS}ms; using ${DEFAULT_USAGE_TIMEOUT_MS}ms`
+      );
+    }
+    return DEFAULT_USAGE_TIMEOUT_MS;
+  }
+  return n;
 }
 
 /** Echo full Claude stdout/stderr to the API process terminal (see npm run dev:server). */
@@ -122,15 +152,22 @@ function buildRunBody(input: {
   let rawOutput = [result.stdout, result.stderr].filter(Boolean).join('\n');
   const ok = result.code === 0;
   if (!ok && !rawOutput.trim()) {
+    const sigHint =
+      result.signal === 'SIGTERM' && durationMs < 60_000
+        ? `Very short run + SIGTERM often means the API timeout fired (see CLAUDE_TIMEOUT_MS; must be unset or an integer >= ${MIN_TIMEOUT_MS}ms, default ${DEFAULT_RUN_TIMEOUT_MS}ms).`
+        : null;
     rawOutput = [
       '(Claude exited before any stdout/stderr was captured. If this persists, the process may be failing immediately — e.g. missing auth, wrong cwd, or claude not on PATH.)',
       '',
       '--- diagnostics ---',
       `exit code: ${result.code}`,
       result.signal ? `signal: ${result.signal}` : null,
+      `duration_ms: ${durationMs}`,
+      sigHint,
       `cwd: ${cwd}`,
       `argv: ${JSON.stringify(result.argv)}`,
       `CLAUDE_BIN: ${claudeBin()}`,
+      `CLAUDE_TIMEOUT_MS effective: ${runTimeoutMs()}ms`,
       `ANTHROPIC_API_KEY set: ${process.env.ANTHROPIC_API_KEY ? 'yes' : 'no'}`,
       '',
       'Try the same argv in a shell from CLAUDE_WORKDIR to see the real error.'
@@ -179,6 +216,8 @@ app.get('/api/health', (_req, res) => {
     ok: true,
     claudeBin: claudeBin(),
     workdir: workdir(),
+    runTimeoutMs: runTimeoutMs(),
+    usageTimeoutMs: usageTimeoutMs(),
     time: new Date().toISOString()
   });
 });
@@ -416,6 +455,9 @@ async function startupClaude(): Promise<void> {
   const cwd = workdir();
   console.log(`[claude-seo-ui] Claude binary: ${bin}`);
   console.log(`[claude-seo-ui] CLAUDE_WORKDIR: ${cwd}`);
+  console.log(
+    `[claude-seo-ui] Effective timeouts: CLAUDE_TIMEOUT_MS=${runTimeoutMs()}ms, CLAUDE_USAGE_TIMEOUT_MS=${usageTimeoutMs()}ms`
+  );
   try {
     const v = await runClaudeVersion(bin);
     console.log(`[claude-seo-ui] claude -v:\n${v.stdout || v.stderr || '(no output)'}`);
