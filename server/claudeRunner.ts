@@ -22,8 +22,6 @@ function buildArgs(prompt: string, model?: string): string[] {
   if (model && model !== 'default') {
     args.push('--model', model);
   }
-  const mode = process.env.CLAUDE_PERMISSION_MODE || 'bypassPermissions';
-  args.push('--permission-mode', mode);
   const extra = process.env.CLAUDE_EXTRA_ARGS?.trim();
   if (extra) {
     args.push(...extra.split(/\s+/).filter(Boolean));
