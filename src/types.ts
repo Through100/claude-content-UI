@@ -146,11 +146,13 @@ export interface UsageTabInfo {
 
 export type UsageBillingMode = 'api_credits' | 'subscription';
 
-/** API GET /api/usage — raw `claude -p` output for `/status` and `/usage` (same style as audit Raw Output). */
+/** API GET /api/usage — raw `claude -p` stdout/stderr (audit Raw Output style). */
 export interface UsageInfo {
   terminals: {
     status: string;
     usage: string;
+    /** Often succeeds in `-p` when `/status` and `/usage` return Unknown skill. */
+    stats: string;
   };
   exitCodes?: Record<string, number | null>;
 }

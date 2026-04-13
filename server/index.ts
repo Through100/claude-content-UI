@@ -255,23 +255,28 @@ app.get('/api/usage', async (_req, res) => {
   const t = usageTimeoutMs();
   const modelArg = process.env.CLAUDE_USAGE_MODEL;
   try {
-    // Raw terminal text from the same slash commands as interactive Claude Code (`claude -p`).
-    const [statusR, usageR] = await Promise.all([
+    // In `claude -p`, `/status` and `/usage` are often resolved as "skills" → "Unknown skill: …" (not the interactive
+    // TUI slash registry). `/stats` commonly still returns the bundled usage dashboard text — fetch all three in parallel.
+    const [statusR, usageR, statsR] = await Promise.all([
       runClaudePrint({ prompt: '/status', cwd, model: modelArg, timeoutMs: t, claudeBin: bin }),
-      runClaudePrint({ prompt: '/usage', cwd, model: modelArg, timeoutMs: t, claudeBin: bin })
+      runClaudePrint({ prompt: '/usage', cwd, model: modelArg, timeoutMs: t, claudeBin: bin }),
+      runClaudePrint({ prompt: '/stats', cwd, model: modelArg, timeoutMs: t, claudeBin: bin })
     ]);
 
     const statusRaw = [statusR.stdout, statusR.stderr].filter(Boolean).join('\n');
     const usageRaw = [usageR.stdout, usageR.stderr].filter(Boolean).join('\n');
+    const statsRaw = [statsR.stdout, statsR.stderr].filter(Boolean).join('\n');
 
     res.json({
       terminals: {
         status: statusRaw,
-        usage: usageRaw
+        usage: usageRaw,
+        stats: statsRaw
       },
       exitCodes: {
         status: statusR.code,
-        usage: usageR.code
+        usage: usageR.code,
+        stats: statsR.code
       }
     });
   } catch (e) {

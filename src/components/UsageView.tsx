@@ -2,6 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { apiService } from '../services/api';
 import type { UsageInfo } from '../types';
 
+/** Claude Code print mode often returns this instead of running the interactive slash. */
+function isUnknownSkillFor(raw: string, slug: string): boolean {
+  return new RegExp(`unknown\\s+skill:\\s*${slug}\\b`, 'i').test(raw.trim());
+}
+
 function TerminalPanel({ command, text }: { command: string; text: string }) {
   const body = text.trim() ? text : '(no output)';
   return (
@@ -61,8 +66,9 @@ export default function UsageView() {
         <p className="text-gray-700 font-medium">Loading usage…</p>
         <p className="text-sm font-mono text-indigo-600 mt-2">{loadElapsedSec}s elapsed</p>
         <p className="text-sm text-gray-500 text-center mt-4 leading-relaxed">
-          Fetching raw <code className="text-xs bg-gray-100 px-1 rounded">/status</code> and{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">/usage</code> from Claude Code (two parallel runs).
+          Fetching raw <code className="text-xs bg-gray-100 px-1 rounded">/status</code>,{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">/usage</code>, and{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">/stats</code> in parallel.
         </p>
       </div>
     );
@@ -82,6 +88,12 @@ export default function UsageView() {
   if (!data) return null;
 
   const t = data.terminals;
+  const statsText = t?.stats ?? '';
+  const statusUn = isUnknownSkillFor(t?.status ?? '', 'status');
+  const usageUn = isUnknownSkillFor(t?.usage ?? '', 'usage');
+  const statsUn = isUnknownSkillFor(statsText, 'stats');
+  const statsLooksUseful = statsText.trim().length > 0 && !statsUn;
+  const allSlashBroken = statusUn && usageUn && statsUn;
 
   return (
     <div className="space-y-6 pb-12 max-w-4xl">
@@ -91,15 +103,34 @@ export default function UsageView() {
         </div>
       )}
 
-      <p className="text-sm text-gray-600 leading-relaxed">
-        Same terminal look as the audit <span className="font-medium text-gray-800">Raw Output</span> tab — unmodified
-        stdout/stderr from <code className="text-xs bg-gray-100 px-1 rounded">/status</code> and{' '}
-        <code className="text-xs bg-gray-100 px-1 rounded">/usage</code>. If you see “Unknown skill”, your CLI build may
-        not expose that slash command in <code className="text-xs bg-gray-100 px-1 rounded">-p</code> mode.
-      </p>
+      <div className="space-y-3 text-sm text-gray-600 leading-relaxed">
+        <p>
+          In <code className="text-xs bg-gray-100 px-1 rounded">claude -p</code> (print mode), many builds treat tokens
+          like <code className="text-xs bg-gray-100 px-1 rounded">/status</code> and{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">/usage</code> as <strong>skill names</strong>, not the same
+          slash commands as the interactive TUI — so you often see{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">Unknown skill: status</code> even though the command works
+          in an interactive session. Exit code can still be <code className="text-xs bg-gray-100 px-1 rounded">0</code>.
+        </p>
+        {statsLooksUseful && (statusUn || usageUn) ? (
+          <p className="rounded-xl border border-indigo-100 bg-indigo-50/80 px-4 py-3 text-indigo-950">
+            <strong className="font-semibold">Tip:</strong> use the third panel — raw{' '}
+            <code className="text-xs bg-white/80 px-1 rounded">/stats</code> output usually includes the same status and
+            usage-style block in one stream when the first two lines fail in print mode.
+          </p>
+        ) : null}
+        {allSlashBroken ? (
+          <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-950">
+            None of these slash probes returned usable text. Open an <strong>interactive</strong> Claude Code session
+            and run <code className="text-xs bg-white/70 px-1 rounded">/usage</code> there, or upgrade the CLI on the
+            machine that runs this API.
+          </p>
+        ) : null}
+      </div>
 
       <TerminalPanel command="/status" text={t?.status ?? ''} />
       <TerminalPanel command="/usage" text={t?.usage ?? ''} />
+      <TerminalPanel command="/stats" text={statsText} />
 
       {data.exitCodes && (
         <p className="text-[10px] font-mono text-gray-400 px-1">
