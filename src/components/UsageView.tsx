@@ -68,12 +68,13 @@ export default function UsageView() {
         <p className="text-gray-700 font-medium">Loading usage…</p>
         <p className="text-sm font-mono text-indigo-600 mt-2">{loadElapsedSec}s elapsed</p>
         <p className="text-sm text-gray-500 text-center mt-4 leading-relaxed">
-          Running <code className="text-xs bg-gray-100 px-1 rounded">claude -p</code> with{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">/status</code>,{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">/usage</code>, and{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">/stats</code> in parallel (panel headers use the
-          interactive form <code className="text-xs bg-gray-100 px-1 rounded">! claude /…</code>). If all are empty or
-          “Unknown skill”, the server runs one more <strong>headless</strong> Claude job (no slashes) — that step can
+          Running three parallel <code className="text-xs bg-gray-100 px-1 rounded">claude -p</code> jobs with
+          natural-language prompts (same information as interactive{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">! claude /status</code>,{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">! claude /usage</code>,{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">! claude /stats</code> — not raw{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">/usage</code> strings, which print mode treats as skills).
+          If all panels are empty or unusable, the server runs one more combined <strong>headless</strong> probe — that can
           take a minute or two.
         </p>
       </div>
@@ -137,18 +138,19 @@ export default function UsageView() {
 
       <div className="space-y-3 text-sm text-gray-600 leading-relaxed">
         <p>
-          In <code className="text-xs bg-gray-100 px-1 rounded">claude -p</code> (print mode), many builds treat tokens
-          like <code className="text-xs bg-gray-100 px-1 rounded">/status</code> and{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">/usage</code> as <strong>skill names</strong>, not the same
-          slash commands as the interactive TUI — so you often see{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">Unknown skill: status</code> even though the command works
-          in an interactive session. <code className="text-xs bg-gray-100 px-1 rounded">/stats</code> can also be empty
-          in some environments. Exit codes may still be <code className="text-xs bg-gray-100 px-1 rounded">0</code>.
+          Claude Code documents that <strong>built-in slash commands are interactive-only</strong>. This page does not
+          pass <code className="text-xs bg-gray-100 px-1 rounded">/usage</code> (or similar) as the{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">-p</code> prompt — that path is resolved as a{' '}
+          <strong>skill name</strong> and often yields <code className="text-xs bg-gray-100 px-1 rounded">Unknown skill</code>.
+          The API uses natural-language print probes instead; panel titles show{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">! claude /…</code> so you can match the same tabs in your
+          own interactive session. Optional server env <code className="text-xs bg-gray-100 px-1 rounded">CLAUDE_USAGE_BARE_PROBES=1</code> adds{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">--bare</code> on those runs (see Claude Code headless docs).
         </p>
         {hasHeadless ? (
           <p className="rounded-xl border border-emerald-200 bg-emerald-50/90 px-4 py-3 text-emerald-950">
-            <strong className="font-semibold">Fourth panel:</strong> the API ran a <strong>natural-language</strong>{' '}
-            headless probe (no slash commands) because the three slash probes above did not return usable text.
+            <strong className="font-semibold">Fourth panel:</strong> the API ran the combined <strong>natural-language</strong>{' '}
+            fallback because the three primary probes above did not return usable text.
           </p>
         ) : null}
         {statsLooksUseful && (statusUn || usageUn) ? (
@@ -161,8 +163,8 @@ export default function UsageView() {
         ) : null}
         {allSlashUnusable && !hasHeadless ? (
           <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-950">
-            No slash output and no headless fallback arrived. Open an <strong>interactive</strong> Claude Code session
-            and run <code className="text-xs bg-white/70 px-1 rounded">! claude /usage</code>, or raise{' '}
+            No usable probe output and no headless fallback arrived. Open an <strong>interactive</strong> Claude Code
+            session and run <code className="text-xs bg-white/70 px-1 rounded">! claude /usage</code>, or raise{' '}
             <code className="text-xs bg-white/70 px-1 rounded">CLAUDE_USAGE_TIMEOUT_MS</code> if the headless step timed
             out on the server.
           </p>
@@ -174,7 +176,7 @@ export default function UsageView() {
       <TerminalPanel command="! claude /stats" text={statsText} />
       {hasHeadless ? (
         <TerminalPanel
-          command="Status + Usage (headless NL probe, no slashes)"
+          command="Status + Usage (combined NL fallback)"
           text={t.headless ?? ''}
         />
       ) : null}

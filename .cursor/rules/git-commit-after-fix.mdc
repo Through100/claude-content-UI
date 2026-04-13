@@ -1,0 +1,15 @@
+---
+description: After completing a fix, commit and push unless the user opts out
+alwaysApply: true
+---
+
+# Git: commit and push after fixes
+
+Unless the user explicitly says **not** to commit/push for this task (or says to stop doing this in general):
+
+1. When a fix or requested change is done and the working tree has changes, **commit** with a clear message (what changed and why, in full sentences).
+2. **Push** to `origin` on the current branch (typically `main`).
+
+Run `npm run lint` (or the project’s usual check) before committing when the change touches code. If lint fails, fix first—do not push broken checks.
+
+If there is nothing to commit, skip git steps.

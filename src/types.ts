@@ -151,9 +151,9 @@ export interface UsageInfo {
   terminals: {
     status: string;
     usage: string;
-    /** Often succeeds in `-p` when `/status` and `/usage` return Unknown skill. */
+    /** Stats-style NL print probe (interactive equivalent: /stats). */
     stats: string;
-    /** Natural-language probe when all slash probes are empty or Unknown skill. */
+    /** Combined NL fallback when the three primary probes are unusable. */
     headless?: string;
   };
   exitCodes?: Record<string, number | null>;

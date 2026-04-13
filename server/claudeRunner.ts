@@ -15,6 +15,8 @@ export interface RunClaudePrintOptions {
   model?: string;
   timeoutMs: number;
   claudeBin: string;
+  /** When true, passes \`--bare\` before \`-p\` (skips skills/MCP/hooks discovery; see Claude Code headless docs). */
+  bare?: boolean;
 }
 
 export type ClaudeStreamChunkHandlers = {
@@ -72,8 +74,10 @@ export function formatClaudeSpawnError(err: unknown, argv: string[]): string {
   return msg;
 }
 
-function buildArgs(prompt: string, model?: string): string[] {
-  const args = ['-p', prompt];
+function buildArgs(prompt: string, model?: string, bare?: boolean): string[] {
+  const args: string[] = [];
+  if (bare) args.push('--bare');
+  args.push('-p', prompt);
   if (model && model !== 'default') {
     args.push('--model', model);
   }
@@ -170,11 +174,12 @@ export interface SpawnClaudeOpts {
   cwd: string;
   model?: string;
   claudeBin: string;
+  bare?: boolean;
 }
 
 /** Spawn `claude -p …` without waiting (for SSE streaming). */
 export function spawnClaudeChild(opts: SpawnClaudeOpts): { child: ChildProcess; argv: string[] } {
-  const args = buildArgs(opts.prompt, opts.model);
+  const args = buildArgs(opts.prompt, opts.model, opts.bare);
   const argv = [opts.claudeBin, ...args];
   const child = spawn(opts.claudeBin, args, {
     cwd: opts.cwd,
@@ -189,7 +194,8 @@ export async function runClaudePrint(opts: RunClaudePrintOptions): Promise<Claud
     prompt: opts.prompt,
     cwd: opts.cwd,
     model: opts.model,
-    claudeBin: opts.claudeBin
+    claudeBin: opts.claudeBin,
+    bare: opts.bare
   });
   return watchClaudeProcess(child, opts.timeoutMs, argv);
 }

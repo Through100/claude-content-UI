@@ -62,6 +62,19 @@ Rate limits and resets: (extra usage, plan notes, or —)
 Use — on a line when that metric does not apply (e.g. no Opus line).`;
 
 /**
+ * Headless probe for the **Stats** tab (token / cache / session diagnostics) — not Status or Usage tab layouts.
+ */
+export const STATS_TAB_HEADLESS_PROMPT = `You are filling a read-only web dashboard for Claude Code.
+
+CRITICAL: Do NOT use slash commands (/stats, /usage, etc.). This is non-interactive print (-p) mode — they become "Unknown skill" errors.
+
+Reproduce ONLY what a user would see on the **Stats** tab after running interactive \`/stats\` — token counts, cache read/write, model/session breakdown, rolling windows, and similar diagnostics. Do NOT paste the Status tab block (Version:, Session ID:, …) or the Usage tab quota lines unless Stats itself shows them.
+
+You MAY use Bash and Read on readable logs or state under the project or user config paths.
+
+Reply with NOTHING else — no markdown, no preamble. Use 10–30 short plain lines (key: value or labeled metrics; use — when unknown) matching the Stats tab as closely as possible.`;
+
+/**
  * One headless run for both tabs (saves a full parallel Claude spawn; wall time ≈ max of probes, not sum).
  * Output order: Status block first, blank line, Usage block (same line shapes as the two prompts above).
  */

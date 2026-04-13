@@ -16,7 +16,12 @@ import {
 } from './claudeRunner';
 import { appendHistoryItem, groupHistory, loadHistory } from './historyStore';
 import { parseSeoOutput } from '../shared/parseSeoOutput';
-import { STATUS_AND_USAGE_TAB_HEADLESS_PROMPT } from './usageParse';
+import {
+  STATUS_AND_USAGE_TAB_HEADLESS_PROMPT,
+  STATUS_TAB_HEADLESS_PROMPT,
+  STATS_TAB_HEADLESS_PROMPT,
+  USAGE_TAB_HEADLESS_PROMPT
+} from './usageParse';
 import { SEO_COMMANDS, type HistoryItem, type RunResponse, type SeoCommand } from '../src/types';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -61,6 +66,10 @@ function projectSkillShadows(projectDir: string): string[] {
   return out;
 }
 
+function usageBareProbes(): boolean {
+  return ['1', 'true', 'yes'].includes((process.env.CLAUDE_USAGE_BARE_PROBES ?? '').toLowerCase());
+}
+
 function buildUsageHints(skillShadows: string[], cwd: string): string[] {
   const hints: string[] = [];
   if (skillShadows.length) {
@@ -72,10 +81,13 @@ function buildUsageHints(skillShadows: string[], cwd: string): string[] {
     'Update Claude Code on the machine that runs this API: npm i -g @anthropic-ai/claude-code@latest — then verify `claude --version` matches what you use interactively.'
   );
   hints.push(
-    'The Usage page uses `claude -p` (print mode). Interactive slash menus can work while `-p` still fails until the environment above is fixed.'
+    'Anthropic documents that user-invoked slash commands are interactive-only; passing a string like claude -p "/usage" is treated as a skill lookup and often returns "Unknown skill". This API uses natural-language -p probes instead (panel headers still show ! claude /… for comparison in your own terminal).'
   );
   hints.push(
-    'Server env CLAUDE_USAGE_SKIP_SLASH_PROBES=1 skips /status, /usage, and /stats and runs only the natural-language headless probe (one Claude run; avoids three Unknown skill lines if slashes are broken).'
+    'Optional: set CLAUDE_USAGE_BARE_PROBES=1 to add `--bare` on Usage probes (skips local skills/MCP/hooks discovery; requires API-key style auth per bare-mode docs).'
+  );
+  hints.push(
+    'Server env CLAUDE_USAGE_SKIP_SLASH_PROBES=1 skips the three primary print probes and runs only the combined natural-language fallback (one Claude run).'
   );
   return hints;
 }
@@ -316,6 +328,7 @@ app.get('/api/usage', async (_req, res) => {
   const skillConflicts = projectSkillShadows(cwd);
   const hints = buildUsageHints(skillConflicts, cwd);
   const skipSlash = ['1', 'true', 'yes'].includes((process.env.CLAUDE_USAGE_SKIP_SLASH_PROBES ?? '').toLowerCase());
+  const bare = usageBareProbes();
 
   try {
     const printProbeUnusable = (raw: string): boolean => {
@@ -325,7 +338,7 @@ app.get('/api/usage', async (_req, res) => {
     };
 
     const skippedLine =
-      '(not executed — CLAUDE_USAGE_SKIP_SLASH_PROBES=1 on the server. Unset or set to 0 to run slash probes from this host.)\n';
+      '(not executed — CLAUDE_USAGE_SKIP_SLASH_PROBES=1 on the server. Unset or set to 0 to run the three primary print probes from this host.)\n';
 
     let statusR: ClaudeRunResult;
     let usageR: ClaudeRunResult;
@@ -339,11 +352,32 @@ app.get('/api/usage', async (_req, res) => {
       statusR = usageR = statsR = noop;
       statusRaw = usageRaw = statsRaw = skippedLine;
     } else {
-      // In `claude -p`, `/…` is often resolved via the skill registry → "Unknown skill" if a custom skill shadows it.
+      // Do not pass `/status` etc. as the `-p` prompt — print mode treats them as skill names (Unknown skill). Use NL probes (+ optional --bare).
       [statusR, usageR, statsR] = await Promise.all([
-        runClaudePrint({ prompt: '/status', cwd, model: modelArg, timeoutMs: t, claudeBin: bin }),
-        runClaudePrint({ prompt: '/usage', cwd, model: modelArg, timeoutMs: t, claudeBin: bin }),
-        runClaudePrint({ prompt: '/stats', cwd, model: modelArg, timeoutMs: t, claudeBin: bin })
+        runClaudePrint({
+          prompt: STATUS_TAB_HEADLESS_PROMPT,
+          cwd,
+          model: modelArg,
+          timeoutMs: t,
+          claudeBin: bin,
+          bare
+        }),
+        runClaudePrint({
+          prompt: USAGE_TAB_HEADLESS_PROMPT,
+          cwd,
+          model: modelArg,
+          timeoutMs: t,
+          claudeBin: bin,
+          bare
+        }),
+        runClaudePrint({
+          prompt: STATS_TAB_HEADLESS_PROMPT,
+          cwd,
+          model: modelArg,
+          timeoutMs: t,
+          claudeBin: bin,
+          bare
+        })
       ]);
       statusRaw = [statusR.stdout, statusR.stderr].filter(Boolean).join('\n');
       usageRaw = [usageR.stdout, usageR.stderr].filter(Boolean).join('\n');
@@ -361,7 +395,8 @@ app.get('/api/usage', async (_req, res) => {
         cwd,
         model: modelArg,
         timeoutMs: t,
-        claudeBin: bin
+        claudeBin: bin,
+        bare
       });
       headlessRaw = [hr.stdout, hr.stderr].filter(Boolean).join('\n');
       headlessCode = hr.code;
