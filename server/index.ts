@@ -23,6 +23,7 @@ import {
   USAGE_TAB_HEADLESS_PROMPT
 } from './usageParse';
 import { readUsageExactJsonFromHome, runClaudeAuthStatusText } from './usageLocalSnapshot';
+import { runClaudeSlashShellProbe } from './usageShellProbe';
 import { SEO_COMMANDS, type HistoryItem, type RunResponse, type SeoCommand } from '../src/types';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -71,6 +72,14 @@ function usageBareProbes(): boolean {
   return ['1', 'true', 'yes'].includes((process.env.CLAUDE_USAGE_BARE_PROBES ?? '').toLowerCase());
 }
 
+function usageNlProbes(): boolean {
+  return ['1', 'true', 'yes'].includes((process.env.CLAUDE_USAGE_NL_PROBES ?? '').toLowerCase());
+}
+
+function usageNlFallback(): boolean {
+  return ['1', 'true', 'yes'].includes((process.env.CLAUDE_USAGE_NL_FALLBACK ?? '').toLowerCase());
+}
+
 function buildUsageHints(skillShadows: string[], cwd: string): string[] {
   const hints: string[] = [];
   if (skillShadows.length) {
@@ -81,17 +90,23 @@ function buildUsageHints(skillShadows: string[], cwd: string): string[] {
   hints.push(
     'Update Claude Code on the machine that runs this API: npm i -g @anthropic-ai/claude-code@latest — then verify `claude --version` matches what you use interactively.'
   );
+  if (usageNlProbes()) {
+    hints.push(
+      'CLAUDE_USAGE_NL_PROBES=1: primary panels use `claude -p` natural-language prompts (full model sessions). Unset it for the default shell-style probes (`claude /usage` as argv — same idea as `! claude /usage` in the TUI).'
+    );
+    hints.push(
+      'Optional CLAUDE_USAGE_BARE_PROBES=1 adds `--bare` on those `-p` runs (see Claude Code headless docs).'
+    );
+  } else {
+    hints.push(
+      'Default: primary panels run `claude /status`, `claude /usage`, and `claude /stats` as subprocess arguments (stdout/stderr only — same as the shell line after `!` in the TUI, not `claude -p \"/usage\"`).'
+    );
+  }
   hints.push(
-    'Anthropic documents that user-invoked slash commands are interactive-only; passing a string like claude -p "/usage" is treated as a skill lookup and often returns "Unknown skill". This API uses natural-language -p probes instead (panel headers still show ! claude /… for comparison in your own terminal).'
+    'CLAUDE_USAGE_NL_FALLBACK=1 enables a fourth combined `claude -p` natural-language run when all primary outputs look empty or like Unknown skill (uses the API).'
   );
   hints.push(
-    'Optional: set CLAUDE_USAGE_BARE_PROBES=1 to add `--bare` on Usage probes (skips local skills/MCP/hooks discovery; requires API-key style auth per bare-mode docs).'
-  );
-  hints.push(
-    'Server env CLAUDE_USAGE_SKIP_SLASH_PROBES=1 skips the three primary print probes and runs only the combined natural-language fallback (one Claude run).'
-  );
-  hints.push(
-    'This Usage page may run up to three parallel `claude -p` model sessions (plus optionally one combined fallback). Each session uses your plan or API limits — it is not a zero-cost quota read.'
+    'CLAUDE_USAGE_SKIP_SLASH_PROBES=1 skips the three primary probes and runs only the combined `-p` fallback (still one model session unless you also avoid that path).'
   );
   return hints;
 }
@@ -333,6 +348,8 @@ app.get('/api/usage', async (_req, res) => {
   const hints = buildUsageHints(skillConflicts, cwd);
   const skipSlash = ['1', 'true', 'yes'].includes((process.env.CLAUDE_USAGE_SKIP_SLASH_PROBES ?? '').toLowerCase());
   const bare = usageBareProbes();
+  const nlProbes = usageNlProbes();
+  const nlFallback = usageNlFallback();
 
   try {
     const printProbeUnusable = (raw: string): boolean => {
@@ -348,7 +365,7 @@ app.get('/api/usage', async (_req, res) => {
     };
 
     const skippedLine =
-      '(not executed — CLAUDE_USAGE_SKIP_SLASH_PROBES=1 on the server. Unset or set to 0 to run the three primary print probes from this host.)\n';
+      '(not executed — CLAUDE_USAGE_SKIP_SLASH_PROBES=1 on the server. Unset or set to 0 to run the three primary probes from this host.)\n';
 
     let statusR: ClaudeRunResult;
     let usageR: ClaudeRunResult;
@@ -361,8 +378,7 @@ app.get('/api/usage', async (_req, res) => {
       const noop: ClaudeRunResult = { stdout: '', stderr: '', code: null, signal: null, argv: [] };
       statusR = usageR = statsR = noop;
       statusRaw = usageRaw = statsRaw = skippedLine;
-    } else {
-      // Do not pass `/status` etc. as the `-p` prompt — print mode treats them as skill names (Unknown skill). Use NL probes (+ optional --bare).
+    } else if (nlProbes) {
       [statusR, usageR, statsR] = await Promise.all([
         runClaudePrint({
           prompt: STATUS_TAB_HEADLESS_PROMPT,
@@ -392,6 +408,33 @@ app.get('/api/usage', async (_req, res) => {
       statusRaw = [statusR.stdout, statusR.stderr].filter(Boolean).join('\n');
       usageRaw = [usageR.stdout, usageR.stderr].filter(Boolean).join('\n');
       statsRaw = [statsR.stdout, statsR.stderr].filter(Boolean).join('\n');
+    } else {
+      [statusR, usageR, statsR] = await Promise.all([
+        runClaudeSlashShellProbe({
+          claudeBin: bin,
+          cwd,
+          slash: '/status',
+          model: modelArg,
+          timeoutMs: t
+        }),
+        runClaudeSlashShellProbe({
+          claudeBin: bin,
+          cwd,
+          slash: '/usage',
+          model: modelArg,
+          timeoutMs: t
+        }),
+        runClaudeSlashShellProbe({
+          claudeBin: bin,
+          cwd,
+          slash: '/stats',
+          model: modelArg,
+          timeoutMs: t
+        })
+      ]);
+      statusRaw = [statusR.stdout, statusR.stderr].filter(Boolean).join('\n');
+      usageRaw = [usageR.stdout, usageR.stderr].filter(Boolean).join('\n');
+      statsRaw = [statsR.stdout, statsR.stderr].filter(Boolean).join('\n');
     }
 
     const allRateLimited =
@@ -404,7 +447,8 @@ app.get('/api/usage', async (_req, res) => {
     let headlessCode: number | null = null;
     const needHeadless =
       skipSlash ||
-      (!allRateLimited &&
+      (nlFallback &&
+        !allRateLimited &&
         printProbeUnusable(statusRaw) &&
         printProbeUnusable(usageRaw) &&
         printProbeUnusable(statsRaw));
@@ -424,7 +468,20 @@ app.get('/api/usage', async (_req, res) => {
     const hintsOut = [...hints];
     if (headlessRaw.trim() && printProbeUnusable(headlessRaw)) {
       hintsOut.push(
-        'The natural-language headless probe also returned only "Unknown skill" or empty text. Try CLAUDE_USAGE_SKIP_SLASH_PROBES=1 (headless-only), confirm CLAUDE_WORKDIR matches an interactive project, and upgrade @anthropic-ai/claude-code.'
+        'The combined natural-language `claude -p` fallback returned only "Unknown skill" or empty text. Confirm CLAUDE_WORKDIR, try CLAUDE_USAGE_NL_PROBES=1, or upgrade @anthropic-ai/claude-code.'
+      );
+    }
+    if (
+      !skipSlash &&
+      !nlFallback &&
+      printProbeUnusable(statusRaw) &&
+      printProbeUnusable(usageRaw) &&
+      printProbeUnusable(statsRaw)
+    ) {
+      hintsOut.push(
+        nlProbes
+          ? 'All three NL primary probes look unusable. Set CLAUDE_USAGE_NL_FALLBACK=1 for one more combined `claude -p` fallback run.'
+          : 'All three shell-style probes look unusable. Set CLAUDE_USAGE_NL_FALLBACK=1 for one combined `claude -p` fallback, or CLAUDE_USAGE_NL_PROBES=1 to use natural-language `-p` prompts on all three primary panels instead.'
       );
     }
 
@@ -467,7 +524,8 @@ app.get('/api/usage', async (_req, res) => {
             ...(localUsageExactJson ? { localUsageExactJson } : {}),
             ...(claudeAuthStatusText ? { claudeAuthStatusText } : {})
           }
-        : {})
+        : {}),
+      usageProbeMode: skipSlash ? 'none' : nlProbes ? 'nl' : 'shell'
     });
   } catch (e) {
     res.status(500).json({ error: String(e) });

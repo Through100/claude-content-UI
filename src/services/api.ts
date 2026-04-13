@@ -215,7 +215,7 @@ export const apiService = {
       if (aborted) {
         const min = Math.round(ms / 60000);
         throw new Error(
-          `Usage request timed out after ${min} minute(s). The API runs three parallel claude -p probes (Status/Usage/Stats NL prompts), then may run a combined headless probe. Raise CLAUDE_USAGE_TIMEOUT_MS and VITE_USAGE_FETCH_TIMEOUT_MS (client should stay higher than the server timeout).`
+          `Usage request timed out after ${min} minute(s). The API runs three parallel primary probes (default: shell-style claude /status, /usage, /stats), then may run an optional combined claude -p fallback when CLAUDE_USAGE_NL_FALLBACK=1. Raise CLAUDE_USAGE_TIMEOUT_MS and VITE_USAGE_FETCH_TIMEOUT_MS (client should stay higher than the server timeout).`
         );
       }
       throw e;

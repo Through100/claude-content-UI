@@ -167,6 +167,8 @@ export interface UsageInfo {
   localUsageExactJson?: string | null;
   /** Output of `claude auth status --text` when rate-limited (lightweight CLI). */
   claudeAuthStatusText?: string | null;
+  /** How primary panels were collected: shell argv (default), NL `-p`, or skipped. */
+  usageProbeMode?: 'shell' | 'nl' | 'none';
 }
 
 export interface ModelOption {

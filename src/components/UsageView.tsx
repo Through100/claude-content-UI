@@ -68,15 +68,14 @@ export default function UsageView() {
         <p className="text-gray-700 font-medium">Loading usage…</p>
         <p className="text-sm font-mono text-indigo-600 mt-2">{loadElapsedSec}s elapsed</p>
         <p className="text-sm text-gray-500 text-center mt-4 leading-relaxed">
-          Running three parallel <code className="text-xs bg-gray-100 px-1 rounded">claude -p</code> jobs with
-          natural-language prompts — each is a <strong>full model session</strong> and uses your plan or API limits (same
-          information as interactive{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">! claude /status</code>,{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">! claude /usage</code>,{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">! claude /stats</code> — not raw{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">/usage</code> strings, which print mode treats as skills).
-          If all panels are empty or unusable, the server runs one more combined <strong>headless</strong> probe — that can
-          take a minute or two.
+          Running three parallel primary probes (default: subprocess{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">claude /status</code>,{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">claude /usage</code>,{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">claude /stats</code> — same idea as{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">! claude /…</code> in the TUI). With{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">CLAUDE_USAGE_NL_PROBES=1</code>, the server uses three{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">claude -p</code> natural-language jobs instead (heavier API
+          use). An optional fourth run only runs if <code className="text-xs bg-gray-100 px-1 rounded">CLAUDE_USAGE_NL_FALLBACK=1</code> and the primaries look unusable.
         </p>
       </div>
     );
@@ -130,9 +129,20 @@ export default function UsageView() {
         <div className="rounded-2xl border border-rose-200 bg-rose-50/95 px-4 py-3 text-sm text-rose-950 space-y-2">
           <p className="font-bold text-rose-900">Why every panel shows “hit your limit”</p>
           <p>
-            Each panel is a separate <code className="text-xs bg-white/80 px-1 rounded">claude -p</code> run. Claude
-            Code bills those like normal agent work, so loading this page can trip your limit <strong>three times in
-            parallel</strong> (exit code 1). That message is from the CLI, not a bug in the JSON parser.
+            {data.usageProbeMode === 'nl' ? (
+              <>
+                Each panel is a separate <code className="text-xs bg-white/80 px-1 rounded">claude -p</code> run
+                (natural-language probes). Those are full model sessions, so this page can hit your limit{' '}
+                <strong>three times in parallel</strong> (exit code 1). The message comes from the Claude Code CLI.
+              </>
+            ) : (
+              <>
+                Each panel is a separate <code className="text-xs bg-white/80 px-1 rounded">claude</code> subprocess
+                with a <code className="text-xs bg-white/80 px-1 rounded">/usage</code>-style argv (shell-style default).
+                The CLI can still refuse with the same limit message for each process (exit code 1) depending on your
+                plan and how Claude Code implements those invocations.
+              </>
+            )}
           </p>
           <p>
             For a lighter check, use interactive Claude Code and{' '}
@@ -174,14 +184,19 @@ export default function UsageView() {
 
       <div className="space-y-3 text-sm text-gray-600 leading-relaxed">
         <p>
-          Claude Code documents that <strong>built-in slash commands are interactive-only</strong>. This page does not
-          pass <code className="text-xs bg-gray-100 px-1 rounded">/usage</code> (or similar) as the{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">-p</code> prompt — that path is resolved as a{' '}
-          <strong>skill name</strong> and often yields <code className="text-xs bg-gray-100 px-1 rounded">Unknown skill</code>.
-          The API uses natural-language print probes instead; panel titles show{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">! claude /…</code> so you can match the same tabs in your
-          own interactive session. Optional server env <code className="text-xs bg-gray-100 px-1 rounded">CLAUDE_USAGE_BARE_PROBES=1</code> adds{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">--bare</code> on those runs (see Claude Code headless docs).
+          <strong>Default:</strong> the API runs <code className="text-xs bg-gray-100 px-1 rounded">claude /status</code>,{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">claude /usage</code>, and{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">claude /stats</code> as subprocess arguments and shows raw
+          stdout/stderr — the same idea as typing <code className="text-xs bg-gray-100 px-1 rounded">! claude /usage</code> in
+          the TUI (shell escape). Passing <code className="text-xs bg-gray-100 px-1 rounded">/usage</code> as a{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">-p</code> prompt string is different and often becomes{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">Unknown skill</code>; use{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">CLAUDE_USAGE_NL_PROBES=1</code> if you want three natural-language{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">claude -p</code> panels instead. Optional{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">CLAUDE_USAGE_NL_FALLBACK=1</code> adds one combined{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">-p</code> fallback when primaries look unusable;{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">CLAUDE_USAGE_BARE_PROBES=1</code> applies only to NL{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">-p</code> runs.
         </p>
         {hasHeadless ? (
           <p className="rounded-xl border border-emerald-200 bg-emerald-50/90 px-4 py-3 text-emerald-950">
@@ -192,9 +207,8 @@ export default function UsageView() {
         {statsLooksUseful && (statusUn || usageUn) ? (
           <p className="rounded-xl border border-indigo-100 bg-indigo-50/80 px-4 py-3 text-indigo-950">
             <strong className="font-semibold">Tip:</strong> check the third panel (header{' '}
-            <code className="text-xs bg-white/80 px-1 rounded">! claude /stats</code>) — its raw output often mirrors what
-            you see for <code className="text-xs bg-white/80 px-1 rounded">! claude /usage</code> in an interactive
-            session when the first two panels fail in print mode.
+            <code className="text-xs bg-white/80 px-1 rounded">! claude /stats</code>) — its raw output is sometimes
+            useful when the first two panels look empty or like <code className="text-xs bg-white/80 px-1 rounded">Unknown skill</code>.
           </p>
         ) : null}
         {allSlashUnusable && !hasHeadless ? (
