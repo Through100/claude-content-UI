@@ -1,0 +1,5 @@
+{
+  "name": "Claude SEO Wrapper",
+  "description": "A professional WebUI for running SEO audits and analysis via Claude Code terminal environment.",
+  "requestFramePermissions": []
+}
