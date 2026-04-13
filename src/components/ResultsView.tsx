@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { FileText, Terminal, Copy, Download, ChevronRight, AlertTriangle, CheckCircle, Info, ExternalLink } from 'lucide-react';
 import { ParsedReport, RunResponse, RunStats, Severity } from '../types';
-import { AuditMarkdown } from './AuditMarkdown';
+import { AuditMarkdownSections } from './AuditMarkdown';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface ResultsViewProps {
@@ -328,7 +328,7 @@ function PrettyReport({ report, stats, rawOutput }: { report: ParsedReport; stat
           <p className="text-xs text-gray-400 px-1">
             Run finished in {(stats.durationMs / 1000).toFixed(1)}s — narrative below matches captured stdout/stderr.
           </p>
-          <AuditMarkdown source={rawOutput} title="Full audit narrative" />
+          <AuditMarkdownSections source={rawOutput} />
         </div>
       ) : (
         <p className="text-sm text-gray-500 px-1">No stdout/stderr was captured for this run.</p>
