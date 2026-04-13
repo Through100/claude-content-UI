@@ -9,8 +9,18 @@ function isUnusableProbe(raw: string): boolean {
   return /unknown skill:/i.test(s);
 }
 
-function TerminalPanel({ command, text }: { command: string; text: string }) {
+function TerminalPanel({
+  command,
+  text,
+  large
+}: {
+  command: string;
+  text: string;
+  /** Taller panel for the main Usage output. */
+  large?: boolean;
+}) {
   const body = text.trim() ? text : '(no output)';
+  const maxH = large ? 'max-h-[min(75vh,720px)]' : 'max-h-[min(480px,55vh)]';
   return (
     <div className="bg-[#1e1e1e] rounded-2xl border border-gray-800 shadow-xl overflow-hidden">
       <div className="flex items-center justify-between px-4 py-2 bg-[#2d2d2d] border-b border-gray-800">
@@ -22,7 +32,9 @@ function TerminalPanel({ command, text }: { command: string; text: string }) {
         <span className="text-[10px] font-mono text-gray-500 uppercase tracking-widest">Terminal Output</span>
         <code className="text-[10px] font-mono text-amber-200/90 truncate max-w-[55%] text-right">{command}</code>
       </div>
-      <pre className="p-6 text-sm font-mono text-gray-300 overflow-auto max-h-[min(480px,55vh)] leading-relaxed whitespace-pre-wrap">
+      <pre
+        className={`p-6 text-sm font-mono text-gray-300 overflow-auto ${maxH} leading-relaxed whitespace-pre-wrap`}
+      >
         {body}
       </pre>
     </div>
@@ -68,14 +80,13 @@ export default function UsageView() {
         <p className="text-gray-700 font-medium">Loading usage…</p>
         <p className="text-sm font-mono text-indigo-600 mt-2">{loadElapsedSec}s elapsed</p>
         <p className="text-sm text-gray-500 text-center mt-4 leading-relaxed">
-          Running three parallel primary probes (default: subprocess{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">claude /status</code>,{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">claude /usage</code>,{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">claude /stats</code> — same idea as{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">! claude /…</code> in the TUI). With{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">CLAUDE_USAGE_NL_PROBES=1</code>, the server uses three{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">claude -p</code> natural-language jobs instead (heavier API
-          use). An optional fourth run only runs if <code className="text-xs bg-gray-100 px-1 rounded">CLAUDE_USAGE_NL_FALLBACK=1</code> and the primaries look unusable.
+          Default: the server runs one <code className="text-xs bg-gray-100 px-1 rounded">claude /usage</code> subprocess
+          (via <code className="text-xs bg-gray-100 px-1 rounded">bash -lc</code> on Linux/macOS — same as{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">! claude /usage</code> in your terminal). Set{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">CLAUDE_USAGE_ONLY_USAGE=0</code> for{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">/status</code> and <code className="text-xs bg-gray-100 px-1 rounded">/stats</code> too.{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">CLAUDE_USAGE_NL_PROBES=1</code> switches to{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">claude -p</code> NL probes (heavier API use).
         </p>
       </div>
     );
@@ -101,7 +112,9 @@ export default function UsageView() {
   const statusUn = isUnusableProbe(t?.status ?? '');
   const usageUn = isUnusableProbe(t?.usage ?? '');
   const statsLooksUseful = statsText.trim().length > 0 && !isUnusableProbe(statsText);
-  const allSlashUnusable = statusUn && usageUn && isUnusableProbe(statsText);
+  const allSlashUnusable = data.usageOnlyPrimary
+    ? usageUn
+    : statusUn && usageUn && isUnusableProbe(statsText);
   const hasHeadless = !!(t?.headless && t.headless.trim());
 
   return (
@@ -127,20 +140,40 @@ export default function UsageView() {
 
       {data.rateLimitBlocked ? (
         <div className="rounded-2xl border border-rose-200 bg-rose-50/95 px-4 py-3 text-sm text-rose-950 space-y-2">
-          <p className="font-bold text-rose-900">Why every panel shows “hit your limit”</p>
+          <p className="font-bold text-rose-900">
+            {data.usageOnlyPrimary
+              ? 'Why you see “hit your limit” here'
+              : 'Why every panel shows “hit your limit”'}
+          </p>
           <p>
             {data.usageProbeMode === 'nl' ? (
               <>
-                Each panel is a separate <code className="text-xs bg-white/80 px-1 rounded">claude -p</code> run
-                (natural-language probes). Those are full model sessions, so this page can hit your limit{' '}
-                <strong>three times in parallel</strong> (exit code 1). The message comes from the Claude Code CLI.
+                {data.usageOnlyPrimary ? (
+                  <>
+                    The <code className="text-xs bg-white/80 px-1 rounded">claude -p</code> natural-language /usage probe
+                    is a full model session; the CLI can return your plan&apos;s rate-limit message (exit code 1).
+                  </>
+                ) : (
+                  <>
+                    Each panel is a separate <code className="text-xs bg-white/80 px-1 rounded">claude -p</code> run
+                    (natural-language probes). Those are full model sessions, so this page can hit your limit{' '}
+                    <strong>three times in parallel</strong> (exit code 1). The message comes from the Claude Code CLI.
+                  </>
+                )}
+              </>
+            ) : data.usageOnlyPrimary ? (
+              <>
+                The server ran one <code className="text-xs bg-white/80 px-1 rounded">claude /usage</code> subprocess
+                (shell-style). The CLI can still print the same rate-limit line you would see in a real terminal (exit
+                code 1), depending on your plan and how Claude Code handles non-interactive usage.
               </>
             ) : (
               <>
                 Each panel is a separate <code className="text-xs bg-white/80 px-1 rounded">claude</code> subprocess
-                with a <code className="text-xs bg-white/80 px-1 rounded">/usage</code>-style argv (shell-style default).
-                The CLI can still refuse with the same limit message for each process (exit code 1) depending on your
-                plan and how Claude Code implements those invocations.
+                (<code className="text-xs bg-white/80 px-1 rounded">/status</code>,{' '}
+                <code className="text-xs bg-white/80 px-1 rounded">/usage</code>,{' '}
+                <code className="text-xs bg-white/80 px-1 rounded">/stats</code>). The CLI can refuse with the same
+                limit message for each process (exit code 1).
               </>
             )}
           </p>
@@ -184,27 +217,26 @@ export default function UsageView() {
 
       <div className="space-y-3 text-sm text-gray-600 leading-relaxed">
         <p>
-          <strong>Default:</strong> the API runs <code className="text-xs bg-gray-100 px-1 rounded">claude /status</code>,{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">claude /usage</code>, and{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">claude /stats</code> as subprocess arguments and shows raw
-          stdout/stderr — the same idea as typing <code className="text-xs bg-gray-100 px-1 rounded">! claude /usage</code> in
-          the TUI (shell escape). Passing <code className="text-xs bg-gray-100 px-1 rounded">/usage</code> as a{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">-p</code> prompt string is different and often becomes{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">Unknown skill</code>; use{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">CLAUDE_USAGE_NL_PROBES=1</code> if you want three natural-language{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">claude -p</code> panels instead. Optional{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">CLAUDE_USAGE_NL_FALLBACK=1</code> adds one combined{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">-p</code> fallback when primaries look unusable;{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">CLAUDE_USAGE_BARE_PROBES=1</code> applies only to NL{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">-p</code> runs.
+          <strong>Default:</strong> the API runs a single <code className="text-xs bg-gray-100 px-1 rounded">claude /usage</code>{' '}
+          subprocess (raw stdout/stderr here — same as <code className="text-xs bg-gray-100 px-1 rounded">! claude /usage</code> in
+          the TUI). On Linux/macOS it uses <code className="text-xs bg-gray-100 px-1 rounded">bash -lc</code> so cwd and PATH
+          match a login shell; set <code className="text-xs bg-gray-100 px-1 rounded">CLAUDE_USAGE_BASH_LC=0</code> to spawn{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">claude</code> directly. Set{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">CLAUDE_USAGE_ONLY_USAGE=0</code> to add{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">/status</code> and <code className="text-xs bg-gray-100 px-1 rounded">/stats</code>.{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">CLAUDE_USAGE_NL_PROBES=1</code> uses natural-language{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">claude -p</code> instead; optional{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">CLAUDE_USAGE_NL_FALLBACK=1</code> adds a combined{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">-p</code> fallback when primaries look unusable.
         </p>
         {hasHeadless ? (
           <p className="rounded-xl border border-emerald-200 bg-emerald-50/90 px-4 py-3 text-emerald-950">
-            <strong className="font-semibold">Fourth panel:</strong> the API ran the combined <strong>natural-language</strong>{' '}
-            fallback because the three primary probes above did not return usable text.
+            <strong className="font-semibold">Fallback panel:</strong> the API ran the combined{' '}
+            <strong>natural-language</strong> <code className="text-xs bg-white/80 px-1 rounded">claude -p</code> run
+            because the primary {data.usageOnlyPrimary ? 'probe' : 'probes'} did not return usable text.
           </p>
         ) : null}
-        {statsLooksUseful && (statusUn || usageUn) ? (
+        {!data.usageOnlyPrimary && statsLooksUseful && (statusUn || usageUn) ? (
           <p className="rounded-xl border border-indigo-100 bg-indigo-50/80 px-4 py-3 text-indigo-950">
             <strong className="font-semibold">Tip:</strong> check the third panel (header{' '}
             <code className="text-xs bg-white/80 px-1 rounded">! claude /stats</code>) — its raw output is sometimes
@@ -221,9 +253,25 @@ export default function UsageView() {
         ) : null}
       </div>
 
-      <TerminalPanel command="! claude /status" text={t?.status ?? ''} />
-      <TerminalPanel command="! claude /usage" text={t?.usage ?? ''} />
-      <TerminalPanel command="! claude /stats" text={statsText} />
+      {data.usageOnlyPrimary ? (
+        <p className="text-xs text-gray-500 -mt-2 mb-1">
+          Showing only the <code className="bg-gray-100 px-1 rounded">/usage</code> probe (default). Set{' '}
+          <code className="bg-gray-100 px-1 rounded">CLAUDE_USAGE_ONLY_USAGE=0</code> on the API for Status and Stats panels
+          too.
+        </p>
+      ) : null}
+
+      <h2 className="text-base font-semibold text-gray-800 tracking-tight">Usage</h2>
+      <TerminalPanel command="! claude /usage" text={t?.usage ?? ''} large />
+
+      {!data.usageOnlyPrimary ? (
+        <>
+          <h2 className="text-base font-semibold text-gray-800 tracking-tight pt-2">Status</h2>
+          <TerminalPanel command="! claude /status" text={t?.status ?? ''} />
+          <h2 className="text-base font-semibold text-gray-800 tracking-tight pt-2">Stats</h2>
+          <TerminalPanel command="! claude /stats" text={statsText} />
+        </>
+      ) : null}
       {hasHeadless ? (
         <TerminalPanel
           command="Status + Usage (combined NL fallback)"

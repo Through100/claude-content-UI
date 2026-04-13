@@ -169,6 +169,8 @@ export interface UsageInfo {
   claudeAuthStatusText?: string | null;
   /** How primary panels were collected: shell argv (default), NL `-p`, or skipped. */
   usageProbeMode?: 'shell' | 'nl' | 'none';
+  /** Only `/usage` was executed (default); Status/Stats panels are omitted. */
+  usageOnlyPrimary?: boolean;
 }
 
 export interface ModelOption {

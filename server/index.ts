@@ -23,7 +23,7 @@ import {
   USAGE_TAB_HEADLESS_PROMPT
 } from './usageParse';
 import { readUsageExactJsonFromHome, runClaudeAuthStatusText } from './usageLocalSnapshot';
-import { runClaudeSlashShellProbe } from './usageShellProbe';
+import { runClaudeSlashShellProbe, stripAnsiForWeb } from './usageShellProbe';
 import { SEO_COMMANDS, type HistoryItem, type RunResponse, type SeoCommand } from '../src/types';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -80,6 +80,12 @@ function usageNlFallback(): boolean {
   return ['1', 'true', 'yes'].includes((process.env.CLAUDE_USAGE_NL_FALLBACK ?? '').toLowerCase());
 }
 
+/** Default on: one `/usage` probe (like a single `! claude /usage`). Set CLAUDE_USAGE_ONLY_USAGE=0 for /status and /stats too. */
+function usageOnlyUsagePrimary(): boolean {
+  const raw = (process.env.CLAUDE_USAGE_ONLY_USAGE ?? '1').toLowerCase();
+  return !['0', 'false', 'no'].includes(raw);
+}
+
 function buildUsageHints(skillShadows: string[], cwd: string): string[] {
   const hints: string[] = [];
   if (skillShadows.length) {
@@ -92,16 +98,22 @@ function buildUsageHints(skillShadows: string[], cwd: string): string[] {
   );
   if (usageNlProbes()) {
     hints.push(
-      'CLAUDE_USAGE_NL_PROBES=1: primary panels use `claude -p` natural-language prompts (full model sessions). Unset it for the default shell-style probes (`claude /usage` as argv — same idea as `! claude /usage` in the TUI).'
+      'CLAUDE_USAGE_NL_PROBES=1: primary panels use `claude -p` natural-language prompts (full model sessions). Unset it for the default shell-style `claude /usage` probe.'
     );
     hints.push(
       'Optional CLAUDE_USAGE_BARE_PROBES=1 adds `--bare` on those `-p` runs (see Claude Code headless docs).'
     );
+    hints.push(
+      'With NL probes, default is still a single /usage panel unless you set CLAUDE_USAGE_ONLY_USAGE=0 to add NL /status and /stats.'
+    );
   } else {
     hints.push(
-      'Default: primary panels run `claude /status`, `claude /usage`, and `claude /stats` as subprocess arguments (stdout/stderr only — same as the shell line after `!` in the TUI, not `claude -p \"/usage\"`).'
+      'Default: primary panels run `claude /status`, `claude /usage`, and `claude /stats` via `bash -lc` on Linux/macOS (same as after `!` in the TUI). Set `CLAUDE_USAGE_BASH_LC=0` to spawn `claude` directly without bash.'
     );
   }
+  hints.push(
+    'By default only the `/usage` probe runs (one subprocess — closest to a single `! claude /usage`). Set CLAUDE_USAGE_ONLY_USAGE=0 on the API to also run `/status` and `/stats`.'
+  );
   hints.push(
     'CLAUDE_USAGE_NL_FALLBACK=1 enables a fourth combined `claude -p` natural-language run when all primary outputs look empty or like Unknown skill (uses the API).'
   );
@@ -350,8 +362,12 @@ app.get('/api/usage', async (_req, res) => {
   const bare = usageBareProbes();
   const nlProbes = usageNlProbes();
   const nlFallback = usageNlFallback();
+  const usageOnly = usageOnlyUsagePrimary();
 
   try {
+    const joinRun = (r: ClaudeRunResult): string =>
+      stripAnsiForWeb([r.stdout, r.stderr].filter(Boolean).join('\n'));
+
     const printProbeUnusable = (raw: string): boolean => {
       const s = raw.trim();
       if (!s) return true;
@@ -374,10 +390,24 @@ app.get('/api/usage', async (_req, res) => {
     let usageRaw: string;
     let statsRaw: string;
 
+    const noop: ClaudeRunResult = { stdout: '', stderr: '', code: null, signal: null, argv: [] };
+
     if (skipSlash) {
-      const noop: ClaudeRunResult = { stdout: '', stderr: '', code: null, signal: null, argv: [] };
       statusR = usageR = statsR = noop;
       statusRaw = usageRaw = statsRaw = skippedLine;
+    } else if (nlProbes && usageOnly) {
+      statusR = statsR = noop;
+      usageR = await runClaudePrint({
+        prompt: USAGE_TAB_HEADLESS_PROMPT,
+        cwd,
+        model: modelArg,
+        timeoutMs: t,
+        claudeBin: bin,
+        bare
+      });
+      statusRaw = '';
+      usageRaw = joinRun(usageR);
+      statsRaw = '';
     } else if (nlProbes) {
       [statusR, usageR, statsR] = await Promise.all([
         runClaudePrint({
@@ -405,9 +435,21 @@ app.get('/api/usage', async (_req, res) => {
           bare
         })
       ]);
-      statusRaw = [statusR.stdout, statusR.stderr].filter(Boolean).join('\n');
-      usageRaw = [usageR.stdout, usageR.stderr].filter(Boolean).join('\n');
-      statsRaw = [statsR.stdout, statsR.stderr].filter(Boolean).join('\n');
+      statusRaw = joinRun(statusR);
+      usageRaw = joinRun(usageR);
+      statsRaw = joinRun(statsR);
+    } else if (usageOnly) {
+      statusR = statsR = noop;
+      usageR = await runClaudeSlashShellProbe({
+        claudeBin: bin,
+        cwd,
+        slash: '/usage',
+        model: modelArg,
+        timeoutMs: t
+      });
+      statusRaw = '';
+      usageRaw = joinRun(usageR);
+      statsRaw = '';
     } else {
       [statusR, usageR, statsR] = await Promise.all([
         runClaudeSlashShellProbe({
@@ -432,26 +474,26 @@ app.get('/api/usage', async (_req, res) => {
           timeoutMs: t
         })
       ]);
-      statusRaw = [statusR.stdout, statusR.stderr].filter(Boolean).join('\n');
-      usageRaw = [usageR.stdout, usageR.stderr].filter(Boolean).join('\n');
-      statsRaw = [statsR.stdout, statsR.stderr].filter(Boolean).join('\n');
+      statusRaw = joinRun(statusR);
+      usageRaw = joinRun(usageR);
+      statsRaw = joinRun(statsR);
     }
 
     const allRateLimited =
       !skipSlash &&
-      looksLikeClaudeRateLimitMessage(statusRaw) &&
-      looksLikeClaudeRateLimitMessage(usageRaw) &&
-      looksLikeClaudeRateLimitMessage(statsRaw);
+      (usageOnly
+        ? looksLikeClaudeRateLimitMessage(usageRaw)
+        : looksLikeClaudeRateLimitMessage(statusRaw) &&
+          looksLikeClaudeRateLimitMessage(usageRaw) &&
+          looksLikeClaudeRateLimitMessage(statsRaw));
 
     let headlessRaw = '';
     let headlessCode: number | null = null;
-    const needHeadless =
-      skipSlash ||
-      (nlFallback &&
-        !allRateLimited &&
-        printProbeUnusable(statusRaw) &&
-        printProbeUnusable(usageRaw) &&
-        printProbeUnusable(statsRaw));
+    const allPrimaryUnusable = usageOnly
+      ? printProbeUnusable(usageRaw)
+      : printProbeUnusable(statusRaw) && printProbeUnusable(usageRaw) && printProbeUnusable(statsRaw);
+
+    const needHeadless = skipSlash || (nlFallback && !allRateLimited && allPrimaryUnusable);
     if (needHeadless) {
       const hr = await runClaudePrint({
         prompt: STATUS_AND_USAGE_TAB_HEADLESS_PROMPT,
@@ -461,7 +503,7 @@ app.get('/api/usage', async (_req, res) => {
         claudeBin: bin,
         bare
       });
-      headlessRaw = [hr.stdout, hr.stderr].filter(Boolean).join('\n');
+      headlessRaw = joinRun(hr);
       headlessCode = hr.code;
     }
 
@@ -471,17 +513,15 @@ app.get('/api/usage', async (_req, res) => {
         'The combined natural-language `claude -p` fallback returned only "Unknown skill" or empty text. Confirm CLAUDE_WORKDIR, try CLAUDE_USAGE_NL_PROBES=1, or upgrade @anthropic-ai/claude-code.'
       );
     }
-    if (
-      !skipSlash &&
-      !nlFallback &&
-      printProbeUnusable(statusRaw) &&
-      printProbeUnusable(usageRaw) &&
-      printProbeUnusable(statsRaw)
-    ) {
+    if (!skipSlash && !nlFallback && allPrimaryUnusable) {
       hintsOut.push(
         nlProbes
-          ? 'All three NL primary probes look unusable. Set CLAUDE_USAGE_NL_FALLBACK=1 for one more combined `claude -p` fallback run.'
-          : 'All three shell-style probes look unusable. Set CLAUDE_USAGE_NL_FALLBACK=1 for one combined `claude -p` fallback, or CLAUDE_USAGE_NL_PROBES=1 to use natural-language `-p` prompts on all three primary panels instead.'
+          ? usageOnly
+            ? 'The NL /usage probe looks unusable. Set CLAUDE_USAGE_NL_FALLBACK=1 for a combined `claude -p` fallback, or unset CLAUDE_USAGE_ONLY_USAGE to run all three NL panels.'
+            : 'All three NL primary probes look unusable. Set CLAUDE_USAGE_NL_FALLBACK=1 for one more combined `claude -p` fallback run.'
+          : usageOnly
+            ? 'The /usage shell probe looks unusable. Set CLAUDE_USAGE_NL_FALLBACK=1 for a combined `claude -p` fallback, unset CLAUDE_USAGE_ONLY_USAGE for three shell probes, or CLAUDE_USAGE_NL_PROBES=1 for NL panels.'
+            : 'All three shell-style probes look unusable. Set CLAUDE_USAGE_NL_FALLBACK=1 for one combined `claude -p` fallback, or CLAUDE_USAGE_NL_PROBES=1 to use natural-language `-p` prompts on all three primary panels instead.'
       );
     }
 
@@ -525,7 +565,8 @@ app.get('/api/usage', async (_req, res) => {
             ...(claudeAuthStatusText ? { claudeAuthStatusText } : {})
           }
         : {}),
-      usageProbeMode: skipSlash ? 'none' : nlProbes ? 'nl' : 'shell'
+      usageProbeMode: skipSlash ? 'none' : nlProbes ? 'nl' : 'shell',
+      ...(usageOnly ? { usageOnlyPrimary: true } : {})
     });
   } catch (e) {
     res.status(500).json({ error: String(e) });
