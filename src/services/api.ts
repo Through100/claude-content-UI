@@ -2,6 +2,16 @@ import type { GroupedHistory, ModelOption, RunResponse, UsageInfo } from '../typ
 
 const apiBase = () => (import.meta.env.VITE_API_BASE_URL as string | undefined) || '';
 
+function runTimeoutMs(): number {
+  const raw = import.meta.env.VITE_RUN_TIMEOUT_MS;
+  const n = parseInt(raw || '1800000', 10);
+  return Number.isFinite(n) && n > 0 ? n : 1_800_000;
+}
+
+function useRunStream(): boolean {
+  return import.meta.env.VITE_RUN_STREAM !== '0';
+}
+
 async function parseJson<T>(res: Response): Promise<T> {
   const text = await res.text();
   try {
@@ -11,13 +21,145 @@ async function parseJson<T>(res: Response): Promise<T> {
   }
 }
 
-export const apiService = {
-  async runSeoCommand(commandKey: string, target: string, model?: string): Promise<RunResponse> {
-    const res = await fetch(`${apiBase()}/api/run`, {
+function parseSseDataBlocks(buffer: string): { rest: string; events: unknown[] } {
+  const events: unknown[] = [];
+  let rest = buffer;
+  let idx: number;
+  while ((idx = rest.indexOf('\n\n')) >= 0) {
+    const raw = rest.slice(0, idx);
+    rest = rest.slice(idx + 2);
+    const dataLines = raw
+      .split('\n')
+      .filter(l => l.startsWith('data:'))
+      .map(l => l.slice(5).trimStart());
+    if (dataLines.length === 0) continue;
+    const payload = dataLines.join('\n');
+    try {
+      events.push(JSON.parse(payload));
+    } catch {
+      /* incomplete or non-JSON — leave in rest by not consuming? Too late. Skip. */
+    }
+  }
+  return { rest, events };
+}
+
+async function consumeRunStream(
+  body: Record<string, unknown>,
+  onChunk: (channel: 'stdout' | 'stderr', text: string) => void
+): Promise<RunResponse> {
+  const ms = runTimeoutMs();
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  let res: Response;
+  try {
+    res = await fetch(`${apiBase()}/api/run/stream`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ commandKey, target, model: model || 'default' })
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream'
+      },
+      body: JSON.stringify(body),
+      signal: ctrl.signal
     });
+  } catch (e) {
+    clearTimeout(timer);
+    const aborted =
+      (typeof DOMException !== 'undefined' && e instanceof DOMException && e.name === 'AbortError') ||
+      (e instanceof Error && e.name === 'AbortError');
+    if (aborted) {
+      const min = Math.round(ms / 60000);
+      throw new Error(
+        `Request timed out after ${min} minute(s). The API may still be running Claude — check the server terminal. Increase VITE_RUN_TIMEOUT_MS if needed.`
+      );
+    }
+    throw e;
+  }
+  clearTimeout(timer);
+
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(t || `Request failed (${res.status})`);
+  }
+
+  const reader = res.body?.getReader();
+  if (!reader) {
+    throw new Error('No response body (streaming not supported?)');
+  }
+
+  const dec = new TextDecoder();
+  let buf = '';
+  let final: RunResponse | null = null;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    const { events, rest } = parseSseDataBlocks(buf);
+    buf = rest;
+    for (const ev of events) {
+      const o = ev as { type?: string; chunk?: string; result?: RunResponse; message?: string };
+      if (o.type === 'stdout' && typeof o.chunk === 'string') onChunk('stdout', o.chunk);
+      else if (o.type === 'stderr' && typeof o.chunk === 'string') onChunk('stderr', o.chunk);
+      else if (o.type === 'error') throw new Error(o.message || 'Stream error');
+      else if (o.type === 'done' && o.result) final = o.result;
+    }
+  }
+  buf += dec.decode();
+  const tail = parseSseDataBlocks(buf.endsWith('\n\n') ? buf : buf + '\n\n');
+  for (const ev of tail.events) {
+    const o = ev as { type?: string; chunk?: string; result?: RunResponse; message?: string };
+    if (o.type === 'stdout' && typeof o.chunk === 'string') onChunk('stdout', o.chunk);
+    else if (o.type === 'stderr' && typeof o.chunk === 'string') onChunk('stderr', o.chunk);
+    else if (o.type === 'error') throw new Error(o.message || 'Stream error');
+    else if (o.type === 'done' && o.result) final = o.result;
+  }
+
+  if (!final) {
+    throw new Error('Stream ended without a final result (check API logs).');
+  }
+  return final;
+}
+
+export const apiService = {
+  async runSeoCommand(
+    commandKey: string,
+    target: string,
+    model?: string,
+    onStreamChunk?: (channel: 'stdout' | 'stderr', text: string) => void
+  ): Promise<RunResponse> {
+    const payload = { commandKey, target, model: model || 'default' };
+
+    if (useRunStream()) {
+      return consumeRunStream(payload, (ch, text) => {
+        onStreamChunk?.(ch, text);
+      });
+    }
+
+    const ms = runTimeoutMs();
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), ms);
+    let res: Response;
+    try {
+      res = await fetch(`${apiBase()}/api/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: ctrl.signal
+      });
+    } catch (e) {
+      clearTimeout(timer);
+      const aborted =
+        (typeof DOMException !== 'undefined' && e instanceof DOMException && e.name === 'AbortError') ||
+        (e instanceof Error && e.name === 'AbortError');
+      if (aborted) {
+        const min = Math.round(ms / 60000);
+        throw new Error(
+          `Request timed out after ${min} minute(s). The API may still be running Claude in the background — check the server terminal. To wait longer, set VITE_RUN_TIMEOUT_MS in .env (e.g. 3600000 for 60 minutes).`
+        );
+      }
+      throw e;
+    }
+    clearTimeout(timer);
     const data = await parseJson<RunResponse>(res);
     if (!res.ok) {
       throw new Error(data.error || `Request failed (${res.status})`);

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { FileText, Terminal, Copy, Download, ChevronRight, AlertTriangle, CheckCircle, Info, ExternalLink } from 'lucide-react';
 import { RunResponse, Severity } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
@@ -6,21 +6,70 @@ import { motion, AnimatePresence } from 'motion/react';
 interface ResultsViewProps {
   result: RunResponse | null;
   isLoading: boolean;
+  /** Date.now() when the current run started; drives elapsed label while loading */
+  loadingStartedAt?: number | null;
+  /** Live stdout/stderr from Claude while the run is in progress (SSE) */
+  liveTerminal?: string;
 }
 
-export default function ResultsView({ result, isLoading }: ResultsViewProps) {
+function formatElapsed(startedAt: number) {
+  const s = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m}m ${r}s`;
+}
+
+export default function ResultsView({ result, isLoading, loadingStartedAt, liveTerminal = '' }: ResultsViewProps) {
   const [activeTab, setActiveTab] = useState<'pretty' | 'raw'>('pretty');
+  const livePreRef = useRef<HTMLPreElement>(null);
+
+  useEffect(() => {
+    const el = livePreRef.current;
+    if (!el || !liveTerminal) return;
+    el.scrollTop = el.scrollHeight;
+  }, [liveTerminal]);
 
   if (isLoading) {
     return (
-      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-12 flex flex-col items-center justify-center space-y-4">
-        <div className="relative">
-          <div className="w-16 h-16 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
-          <Terminal className="absolute inset-0 m-auto text-indigo-600" size={24} />
+      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-8 md:p-12 flex flex-col items-stretch space-y-6 max-w-6xl mx-auto w-full">
+        <div className="flex flex-col items-center space-y-4">
+          <div className="relative">
+            <div className="w-16 h-16 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
+            <Terminal className="absolute inset-0 m-auto text-indigo-600" size={24} />
+          </div>
+          <div className="text-center">
+            <h3 className="text-lg font-semibold text-gray-900">Executing SEO Command</h3>
+            <p className="text-sm text-gray-500">Live output from Claude appears below as it is produced.</p>
+            {loadingStartedAt != null && (
+              <p className="text-sm font-mono text-indigo-600 mt-3">Elapsed: {formatElapsed(loadingStartedAt)}</p>
+            )}
+            <p className="text-xs text-gray-400 mt-4 max-w-lg mx-auto">
+              Uses <code className="bg-gray-100 px-1 rounded">/api/run/stream</code>. Ensure the API is running; set{' '}
+              <code className="bg-gray-100 px-1 rounded">VITE_RUN_STREAM=0</code> to fall back to buffered{' '}
+              <code className="bg-gray-100 px-1 rounded">/api/run</code> if your proxy blocks streaming.
+            </p>
+          </div>
         </div>
-        <div className="text-center">
-          <h3 className="text-lg font-semibold text-gray-900">Executing SEO Command</h3>
-          <p className="text-sm text-gray-500">Claude is analyzing your target. This may take a few moments...</p>
+
+        <div className="rounded-2xl border border-gray-800 bg-[#1e1e1e] overflow-hidden shadow-inner">
+          <div className="flex items-center justify-between px-4 py-2 bg-[#2d2d2d] border-b border-gray-800">
+            <div className="flex gap-1.5">
+              <div className="w-3 h-3 rounded-full bg-[#ff5f56]" />
+              <div className="w-3 h-3 rounded-full bg-[#ffbd2e]" />
+              <div className="w-3 h-3 rounded-full bg-[#27c93f]" />
+            </div>
+            <span className="text-[10px] font-mono text-gray-500 uppercase tracking-widest">Claude (live)</span>
+            <div className="w-12" />
+          </div>
+          <pre
+            ref={livePreRef}
+            className="p-4 md:p-6 text-xs md:text-sm font-mono text-gray-200 overflow-auto max-h-[min(55vh,520px)] min-h-[120px] leading-relaxed whitespace-pre-wrap break-words"
+          >
+            {liveTerminal.length > 0
+              ? liveTerminal
+              : 'Waiting for output from claude…\n'}
+          </pre>
         </div>
       </div>
     );

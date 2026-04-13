@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useReducer, useEffect } from 'react';
 import Layout from './components/Layout';
 import SeoCommandForm from './components/SeoCommandForm';
 import ResultsView from './components/ResultsView';
@@ -12,14 +12,27 @@ import { motion, AnimatePresence } from 'motion/react';
 export default function App() {
   const [activeView, setActiveView] = useState<'dashboard' | 'history' | 'usage'>('dashboard');
   const [isLoading, setIsLoading] = useState(false);
+  const [runStartedAt, setRunStartedAt] = useState<number | null>(null);
+  const [, tickLoading] = useReducer((n: number) => n + 1, 0);
   const [result, setResult] = useState<RunResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [liveTerminal, setLiveTerminal] = useState('');
+
+  useEffect(() => {
+    if (!isLoading || runStartedAt == null) return;
+    const id = window.setInterval(() => tickLoading(), 1000);
+    return () => window.clearInterval(id);
+  }, [isLoading, runStartedAt]);
 
   const handleRun = async (commandKey: string, target: string, model?: string) => {
     setIsLoading(true);
+    setRunStartedAt(Date.now());
+    setLiveTerminal('');
     setError(null);
     try {
-      const response = await apiService.runSeoCommand(commandKey, target, model);
+      const response = await apiService.runSeoCommand(commandKey, target, model, (_ch, text) => {
+        setLiveTerminal(prev => prev + text);
+      });
       setResult(response);
       if (!response.success && response.error) {
         setError(response.error);
@@ -30,6 +43,8 @@ export default function App() {
       setError(msg || 'The backend terminal environment is unreachable or returned an error.');
     } finally {
       setIsLoading(false);
+      setRunStartedAt(null);
+      setLiveTerminal('');
     }
   };
 
@@ -91,7 +106,12 @@ export default function App() {
                 <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest">Audit Results</h3>
                 <div className="flex-1 h-px bg-gray-100"></div>
               </div>
-              <ResultsView result={result} isLoading={isLoading} />
+              <ResultsView
+              result={result}
+              isLoading={isLoading}
+              loadingStartedAt={runStartedAt}
+              liveTerminal={liveTerminal}
+            />
             </div>
           </motion.div>
         ) : activeView === 'history' ? (

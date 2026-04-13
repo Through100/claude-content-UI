@@ -3,11 +3,18 @@ import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
-import { runClaudeInitOnly, runClaudePrint, runClaudeVersion } from './claudeRunner';
+import { once } from 'node:events';
+import {
+  runClaudeInitOnly,
+  runClaudePrint,
+  runClaudeVersion,
+  spawnClaudeChild,
+  type ClaudeRunResult
+} from './claudeRunner';
 import { appendHistoryItem, groupHistory, loadHistory } from './historyStore';
 import { parseCostOutput, parseContextOutput, parseStatusOutput } from './usageParse';
 import { parseSeoOutput } from '../shared/parseSeoOutput';
-import { SEO_COMMANDS, type HistoryItem, type RunResponse } from '../src/types';
+import { SEO_COMMANDS, type HistoryItem, type RunResponse, type SeoCommand } from '../src/types';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
@@ -67,6 +74,91 @@ function logClaudeRun(meta: {
     ''
   ];
   console.log(lines.join('\n'));
+}
+
+type ParsedRunRequest =
+  | { ok: true; cmd: SeoCommand; prompt: string; targetTrimmed: string; model?: string }
+  | { ok: false; error: string };
+
+function parseRunRequest(body: unknown): ParsedRunRequest {
+  if (!body || typeof body !== 'object') {
+    return { ok: false as const, error: 'Invalid JSON body' };
+  }
+  const b = body as Record<string, unknown>;
+  const commandKey = b.commandKey;
+  const target = b.target;
+  if (typeof commandKey !== 'string' || typeof target !== 'string') {
+    return { ok: false as const, error: 'commandKey and target are required' };
+  }
+  const cmd = SEO_COMMANDS.find(c => c.key === commandKey);
+  if (!cmd) return { ok: false as const, error: 'Unknown commandKey' };
+  const prompt = `${cmd.command} ${target.trim()}`.trim();
+  const model = typeof b.model === 'string' ? b.model : undefined;
+  return { ok: true as const, cmd, prompt, targetTrimmed: target.trim(), model };
+}
+
+function buildRunBody(input: {
+  result: ClaudeRunResult;
+  prompt: string;
+  cmd: SeoCommand;
+  targetTrimmed: string;
+  startedAt: string;
+  t0: number;
+  cwd: string;
+}): { body: RunResponse; item: HistoryItem } {
+  const { result, prompt, cmd, targetTrimmed, startedAt, t0, cwd } = input;
+  const finishedAt = new Date().toISOString();
+  const durationMs = Date.now() - t0;
+  logClaudeRun({
+    prompt,
+    cwd,
+    argv: result.argv,
+    durationMs,
+    code: result.code,
+    signal: result.signal,
+    stdout: result.stdout,
+    stderr: result.stderr
+  });
+  let rawOutput = [result.stdout, result.stderr].filter(Boolean).join('\n');
+  const ok = result.code === 0;
+  if (!ok && !rawOutput.trim()) {
+    rawOutput = [
+      '(Claude exited before any stdout/stderr was captured. If this persists, the process may be failing immediately — e.g. missing auth, wrong cwd, or claude not on PATH.)',
+      '',
+      '--- diagnostics ---',
+      `exit code: ${result.code}`,
+      result.signal ? `signal: ${result.signal}` : null,
+      `cwd: ${cwd}`,
+      `argv: ${JSON.stringify(result.argv)}`,
+      `CLAUDE_BIN: ${claudeBin()}`,
+      `ANTHROPIC_API_KEY set: ${process.env.ANTHROPIC_API_KEY ? 'yes' : 'no'}`,
+      '',
+      'Try the same argv in a shell from CLAUDE_WORKDIR to see the real error.'
+    ]
+      .filter(Boolean)
+      .join('\n');
+  }
+  const parsedReport = parseSeoOutput(rawOutput);
+  const body: RunResponse = {
+    success: ok,
+    commandExecuted: prompt,
+    rawOutput,
+    parsedReport,
+    stats: { durationMs, startedAt, finishedAt },
+    error: ok ? undefined : `claude exited ${result.code}${result.signal ? ` (${result.signal})` : ''}`.trim()
+  };
+  const item: HistoryItem = {
+    id: randomUUID(),
+    timestamp: startedAt,
+    commandKey: cmd.key,
+    commandLabel: cmd.label,
+    target: targetTrimmed,
+    status: ok ? 'success' : 'error',
+    durationMs,
+    rawOutput,
+    parsedReport
+  };
+  return { body, item };
 }
 
 const DEFAULT_MODELS = [
@@ -159,22 +251,12 @@ app.get('/api/usage', async (_req, res) => {
 });
 
 app.post('/api/run', async (req, res) => {
-  const { commandKey, target, model } = req.body as {
-    commandKey?: string;
-    target?: string;
-    model?: string;
-  };
-  if (!commandKey || typeof target !== 'string') {
-    res.status(400).json({ error: 'commandKey and target are required' });
+  const parsed = parseRunRequest(req.body);
+  if ('error' in parsed) {
+    res.status(400).json({ error: parsed.error });
     return;
   }
-  const cmd = SEO_COMMANDS.find(c => c.key === commandKey);
-  if (!cmd) {
-    res.status(400).json({ error: 'Unknown commandKey' });
-    return;
-  }
-
-  const prompt = `${cmd.command} ${target.trim()}`.trim();
+  const { cmd, prompt, targetTrimmed, model } = parsed;
   const startedAt = new Date().toISOString();
   const t0 = Date.now();
   const cwd = workdir();
@@ -183,65 +265,20 @@ app.post('/api/run', async (req, res) => {
     const result = await runClaudePrint({
       prompt,
       cwd,
-      model: typeof model === 'string' ? model : undefined,
+      model,
       timeoutMs: runTimeoutMs(),
       claudeBin: claudeBin()
     });
-    const finishedAt = new Date().toISOString();
-    const durationMs = Date.now() - t0;
-    logClaudeRun({
+    const { body, item } = buildRunBody({
+      result,
       prompt,
-      cwd,
-      argv: result.argv,
-      durationMs,
-      code: result.code,
-      signal: result.signal,
-      stdout: result.stdout,
-      stderr: result.stderr
+      cmd,
+      targetTrimmed,
+      startedAt,
+      t0,
+      cwd
     });
-    let rawOutput = [result.stdout, result.stderr].filter(Boolean).join('\n');
-    const ok = result.code === 0;
-    if (!ok && !rawOutput.trim()) {
-      rawOutput = [
-        '(Claude exited before any stdout/stderr was captured. If this persists, the process may be failing immediately — e.g. missing auth, wrong cwd, or claude not on PATH.)',
-        '',
-        '--- diagnostics ---',
-        `exit code: ${result.code}`,
-        result.signal ? `signal: ${result.signal}` : null,
-        `cwd: ${cwd}`,
-        `argv: ${JSON.stringify(result.argv)}`,
-        `CLAUDE_BIN: ${claudeBin()}`,
-        `ANTHROPIC_API_KEY set: ${process.env.ANTHROPIC_API_KEY ? 'yes' : 'no'}`,
-        '',
-        'Try the same argv in a shell from CLAUDE_WORKDIR to see the real error.'
-      ]
-        .filter(Boolean)
-        .join('\n');
-    }
-    const parsedReport = parseSeoOutput(rawOutput);
-
-    const body: RunResponse = {
-      success: ok,
-      commandExecuted: prompt,
-      rawOutput,
-      parsedReport,
-      stats: { durationMs, startedAt, finishedAt },
-      error: ok ? undefined : `claude exited ${result.code}${result.signal ? ` (${result.signal})` : ''}`.trim()
-    };
-
-    const item: HistoryItem = {
-      id: randomUUID(),
-      timestamp: startedAt,
-      commandKey: cmd.key,
-      commandLabel: cmd.label,
-      target: target.trim(),
-      status: ok ? 'success' : 'error',
-      durationMs,
-      rawOutput,
-      parsedReport
-    };
     await appendHistoryItem(item);
-
     res.json(body);
   } catch (e) {
     const durationMs = Date.now() - t0;
@@ -256,6 +293,127 @@ app.post('/api/run', async (req, res) => {
       error: message
     } satisfies RunResponse);
   }
+});
+
+app.post('/api/run/stream', async (req, res) => {
+  const parsed = parseRunRequest(req.body);
+  if ('error' in parsed) {
+    res.status(400).json({ error: parsed.error });
+    return;
+  }
+  const { cmd, prompt, targetTrimmed, model } = parsed;
+  const startedAt = new Date().toISOString();
+  const t0 = Date.now();
+  const cwd = workdir();
+
+  res.statusCode = 200;
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders?.();
+
+  const sse = (obj: unknown) => {
+    if (res.writableEnded) return;
+    try {
+      res.write(`data: ${JSON.stringify(obj)}\n\n`);
+    } catch {
+      /* client gone */
+    }
+  };
+
+  const { child, argv } = spawnClaudeChild({
+    prompt,
+    cwd,
+    model,
+    claudeBin: claudeBin()
+  });
+
+  let stdout = '';
+  let stderr = '';
+  let timersCleaned = false;
+  const cleanupTimers = () => {
+    if (timersCleaned) return;
+    timersCleaned = true;
+    clearTimeout(runTimer);
+    clearInterval(heartbeat);
+  };
+
+  const runTimer = setTimeout(() => {
+    try {
+      child.kill('SIGTERM');
+    } catch {
+      /* ignore */
+    }
+  }, runTimeoutMs());
+
+  const heartbeat = setInterval(() => {
+    if (!res.writableEnded) {
+      try {
+        res.write(`: ping ${Date.now()}\n\n`);
+      } catch {
+        /* ignore */
+      }
+    }
+  }, 15000);
+
+  const killOnClient = () => {
+    try {
+      if (!child.killed) child.kill('SIGTERM');
+    } catch {
+      /* ignore */
+    }
+  };
+  req.on('close', killOnClient);
+  req.on('aborted', killOnClient);
+
+  child.stdout?.on('data', (c: Buffer) => {
+    const t = c.toString('utf8');
+    stdout += t;
+    sse({ type: 'stdout', chunk: t });
+  });
+  child.stderr?.on('data', (c: Buffer) => {
+    const t = c.toString('utf8');
+    stderr += t;
+    sse({ type: 'stderr', chunk: t });
+  });
+
+  child.once('error', err => {
+    sse({ type: 'error', message: String(err) });
+  });
+
+  try {
+    await once(child, 'close');
+  } finally {
+    cleanupTimers();
+    req.off('close', killOnClient);
+    req.off('aborted', killOnClient);
+  }
+
+  const result: ClaudeRunResult = {
+    stdout,
+    stderr,
+    code: typeof child.exitCode === 'number' ? child.exitCode : null,
+    signal: child.signalCode ?? null,
+    argv
+  };
+
+  try {
+    const { body, item } = buildRunBody({
+      result,
+      prompt,
+      cmd,
+      targetTrimmed,
+      startedAt,
+      t0,
+      cwd
+    });
+    await appendHistoryItem(item);
+    sse({ type: 'done', result: body });
+  } catch (e) {
+    sse({ type: 'error', message: String(e) });
+  }
+  res.end();
 });
 
 const port = parseInt(process.env.PORT || '8787', 10);

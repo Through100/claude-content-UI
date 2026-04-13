@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 
 export interface ClaudeRunResult {
   stdout: string;
@@ -69,13 +69,31 @@ function collectProcess(
   });
 }
 
-export async function runClaudePrint(opts: RunClaudePrintOptions): Promise<ClaudeRunResult> {
+export interface SpawnClaudeOpts {
+  prompt: string;
+  cwd: string;
+  model?: string;
+  claudeBin: string;
+}
+
+/** Spawn `claude -p …` without waiting (for SSE streaming). */
+export function spawnClaudeChild(opts: SpawnClaudeOpts): { child: ChildProcess; argv: string[] } {
   const args = buildArgs(opts.prompt, opts.model);
   const argv = [opts.claudeBin, ...args];
   const child = spawn(opts.claudeBin, args, {
     cwd: opts.cwd,
     env: { ...process.env },
     stdio: ['ignore', 'pipe', 'pipe']
+  });
+  return { child, argv };
+}
+
+export async function runClaudePrint(opts: RunClaudePrintOptions): Promise<ClaudeRunResult> {
+  const { child, argv } = spawnClaudeChild({
+    prompt: opts.prompt,
+    cwd: opts.cwd,
+    model: opts.model,
+    claudeBin: opts.claudeBin
   });
   return collectProcess(child, opts.timeoutMs, argv);
 }

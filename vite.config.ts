@@ -22,6 +22,14 @@ export default defineConfig(({mode}) => {
         '/api': {
           target: env.VITE_DEV_API_ORIGIN || 'http://127.0.0.1:8787',
           changeOrigin: true,
+          configure(proxy) {
+            proxy.on('proxyRes', proxyRes => {
+              if (proxyRes.headers['content-type']?.includes('text/event-stream')) {
+                proxyRes.headers['cache-control'] = 'no-cache, no-transform';
+                proxyRes.headers['x-accel-buffering'] = 'no';
+              }
+            });
+          },
         },
       },
     },
