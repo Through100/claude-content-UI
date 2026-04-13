@@ -6,6 +6,8 @@ interface ImportMetaEnv {
   readonly VITE_RUN_TIMEOUT_MS?: string;
   /** Use SSE /api/run/stream for live terminal (default). Set 0 to use buffered /api/run only. */
   readonly VITE_RUN_STREAM?: string;
+  /** Max wait for GET /api/usage (ms). Default 6m — must exceed server CLAUDE_USAGE_TIMEOUT_MS. */
+  readonly VITE_USAGE_FETCH_TIMEOUT_MS?: string;
 }
 
 interface ImportMeta {

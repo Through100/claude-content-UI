@@ -62,6 +62,54 @@ Rate limits and resets: (extra usage, plan notes, or —)
 Use — on a line when that metric does not apply (e.g. no Opus line).`;
 
 /**
+ * One headless run for both tabs (saves a full parallel Claude spawn; wall time ≈ max of probes, not sum).
+ * Output order: Status block first, blank line, Usage block (same line shapes as the two prompts above).
+ */
+export const STATUS_AND_USAGE_TAB_HEADLESS_PROMPT = `You are filling a read-only web dashboard for Claude Code.
+
+CRITICAL: Do NOT use slash commands (/status, /usage, etc.). This is non-interactive print (-p) mode — they become "Unknown skill" errors.
+
+First reproduce the **Status** tab (after opening /usage or Status in settings). Then a single blank line. Then reproduce the **Usage** tab only (plan limits, session %, weekly quotas, context %, rate-limit notes) — NOT Config or Stats.
+
+If the prompt begins with a LOCAL_USAGE_JSON code block, the API server read that from your machine's Claude config (same data many setups use for /usage). Prefer it over guessing; do not claim the file is missing when that JSON is present. You MAY use Bash/Read only for fields still missing.
+
+Reply with NOTHING else — no markdown, no preamble. Exactly 14 lines in this order (real values; use — when unknown):
+
+Version: 2.1.104
+Session name: —
+Session ID: —
+cwd: /path/to/project
+Login method: Claude Pro Account
+Organization: —
+Email: —
+Model: Sonnet
+Setting sources: Project local settings
+
+Current session usage: 46% · resets in 3h 20m
+Weekly usage all models: 42% · resets Mon 14:00
+Weekly usage Opus: —
+Context window: 34% used
+Rate limits and resets: (extra usage, plan notes, or —)`;
+
+/** Split combined probe output into Status vs Usage raw text for separate parsing and terminal panels. */
+export function splitCombinedStatusUsageRaw(raw: string): { status: string; usage: string } {
+  const lines = raw.replace(/\r\n/g, '\n').split('\n');
+  const usageStart = lines.findIndex(
+    (l) =>
+      /^\s*Current session usage\s*:/i.test(l) ||
+      /^\s*Session usage\s*:/i.test(l)
+  );
+  if (usageStart <= 0) {
+    const t = raw.trim();
+    return { status: t, usage: t };
+  }
+  return {
+    status: lines.slice(0, usageStart).join('\n').trim(),
+    usage: lines.slice(usageStart).join('\n').trim()
+  };
+}
+
+/**
  * Strip model chatter; keep lines that look like "Label: value" for reliable parsing.
  */
 export function extractSessionKeyValueLines(raw: string): string {
@@ -183,6 +231,30 @@ export function parseUsageTabOutput(raw: string): UsageTabInfo {
       lineValue(raw, 'Resets') ||
       '—'
   };
+}
+
+function usageLineLooksWeak(s: string): boolean {
+  const t = s.trim();
+  if (!t || t === '—') return true;
+  if (/^—\s*[·•]/.test(t)) return true;
+  if (/no usage data|data unavailable|not available|usage-exact\.json not found|no usage-exact/i.test(t)) return true;
+  return false;
+}
+
+/** When the Usage-tab probe is vague but /context returned a real context %, fill Context window from /context. */
+export function enrichUsageTabWithParallelData(usage: UsageTabInfo, context: ContextUsage): UsageTabInfo {
+  if (!usageLineLooksWeak(usage.contextWindow)) return usage;
+  if (!(context.percentage > 0)) return usage;
+  const parts: string[] = [`${context.percentage}% used`];
+  if (
+    context.totalTokens &&
+    context.totalTokens !== '—' &&
+    context.maxTokens &&
+    context.maxTokens !== '—'
+  ) {
+    parts.push(`${context.totalTokens} / ${context.maxTokens}`);
+  }
+  return { ...usage, contextWindow: parts.join(' · ') };
 }
 
 export function parseCostOutput(raw: string): CostInfo {

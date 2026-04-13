@@ -21,6 +21,7 @@ export default function UsageView() {
   const [data, setData] = useState<UsageInfo | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [loadElapsedSec, setLoadElapsedSec] = useState(0);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -38,11 +39,28 @@ export default function UsageView() {
     fetchData();
   }, []);
 
+  useEffect(() => {
+    if (!isLoading) return;
+    const t0 = Date.now();
+    setLoadElapsedSec(0);
+    const id = window.setInterval(() => {
+      setLoadElapsedSec(Math.floor((Date.now() - t0) / 1000));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [isLoading]);
+
   if (isLoading) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 bg-white rounded-2xl border border-gray-200 border-dashed">
+      <div className="flex flex-col items-center justify-center py-20 px-6 bg-white rounded-2xl border border-gray-200 border-dashed max-w-lg mx-auto">
         <div className="w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mb-4"></div>
-        <p className="text-gray-500 font-medium">Loading usage information...</p>
+        <p className="text-gray-700 font-medium">Loading usage information…</p>
+        <p className="text-sm font-mono text-indigo-600 mt-2">{loadElapsedSec}s elapsed</p>
+        <p className="text-sm text-gray-500 text-center mt-4 leading-relaxed">
+          The server runs several Claude Code processes in parallel (Status probe, Usage probe,{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">/cost</code>,{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">/context</code>). This often takes 1–3 minutes; the browser
+          will stop waiting after a capped timeout and show an error instead of spinning forever.
+        </p>
       </div>
     );
   }
