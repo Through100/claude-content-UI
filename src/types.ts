@@ -157,6 +157,10 @@ export interface UsageInfo {
     headless?: string;
   };
   exitCodes?: Record<string, number | null>;
+  /** Project `.claude/skills/*` folder names that match built-in slash names (can cause Unknown skill). */
+  skillConflicts?: string[];
+  /** Actionable troubleshooting lines from the API. */
+  hints?: string[];
 }
 
 export interface ModelOption {

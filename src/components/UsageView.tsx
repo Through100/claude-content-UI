@@ -68,11 +68,13 @@ export default function UsageView() {
         <p className="text-gray-700 font-medium">Loading usage…</p>
         <p className="text-sm font-mono text-indigo-600 mt-2">{loadElapsedSec}s elapsed</p>
         <p className="text-sm text-gray-500 text-center mt-4 leading-relaxed">
-          Running <code className="text-xs bg-gray-100 px-1 rounded">/status</code>,{' '}
+          Running <code className="text-xs bg-gray-100 px-1 rounded">claude -p</code> with{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">/status</code>,{' '}
           <code className="text-xs bg-gray-100 px-1 rounded">/usage</code>, and{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">/stats</code> in parallel; if all are empty or “Unknown
-          skill”, the server runs one more <strong>headless</strong> Claude job (no slashes) — that step can take a
-          minute or two.
+          <code className="text-xs bg-gray-100 px-1 rounded">/stats</code> in parallel (panel headers use the
+          interactive form <code className="text-xs bg-gray-100 px-1 rounded">! claude /…</code>). If all are empty or
+          “Unknown skill”, the server runs one more <strong>headless</strong> Claude job (no slashes) — that step can
+          take a minute or two.
         </p>
       </div>
     );
@@ -92,6 +94,8 @@ export default function UsageView() {
   if (!data) return null;
 
   const t = data.terminals;
+  const hints = data.hints ?? [];
+  const conflicts = data.skillConflicts ?? [];
   const statsText = t?.stats ?? '';
   const statusUn = isUnusableProbe(t?.status ?? '');
   const usageUn = isUnusableProbe(t?.usage ?? '');
@@ -106,6 +110,30 @@ export default function UsageView() {
           Partial load: {fetchError}
         </div>
       )}
+
+      {conflicts.length > 0 ? (
+        <div className="rounded-2xl border border-red-200 bg-red-50/90 px-4 py-3 text-sm text-red-950">
+          <p className="font-bold text-red-900">Possible skill / slash conflict</p>
+          <p className="mt-1">
+            Folders under <code className="text-xs bg-white/70 px-1 rounded">.claude/skills/</code> match built-in
+            names: <span className="font-mono font-semibold">{conflicts.join(', ')}</span>.             That often breaks{' '}
+            <code className="text-xs bg-white/70 px-1 rounded">! claude /status</code>,{' '}
+            <code className="text-xs bg-white/70 px-1 rounded">! claude /usage</code>, etc. Rename or remove them and
+            restart Claude Code.
+          </p>
+        </div>
+      ) : null}
+
+      {hints.length > 0 ? (
+        <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 px-4 py-3 text-sm text-indigo-950">
+          <p className="font-bold text-indigo-900 mb-2">How to get real output (not only “Unknown skill”)</p>
+          <ol className="list-decimal list-inside space-y-2 leading-relaxed">
+            {hints.map((h, i) => (
+              <li key={i}>{h}</li>
+            ))}
+          </ol>
+        </div>
+      ) : null}
 
       <div className="space-y-3 text-sm text-gray-600 leading-relaxed">
         <p>
@@ -125,25 +153,25 @@ export default function UsageView() {
         ) : null}
         {statsLooksUseful && (statusUn || usageUn) ? (
           <p className="rounded-xl border border-indigo-100 bg-indigo-50/80 px-4 py-3 text-indigo-950">
-            <strong className="font-semibold">Tip:</strong> check the third panel — raw{' '}
-            <code className="text-xs bg-white/80 px-1 rounded">/stats</code> output often mirrors interactive{' '}
-            <code className="text-xs bg-white/80 px-1 rounded">/usage</code> when the first two panels fail in print
-            mode.
+            <strong className="font-semibold">Tip:</strong> check the third panel (header{' '}
+            <code className="text-xs bg-white/80 px-1 rounded">! claude /stats</code>) — its raw output often mirrors what
+            you see for <code className="text-xs bg-white/80 px-1 rounded">! claude /usage</code> in an interactive
+            session when the first two panels fail in print mode.
           </p>
         ) : null}
         {allSlashUnusable && !hasHeadless ? (
           <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-950">
             No slash output and no headless fallback arrived. Open an <strong>interactive</strong> Claude Code session
-            for <code className="text-xs bg-white/70 px-1 rounded">/usage</code>, or raise{' '}
+            and run <code className="text-xs bg-white/70 px-1 rounded">! claude /usage</code>, or raise{' '}
             <code className="text-xs bg-white/70 px-1 rounded">CLAUDE_USAGE_TIMEOUT_MS</code> if the headless step timed
             out on the server.
           </p>
         ) : null}
       </div>
 
-      <TerminalPanel command="/status" text={t?.status ?? ''} />
-      <TerminalPanel command="/usage" text={t?.usage ?? ''} />
-      <TerminalPanel command="/stats" text={statsText} />
+      <TerminalPanel command="! claude /status" text={t?.status ?? ''} />
+      <TerminalPanel command="! claude /usage" text={t?.usage ?? ''} />
+      <TerminalPanel command="! claude /stats" text={statsText} />
       {hasHeadless ? (
         <TerminalPanel
           command="Status + Usage (headless NL probe, no slashes)"

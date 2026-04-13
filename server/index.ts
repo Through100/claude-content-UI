@@ -22,6 +22,64 @@ import { SEO_COMMANDS, type HistoryItem, type RunResponse, type SeoCommand } fro
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
 
+/** If a skill folder under `.claude/skills/` uses these names, built-in slash commands can break (Unknown skill). */
+const USAGE_SHADOW_SKILL_NAMES = new Set(
+  [
+    'status',
+    'usage',
+    'stats',
+    'cost',
+    'context',
+    'help',
+    'doctor',
+    'compact',
+    'clear',
+    'model',
+    'init',
+    'skills',
+    'run',
+    'loop',
+    'exit'
+  ].map((s) => s.toLowerCase())
+);
+
+function projectSkillShadows(projectDir: string): string[] {
+  const skillsDir = path.join(projectDir, '.claude', 'skills');
+  let dirs: string[] = [];
+  try {
+    dirs = fs
+      .readdirSync(skillsDir, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name);
+  } catch {
+    return [];
+  }
+  const out: string[] = [];
+  for (const d of dirs) {
+    if (USAGE_SHADOW_SKILL_NAMES.has(d.toLowerCase())) out.push(d);
+  }
+  return out;
+}
+
+function buildUsageHints(skillShadows: string[], cwd: string): string[] {
+  const hints: string[] = [];
+  if (skillShadows.length) {
+    hints.push(
+      `This workspace (${cwd}) has .claude/skills subfolder(s) named: ${skillShadows.join(', ')}. Names that overlap built-in Claude Code commands are a common cause of every slash returning "Unknown skill" — rename, move, or remove those folders, then restart \`claude\`. See anthropics/claude-code#18754.`
+    );
+  }
+  hints.push(
+    'Update Claude Code on the machine that runs this API: npm i -g @anthropic-ai/claude-code@latest — then verify `claude --version` matches what you use interactively.'
+  );
+  hints.push(
+    'The Usage page uses `claude -p` (print mode). Interactive slash menus can work while `-p` still fails until the environment above is fixed.'
+  );
+  hints.push(
+    'Server env CLAUDE_USAGE_SKIP_SLASH_PROBES=1 skips /status, /usage, and /stats and runs only the natural-language headless probe (one Claude run; avoids three Unknown skill lines if slashes are broken).'
+  );
+  return hints;
+}
+
 function claudeBin(): string {
   return process.env.CLAUDE_BIN || 'claude';
 }
@@ -255,28 +313,49 @@ app.get('/api/usage', async (_req, res) => {
   const bin = claudeBin();
   const t = usageTimeoutMs();
   const modelArg = process.env.CLAUDE_USAGE_MODEL;
+  const skillConflicts = projectSkillShadows(cwd);
+  const hints = buildUsageHints(skillConflicts, cwd);
+  const skipSlash = ['1', 'true', 'yes'].includes((process.env.CLAUDE_USAGE_SKIP_SLASH_PROBES ?? '').toLowerCase());
+
   try {
-    // In `claude -p`, `/status` and `/usage` are often resolved as "skills" → "Unknown skill: …" (not the interactive
-    // TUI slash registry). `/stats` commonly still returns the bundled usage dashboard text — fetch all three in parallel.
-    const [statusR, usageR, statsR] = await Promise.all([
-      runClaudePrint({ prompt: '/status', cwd, model: modelArg, timeoutMs: t, claudeBin: bin }),
-      runClaudePrint({ prompt: '/usage', cwd, model: modelArg, timeoutMs: t, claudeBin: bin }),
-      runClaudePrint({ prompt: '/stats', cwd, model: modelArg, timeoutMs: t, claudeBin: bin })
-    ]);
-
-    const statusRaw = [statusR.stdout, statusR.stderr].filter(Boolean).join('\n');
-    const usageRaw = [usageR.stdout, usageR.stderr].filter(Boolean).join('\n');
-    const statsRaw = [statsR.stdout, statsR.stderr].filter(Boolean).join('\n');
-
     const printProbeUnusable = (raw: string): boolean => {
       const s = raw.trim();
       if (!s) return true;
       return /unknown skill:/i.test(s);
     };
 
+    const skippedLine =
+      '(not executed — CLAUDE_USAGE_SKIP_SLASH_PROBES=1 on the server. Unset or set to 0 to run slash probes from this host.)\n';
+
+    let statusR: ClaudeRunResult;
+    let usageR: ClaudeRunResult;
+    let statsR: ClaudeRunResult;
+    let statusRaw: string;
+    let usageRaw: string;
+    let statsRaw: string;
+
+    if (skipSlash) {
+      const noop: ClaudeRunResult = { stdout: '', stderr: '', code: null, signal: null, argv: [] };
+      statusR = usageR = statsR = noop;
+      statusRaw = usageRaw = statsRaw = skippedLine;
+    } else {
+      // In `claude -p`, `/…` is often resolved via the skill registry → "Unknown skill" if a custom skill shadows it.
+      [statusR, usageR, statsR] = await Promise.all([
+        runClaudePrint({ prompt: '/status', cwd, model: modelArg, timeoutMs: t, claudeBin: bin }),
+        runClaudePrint({ prompt: '/usage', cwd, model: modelArg, timeoutMs: t, claudeBin: bin }),
+        runClaudePrint({ prompt: '/stats', cwd, model: modelArg, timeoutMs: t, claudeBin: bin })
+      ]);
+      statusRaw = [statusR.stdout, statusR.stderr].filter(Boolean).join('\n');
+      usageRaw = [usageR.stdout, usageR.stderr].filter(Boolean).join('\n');
+      statsRaw = [statsR.stdout, statsR.stderr].filter(Boolean).join('\n');
+    }
+
     let headlessRaw = '';
     let headlessCode: number | null = null;
-    if (printProbeUnusable(statusRaw) && printProbeUnusable(usageRaw) && printProbeUnusable(statsRaw)) {
+    const needHeadless =
+      skipSlash ||
+      (printProbeUnusable(statusRaw) && printProbeUnusable(usageRaw) && printProbeUnusable(statsRaw));
+    if (needHeadless) {
       const hr = await runClaudePrint({
         prompt: STATUS_AND_USAGE_TAB_HEADLESS_PROMPT,
         cwd,
@@ -288,6 +367,13 @@ app.get('/api/usage', async (_req, res) => {
       headlessCode = hr.code;
     }
 
+    const hintsOut = [...hints];
+    if (headlessRaw.trim() && printProbeUnusable(headlessRaw)) {
+      hintsOut.push(
+        'The natural-language headless probe also returned only "Unknown skill" or empty text. Try CLAUDE_USAGE_SKIP_SLASH_PROBES=1 (headless-only), confirm CLAUDE_WORKDIR matches an interactive project, and upgrade @anthropic-ai/claude-code.'
+      );
+    }
+
     res.json({
       terminals: {
         status: statusRaw,
@@ -295,12 +381,21 @@ app.get('/api/usage', async (_req, res) => {
         stats: statsRaw,
         ...(headlessRaw.trim() ? { headless: headlessRaw } : {})
       },
-      exitCodes: {
-        status: statusR.code,
-        usage: usageR.code,
-        stats: statsR.code,
-        ...(headlessCode !== null && headlessRaw.trim() ? { headless: headlessCode } : {})
-      }
+      exitCodes: skipSlash
+        ? {
+            status: null,
+            usage: null,
+            stats: null,
+            ...(headlessCode !== null && headlessRaw.trim() ? { headless: headlessCode } : {})
+          }
+        : {
+            status: statusR.code,
+            usage: usageR.code,
+            stats: statsR.code,
+            ...(headlessCode !== null && headlessRaw.trim() ? { headless: headlessCode } : {})
+          },
+      ...(skillConflicts.length ? { skillConflicts } : {}),
+      hints: hintsOut
     });
   } catch (e) {
     res.status(500).json({ error: String(e) });
