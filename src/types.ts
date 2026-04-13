@@ -153,6 +153,8 @@ export interface UsageInfo {
     usage: string;
     /** Often succeeds in `-p` when `/status` and `/usage` return Unknown skill. */
     stats: string;
+    /** Natural-language probe when all slash probes are empty or Unknown skill. */
+    headless?: string;
   };
   exitCodes?: Record<string, number | null>;
 }

@@ -16,6 +16,7 @@ import {
 } from './claudeRunner';
 import { appendHistoryItem, groupHistory, loadHistory } from './historyStore';
 import { parseSeoOutput } from '../shared/parseSeoOutput';
+import { STATUS_AND_USAGE_TAB_HEADLESS_PROMPT } from './usageParse';
 import { SEO_COMMANDS, type HistoryItem, type RunResponse, type SeoCommand } from '../src/types';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -267,16 +268,38 @@ app.get('/api/usage', async (_req, res) => {
     const usageRaw = [usageR.stdout, usageR.stderr].filter(Boolean).join('\n');
     const statsRaw = [statsR.stdout, statsR.stderr].filter(Boolean).join('\n');
 
+    const printProbeUnusable = (raw: string): boolean => {
+      const s = raw.trim();
+      if (!s) return true;
+      return /unknown skill:/i.test(s);
+    };
+
+    let headlessRaw = '';
+    let headlessCode: number | null = null;
+    if (printProbeUnusable(statusRaw) && printProbeUnusable(usageRaw) && printProbeUnusable(statsRaw)) {
+      const hr = await runClaudePrint({
+        prompt: STATUS_AND_USAGE_TAB_HEADLESS_PROMPT,
+        cwd,
+        model: modelArg,
+        timeoutMs: t,
+        claudeBin: bin
+      });
+      headlessRaw = [hr.stdout, hr.stderr].filter(Boolean).join('\n');
+      headlessCode = hr.code;
+    }
+
     res.json({
       terminals: {
         status: statusRaw,
         usage: usageRaw,
-        stats: statsRaw
+        stats: statsRaw,
+        ...(headlessRaw.trim() ? { headless: headlessRaw } : {})
       },
       exitCodes: {
         status: statusR.code,
         usage: usageR.code,
-        stats: statsR.code
+        stats: statsR.code,
+        ...(headlessCode !== null && headlessRaw.trim() ? { headless: headlessCode } : {})
       }
     });
   } catch (e) {

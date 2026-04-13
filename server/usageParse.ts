@@ -71,7 +71,7 @@ CRITICAL: Do NOT use slash commands (/status, /usage, etc.). This is non-interac
 
 First reproduce the **Status** tab (after opening /usage or Status in settings). Then a single blank line. Then reproduce the **Usage** tab only (plan limits, session %, weekly quotas, context %, rate-limit notes) — NOT Config or Stats.
 
-If the prompt begins with a LOCAL_USAGE_JSON code block, the API server read that from your machine's Claude config (same data many setups use for /usage). Prefer it over guessing; do not claim the file is missing when that JSON is present. You MAY use Bash/Read only for fields still missing.
+You MAY use Bash and Read on project or user config paths when readable.
 
 Reply with NOTHING else — no markdown, no preamble. Exactly 14 lines in this order (real values; use — when unknown):
 

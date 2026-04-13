@@ -215,7 +215,7 @@ export const apiService = {
       if (aborted) {
         const min = Math.round(ms / 60000);
         throw new Error(
-          `Usage request timed out after ${min} minute(s). The API runs Claude for /status, /usage, and /stats in parallel. Raise CLAUDE_USAGE_TIMEOUT_MS and VITE_USAGE_FETCH_TIMEOUT_MS (client should stay higher than the server timeout).`
+          `Usage request timed out after ${min} minute(s). The API runs /status, /usage, and /stats in parallel, then may run a headless usage probe. Raise CLAUDE_USAGE_TIMEOUT_MS and VITE_USAGE_FETCH_TIMEOUT_MS (client should stay higher than the server timeout).`
         );
       }
       throw e;
@@ -245,7 +245,9 @@ export const apiService = {
       lastRun: '—',
       tokensUsed: '—',
       costRaw: '',
-      statusRaw: [info.terminals?.status, info.terminals?.usage, info.terminals?.stats].filter(Boolean).join('\n\n')
+      statusRaw: [info.terminals?.status, info.terminals?.usage, info.terminals?.stats, info.terminals?.headless]
+        .filter(Boolean)
+        .join('\n\n')
     };
   }
 };

@@ -2,9 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { apiService } from '../services/api';
 import type { UsageInfo } from '../types';
 
-/** Claude Code print mode often returns this instead of running the interactive slash. */
-function isUnknownSkillFor(raw: string, slug: string): boolean {
-  return new RegExp(`unknown\\s+skill:\\s*${slug}\\b`, 'i').test(raw.trim());
+/** Empty or Claude Code "Unknown skill" (print mode treats many /commands as skill names). */
+function isUnusableProbe(raw: string): boolean {
+  const s = raw.trim();
+  if (!s) return true;
+  return /unknown skill:/i.test(s);
 }
 
 function TerminalPanel({ command, text }: { command: string; text: string }) {
@@ -18,7 +20,7 @@ function TerminalPanel({ command, text }: { command: string; text: string }) {
           <div className="w-3 h-3 rounded-full bg-[#27c93f]" />
         </div>
         <span className="text-[10px] font-mono text-gray-500 uppercase tracking-widest">Terminal Output</span>
-        <code className="text-[10px] font-mono text-amber-200/90 truncate max-w-[40%] text-right">{command}</code>
+        <code className="text-[10px] font-mono text-amber-200/90 truncate max-w-[55%] text-right">{command}</code>
       </div>
       <pre className="p-6 text-sm font-mono text-gray-300 overflow-auto max-h-[min(480px,55vh)] leading-relaxed whitespace-pre-wrap">
         {body}
@@ -66,9 +68,11 @@ export default function UsageView() {
         <p className="text-gray-700 font-medium">Loading usage…</p>
         <p className="text-sm font-mono text-indigo-600 mt-2">{loadElapsedSec}s elapsed</p>
         <p className="text-sm text-gray-500 text-center mt-4 leading-relaxed">
-          Fetching raw <code className="text-xs bg-gray-100 px-1 rounded">/status</code>,{' '}
+          Running <code className="text-xs bg-gray-100 px-1 rounded">/status</code>,{' '}
           <code className="text-xs bg-gray-100 px-1 rounded">/usage</code>, and{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">/stats</code> in parallel.
+          <code className="text-xs bg-gray-100 px-1 rounded">/stats</code> in parallel; if all are empty or “Unknown
+          skill”, the server runs one more <strong>headless</strong> Claude job (no slashes) — that step can take a
+          minute or two.
         </p>
       </div>
     );
@@ -89,11 +93,11 @@ export default function UsageView() {
 
   const t = data.terminals;
   const statsText = t?.stats ?? '';
-  const statusUn = isUnknownSkillFor(t?.status ?? '', 'status');
-  const usageUn = isUnknownSkillFor(t?.usage ?? '', 'usage');
-  const statsUn = isUnknownSkillFor(statsText, 'stats');
-  const statsLooksUseful = statsText.trim().length > 0 && !statsUn;
-  const allSlashBroken = statusUn && usageUn && statsUn;
+  const statusUn = isUnusableProbe(t?.status ?? '');
+  const usageUn = isUnusableProbe(t?.usage ?? '');
+  const statsLooksUseful = statsText.trim().length > 0 && !isUnusableProbe(statsText);
+  const allSlashUnusable = statusUn && usageUn && isUnusableProbe(statsText);
+  const hasHeadless = !!(t?.headless && t.headless.trim());
 
   return (
     <div className="space-y-6 pb-12 max-w-4xl">
@@ -110,20 +114,29 @@ export default function UsageView() {
           <code className="text-xs bg-gray-100 px-1 rounded">/usage</code> as <strong>skill names</strong>, not the same
           slash commands as the interactive TUI — so you often see{' '}
           <code className="text-xs bg-gray-100 px-1 rounded">Unknown skill: status</code> even though the command works
-          in an interactive session. Exit code can still be <code className="text-xs bg-gray-100 px-1 rounded">0</code>.
+          in an interactive session. <code className="text-xs bg-gray-100 px-1 rounded">/stats</code> can also be empty
+          in some environments. Exit codes may still be <code className="text-xs bg-gray-100 px-1 rounded">0</code>.
         </p>
-        {statsLooksUseful && (statusUn || usageUn) ? (
-          <p className="rounded-xl border border-indigo-100 bg-indigo-50/80 px-4 py-3 text-indigo-950">
-            <strong className="font-semibold">Tip:</strong> use the third panel — raw{' '}
-            <code className="text-xs bg-white/80 px-1 rounded">/stats</code> output usually includes the same status and
-            usage-style block in one stream when the first two lines fail in print mode.
+        {hasHeadless ? (
+          <p className="rounded-xl border border-emerald-200 bg-emerald-50/90 px-4 py-3 text-emerald-950">
+            <strong className="font-semibold">Fourth panel:</strong> the API ran a <strong>natural-language</strong>{' '}
+            headless probe (no slash commands) because the three slash probes above did not return usable text.
           </p>
         ) : null}
-        {allSlashBroken ? (
+        {statsLooksUseful && (statusUn || usageUn) ? (
+          <p className="rounded-xl border border-indigo-100 bg-indigo-50/80 px-4 py-3 text-indigo-950">
+            <strong className="font-semibold">Tip:</strong> check the third panel — raw{' '}
+            <code className="text-xs bg-white/80 px-1 rounded">/stats</code> output often mirrors interactive{' '}
+            <code className="text-xs bg-white/80 px-1 rounded">/usage</code> when the first two panels fail in print
+            mode.
+          </p>
+        ) : null}
+        {allSlashUnusable && !hasHeadless ? (
           <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-950">
-            None of these slash probes returned usable text. Open an <strong>interactive</strong> Claude Code session
-            and run <code className="text-xs bg-white/70 px-1 rounded">/usage</code> there, or upgrade the CLI on the
-            machine that runs this API.
+            No slash output and no headless fallback arrived. Open an <strong>interactive</strong> Claude Code session
+            for <code className="text-xs bg-white/70 px-1 rounded">/usage</code>, or raise{' '}
+            <code className="text-xs bg-white/70 px-1 rounded">CLAUDE_USAGE_TIMEOUT_MS</code> if the headless step timed
+            out on the server.
           </p>
         ) : null}
       </div>
@@ -131,6 +144,12 @@ export default function UsageView() {
       <TerminalPanel command="/status" text={t?.status ?? ''} />
       <TerminalPanel command="/usage" text={t?.usage ?? ''} />
       <TerminalPanel command="/stats" text={statsText} />
+      {hasHeadless ? (
+        <TerminalPanel
+          command="Status + Usage (headless NL probe, no slashes)"
+          text={t.headless ?? ''}
+        />
+      ) : null}
 
       {data.exitCodes && (
         <p className="text-[10px] font-mono text-gray-400 px-1">
