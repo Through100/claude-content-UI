@@ -132,7 +132,7 @@ export const apiService = {
     model?: string,
     onStreamChunk?: (channel: 'stdout' | 'stderr', text: string) => void
   ): Promise<RunResponse> {
-    const payload = { commandKey, target, model: model || 'default' };
+    const payload = { commandKey, target, model: model || 'haiku' };
 
     if (useRunStream()) {
       return consumeRunStream(payload, (ch, text) => {

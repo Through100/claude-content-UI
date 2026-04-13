@@ -11,18 +11,18 @@ interface SeoCommandFormProps {
 }
 
 const FALLBACK_MODELS: ModelOption[] = [
-  { id: 'default', label: 'Default (recommended)', description: 'Account default model' },
+  { id: 'haiku', label: 'Haiku', description: 'Fast / efficient — default in this UI' },
+  { id: 'default', label: 'Account default', description: 'Clears CLI model override (tier default)' },
   { id: 'sonnet', label: 'Sonnet', description: 'Latest Sonnet' },
   { id: 'sonnet[1m]', label: 'Sonnet (1M context)', description: 'Long context' },
   { id: 'opus', label: 'Opus', description: 'Most capable' },
-  { id: 'opus[1m]', label: 'Opus (1M context)', description: 'Long context Opus' },
-  { id: 'haiku', label: 'Haiku', description: 'Fast / efficient' }
+  { id: 'opus[1m]', label: 'Opus (1M context)', description: 'Long context Opus' }
 ];
 
 export default function SeoCommandForm({ onRun, isLoading }: SeoCommandFormProps) {
   const [selectedKey, setSelectedKey] = useState(SEO_COMMANDS[0].key);
   const [target, setTarget] = useState('');
-  const [model, setModel] = useState('default');
+  const [model, setModel] = useState('haiku');
   const [error, setError] = useState<string | null>(null);
   const [models, setModels] = useState<ModelOption[]>(FALLBACK_MODELS);
 

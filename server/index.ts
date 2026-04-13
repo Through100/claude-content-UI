@@ -124,7 +124,9 @@ function parseRunRequest(body: unknown): ParsedRunRequest {
   const cmd = SEO_COMMANDS.find(c => c.key === commandKey);
   if (!cmd) return { ok: false as const, error: 'Unknown commandKey' };
   const prompt = `${cmd.command} ${target.trim()}`.trim();
-  const model = typeof b.model === 'string' ? b.model : undefined;
+  const rawModel = b.model;
+  const model =
+    typeof rawModel === 'string' && rawModel.trim() !== '' ? rawModel.trim() : 'haiku';
   return { ok: true as const, cmd, prompt, targetTrimmed: target.trim(), model };
 }
 
@@ -200,12 +202,12 @@ function buildRunBody(input: {
 }
 
 const DEFAULT_MODELS = [
-  { id: 'default', label: 'Default (recommended)', description: 'Clears override; tier default' },
+  { id: 'haiku', label: 'Haiku', description: 'Fast, efficient — default in this UI' },
+  { id: 'default', label: 'Account default', description: 'Clears override; tier default' },
   { id: 'sonnet', label: 'Sonnet', description: 'Latest Sonnet for daily work' },
   { id: 'sonnet[1m]', label: 'Sonnet (1M context)', description: 'Long context Sonnet' },
   { id: 'opus', label: 'Opus', description: 'Most capable default Opus' },
   { id: 'opus[1m]', label: 'Opus (1M context)', description: 'Long context Opus' },
-  { id: 'haiku', label: 'Haiku', description: 'Fast, efficient' },
   { id: 'best', label: 'Best available', description: 'Alias for most capable (opus-class)' }
 ];
 
