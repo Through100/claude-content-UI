@@ -144,33 +144,13 @@ export interface UsageTabInfo {
   rateLimitsAndResets: string;
 }
 
-/** One quota row (session / week) with % used and reset timing for Antigravity-style UI. */
-export interface UsageQuotaSlot {
-  label: string;
-  percentUsed: number | null;
-  resetRaw: string | null;
-  /** Parsed reset instant in ISO UTC when `resetRaw` could be interpreted. */
-  resetAtIso: string | null;
-  /** Server-computed phrase like "Refreshes in 2 days, 5 hours" at fetch time. */
-  refreshCountdown: string | null;
-}
-
-export interface UsageQuotasPanel {
-  session: UsageQuotaSlot;
-  weekAllModels: UsageQuotaSlot;
-  extraUsageLine: string | null;
-}
-
 export type UsageBillingMode = 'api_credits' | 'subscription';
 
-/** API GET /api/usage — `/stats` + version only; Status + Usage quotas. */
+/** API GET /api/usage — raw `claude -p` output for `/status` and `/usage` (same style as audit Raw Output). */
 export interface UsageInfo {
-  status: SystemStatus;
-  usageQuotas: UsageQuotasPanel;
-  /** Combined strings for debugging / fallbacks. */
-  usageTab: UsageTabInfo;
-  terminals?: {
-    stats?: string;
+  terminals: {
+    status: string;
+    usage: string;
   };
   exitCodes?: Record<string, number | null>;
 }

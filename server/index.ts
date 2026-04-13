@@ -15,7 +15,6 @@ import {
   type ClaudeRunResult
 } from './claudeRunner';
 import { appendHistoryItem, groupHistory, loadHistory } from './historyStore';
-import { parseStatsCommandOutput } from './usageParse';
 import { parseSeoOutput } from '../shared/parseSeoOutput';
 import { SEO_COMMANDS, type HistoryItem, type RunResponse, type SeoCommand } from '../src/types';
 
@@ -256,36 +255,23 @@ app.get('/api/usage', async (_req, res) => {
   const t = usageTimeoutMs();
   const modelArg = process.env.CLAUDE_USAGE_MODEL;
   try {
-    // `/stats` mirrors interactive `/usage` (Status + Usage); `claude -v` fills Version when missing.
-    const [statsR, versionProbe] = await Promise.all([
-      runClaudePrint({ prompt: '/stats', cwd, model: modelArg, timeoutMs: t, claudeBin: bin }),
-      runClaudeVersion(bin).catch((): ClaudeRunResult => {
-        return { stdout: '', stderr: '', code: null, signal: null, argv: [bin, '-v'] };
-      })
+    // Raw terminal text from the same slash commands as interactive Claude Code (`claude -p`).
+    const [statusR, usageR] = await Promise.all([
+      runClaudePrint({ prompt: '/status', cwd, model: modelArg, timeoutMs: t, claudeBin: bin }),
+      runClaudePrint({ prompt: '/usage', cwd, model: modelArg, timeoutMs: t, claudeBin: bin })
     ]);
 
-    const statsRaw = [statsR.stdout, statsR.stderr].filter(Boolean).join('\n');
-
-    const cliVersionLine = (versionProbe.stdout || '').trim().split('\n')[0]?.trim() || '';
-
-    const parsed = parseStatsCommandOutput(statsRaw, new Date());
-    let status = parsed.status;
-    if (status.version === '—' && cliVersionLine) {
-      status = { ...status, version: cliVersionLine };
-    }
-    if (status.cwd === '—') {
-      status = { ...status, cwd };
-    }
+    const statusRaw = [statusR.stdout, statusR.stderr].filter(Boolean).join('\n');
+    const usageRaw = [usageR.stdout, usageR.stderr].filter(Boolean).join('\n');
 
     res.json({
-      status,
-      usageTab: parsed.usageTab,
-      usageQuotas: parsed.usageQuotas,
       terminals: {
-        stats: statsRaw
+        status: statusRaw,
+        usage: usageRaw
       },
       exitCodes: {
-        stats: statsR.code
+        status: statusR.code,
+        usage: usageR.code
       }
     });
   } catch (e) {
