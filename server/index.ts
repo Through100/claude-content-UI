@@ -31,6 +31,44 @@ function usageTimeoutMs(): number {
   return Number.isFinite(n) ? n : 180_000;
 }
 
+/** Echo full Claude stdout/stderr to the API process terminal (see npm run dev:server). */
+function shouldLogClaudeRuns(): boolean {
+  return process.env.CLAUDE_LOG_RUNS !== '0';
+}
+
+function logClaudeRun(meta: {
+  prompt: string;
+  cwd: string;
+  argv: string[];
+  durationMs: number;
+  code: number | null;
+  signal: NodeJS.Signals | null;
+  stdout: string;
+  stderr: string;
+}) {
+  if (!shouldLogClaudeRuns()) return;
+  const sep = '='.repeat(80);
+  const lines = [
+    '',
+    sep,
+    `[claude-seo-ui] POST /api/run — ${new Date().toISOString()}`,
+    `prompt: ${meta.prompt}`,
+    `cwd: ${meta.cwd}`,
+    `duration_ms: ${meta.durationMs}`,
+    `exit_code: ${meta.code ?? 'null'}  signal: ${meta.signal ?? ''}`,
+    `argv: ${JSON.stringify(meta.argv)}`,
+    sep,
+    '--- stdout ---',
+    meta.stdout.length ? meta.stdout : '(empty)',
+    sep,
+    '--- stderr ---',
+    meta.stderr.length ? meta.stderr : '(empty)',
+    sep,
+    ''
+  ];
+  console.log(lines.join('\n'));
+}
+
 const DEFAULT_MODELS = [
   { id: 'default', label: 'Default (recommended)', description: 'Clears override; tier default' },
   { id: 'sonnet', label: 'Sonnet', description: 'Latest Sonnet for daily work' },
@@ -151,6 +189,16 @@ app.post('/api/run', async (req, res) => {
     });
     const finishedAt = new Date().toISOString();
     const durationMs = Date.now() - t0;
+    logClaudeRun({
+      prompt,
+      cwd,
+      argv: result.argv,
+      durationMs,
+      code: result.code,
+      signal: result.signal,
+      stdout: result.stdout,
+      stderr: result.stderr
+    });
     let rawOutput = [result.stdout, result.stderr].filter(Boolean).join('\n');
     const ok = result.code === 0;
     if (!ok && !rawOutput.trim()) {
@@ -199,6 +247,7 @@ app.post('/api/run', async (req, res) => {
     const durationMs = Date.now() - t0;
     const finishedAt = new Date().toISOString();
     const message = e instanceof Error ? e.message : String(e);
+    console.error('[claude-seo-ui] POST /api/run spawn error:', message);
     res.status(500).json({
       success: false,
       commandExecuted: prompt,
@@ -244,4 +293,9 @@ app.get('*', (_req, res) => {
 app.listen(port, async () => {
   await startupClaude();
   console.log(`[claude-seo-ui] API + static listening on http://0.0.0.0:${port}`);
+  if (shouldLogClaudeRuns()) {
+    console.log(
+      '[claude-seo-ui] Each POST /api/run will print full Claude stdout/stderr above (set CLAUDE_LOG_RUNS=0 to disable).'
+    );
+  }
 });
