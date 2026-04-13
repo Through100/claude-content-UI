@@ -69,7 +69,8 @@ export default function UsageView() {
         <p className="text-sm font-mono text-indigo-600 mt-2">{loadElapsedSec}s elapsed</p>
         <p className="text-sm text-gray-500 text-center mt-4 leading-relaxed">
           Running three parallel <code className="text-xs bg-gray-100 px-1 rounded">claude -p</code> jobs with
-          natural-language prompts (same information as interactive{' '}
+          natural-language prompts — each is a <strong>full model session</strong> and uses your plan or API limits (same
+          information as interactive{' '}
           <code className="text-xs bg-gray-100 px-1 rounded">! claude /status</code>,{' '}
           <code className="text-xs bg-gray-100 px-1 rounded">! claude /usage</code>,{' '}
           <code className="text-xs bg-gray-100 px-1 rounded">! claude /stats</code> — not raw{' '}
@@ -117,11 +118,46 @@ export default function UsageView() {
           <p className="font-bold text-red-900">Possible skill / slash conflict</p>
           <p className="mt-1">
             Folders under <code className="text-xs bg-white/70 px-1 rounded">.claude/skills/</code> match built-in
-            names: <span className="font-mono font-semibold">{conflicts.join(', ')}</span>.             That often breaks{' '}
+            names: <span className="font-mono font-semibold">{conflicts.join(', ')}</span>. That often breaks{' '}
             <code className="text-xs bg-white/70 px-1 rounded">! claude /status</code>,{' '}
             <code className="text-xs bg-white/70 px-1 rounded">! claude /usage</code>, etc. Rename or remove them and
             restart Claude Code.
           </p>
+        </div>
+      ) : null}
+
+      {data.rateLimitBlocked ? (
+        <div className="rounded-2xl border border-rose-200 bg-rose-50/95 px-4 py-3 text-sm text-rose-950 space-y-2">
+          <p className="font-bold text-rose-900">Why every panel shows “hit your limit”</p>
+          <p>
+            Each panel is a separate <code className="text-xs bg-white/80 px-1 rounded">claude -p</code> run. Claude
+            Code bills those like normal agent work, so loading this page can trip your limit <strong>three times in
+            parallel</strong> (exit code 1). That message is from the CLI, not a bug in the JSON parser.
+          </p>
+          <p>
+            For a lighter check, use interactive Claude Code and{' '}
+            <code className="text-xs bg-white/80 px-1 rounded">! claude /usage</code>, or wait for the reset time shown.
+          </p>
+          {data.localUsageExactJson ? (
+            <div className="mt-2 rounded-xl border border-rose-100 bg-white/90 overflow-hidden">
+              <div className="px-3 py-1.5 text-[10px] font-mono uppercase tracking-wide text-rose-800/80 bg-rose-100/80">
+                Local file (no model call): ~/.claude/usage-exact.json
+              </div>
+              <pre className="p-3 text-xs font-mono text-gray-800 max-h-[min(280px,40vh)] overflow-auto whitespace-pre-wrap">
+                {data.localUsageExactJson}
+              </pre>
+            </div>
+          ) : null}
+          {data.claudeAuthStatusText ? (
+            <div className="mt-2 rounded-xl border border-rose-100 bg-white/90 overflow-hidden">
+              <div className="px-3 py-1.5 text-[10px] font-mono uppercase tracking-wide text-rose-800/80 bg-rose-100/80">
+                claude auth status --text (no -p session)
+              </div>
+              <pre className="p-3 text-xs font-mono text-gray-800 max-h-[200px] overflow-auto whitespace-pre-wrap">
+                {data.claudeAuthStatusText}
+              </pre>
+            </div>
+          ) : null}
         </div>
       ) : null}
 

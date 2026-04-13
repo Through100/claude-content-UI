@@ -22,6 +22,7 @@ import {
   STATS_TAB_HEADLESS_PROMPT,
   USAGE_TAB_HEADLESS_PROMPT
 } from './usageParse';
+import { readUsageExactJsonFromHome, runClaudeAuthStatusText } from './usageLocalSnapshot';
 import { SEO_COMMANDS, type HistoryItem, type RunResponse, type SeoCommand } from '../src/types';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -88,6 +89,9 @@ function buildUsageHints(skillShadows: string[], cwd: string): string[] {
   );
   hints.push(
     'Server env CLAUDE_USAGE_SKIP_SLASH_PROBES=1 skips the three primary print probes and runs only the combined natural-language fallback (one Claude run).'
+  );
+  hints.push(
+    'This Usage page may run up to three parallel `claude -p` model sessions (plus optionally one combined fallback). Each session uses your plan or API limits — it is not a zero-cost quota read.'
   );
   return hints;
 }
@@ -337,6 +341,12 @@ app.get('/api/usage', async (_req, res) => {
       return /unknown skill:/i.test(s);
     };
 
+    const looksLikeClaudeRateLimitMessage = (raw: string): boolean => {
+      const s = raw.trim();
+      if (!s) return false;
+      return /you'?ve hit your limit|hit your limit\b|usage limit exceeded|rate limit exceeded|\b429\b/i.test(s);
+    };
+
     const skippedLine =
       '(not executed — CLAUDE_USAGE_SKIP_SLASH_PROBES=1 on the server. Unset or set to 0 to run the three primary print probes from this host.)\n';
 
@@ -384,11 +394,20 @@ app.get('/api/usage', async (_req, res) => {
       statsRaw = [statsR.stdout, statsR.stderr].filter(Boolean).join('\n');
     }
 
+    const allRateLimited =
+      !skipSlash &&
+      looksLikeClaudeRateLimitMessage(statusRaw) &&
+      looksLikeClaudeRateLimitMessage(usageRaw) &&
+      looksLikeClaudeRateLimitMessage(statsRaw);
+
     let headlessRaw = '';
     let headlessCode: number | null = null;
     const needHeadless =
       skipSlash ||
-      (printProbeUnusable(statusRaw) && printProbeUnusable(usageRaw) && printProbeUnusable(statsRaw));
+      (!allRateLimited &&
+        printProbeUnusable(statusRaw) &&
+        printProbeUnusable(usageRaw) &&
+        printProbeUnusable(statsRaw));
     if (needHeadless) {
       const hr = await runClaudePrint({
         prompt: STATUS_AND_USAGE_TAB_HEADLESS_PROMPT,
@@ -407,6 +426,17 @@ app.get('/api/usage', async (_req, res) => {
       hintsOut.push(
         'The natural-language headless probe also returned only "Unknown skill" or empty text. Try CLAUDE_USAGE_SKIP_SLASH_PROBES=1 (headless-only), confirm CLAUDE_WORKDIR matches an interactive project, and upgrade @anthropic-ai/claude-code.'
       );
+    }
+
+    let localUsageExactJson: string | null = null;
+    let claudeAuthStatusText: string | null = null;
+    if (allRateLimited) {
+      localUsageExactJson = readUsageExactJsonFromHome();
+      try {
+        claudeAuthStatusText = await runClaudeAuthStatusText(bin, cwd, Math.min(25_000, t));
+      } catch {
+        claudeAuthStatusText = null;
+      }
     }
 
     res.json({
@@ -430,7 +460,14 @@ app.get('/api/usage', async (_req, res) => {
             ...(headlessCode !== null && headlessRaw.trim() ? { headless: headlessCode } : {})
           },
       ...(skillConflicts.length ? { skillConflicts } : {}),
-      hints: hintsOut
+      hints: hintsOut,
+      ...(allRateLimited
+        ? {
+            rateLimitBlocked: true,
+            ...(localUsageExactJson ? { localUsageExactJson } : {}),
+            ...(claudeAuthStatusText ? { claudeAuthStatusText } : {})
+          }
+        : {})
     });
   } catch (e) {
     res.status(500).json({ error: String(e) });

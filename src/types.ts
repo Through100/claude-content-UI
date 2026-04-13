@@ -161,6 +161,12 @@ export interface UsageInfo {
   skillConflicts?: string[];
   /** Actionable troubleshooting lines from the API. */
   hints?: string[];
+  /** All three primary probes returned Claude Code rate-limit text (each probe is a real model session). */
+  rateLimitBlocked?: boolean;
+  /** Read from ~/.claude/usage-exact.json when rate-limited (no extra -p session). */
+  localUsageExactJson?: string | null;
+  /** Output of `claude auth status --text` when rate-limited (lightweight CLI). */
+  claudeAuthStatusText?: string | null;
 }
 
 export interface ModelOption {
