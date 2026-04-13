@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import {
   formatClaudeSpawnError,
+  logClaudeAutoPermissionPolicy,
   runClaudeInitOnly,
   runClaudePrint,
   runClaudeVersion,
@@ -444,9 +445,7 @@ async function startupClaude(): Promise<void> {
   console.log(
     `[claude-seo-ui] Effective timeouts: CLAUDE_TIMEOUT_MS=${runTimeoutMs()}ms, CLAUDE_USAGE_TIMEOUT_MS=${usageTimeoutMs()}ms`
   );
-  console.log(
-    '[claude-seo-ui] Claude runs: --permission-mode is set for headless WebFetch/MCP unless CLAUDE_DISABLE_AUTO_PERMISSION_MODE=1 or CLAUDE_EXTRA_ARGS already includes --permission-mode (see .env.example).'
-  );
+  logClaudeAutoPermissionPolicy();
 
   // Validate workdir exists — a missing directory causes spawn ENOENT (misleadingly blames the binary).
   if (!fs.existsSync(cwd)) {

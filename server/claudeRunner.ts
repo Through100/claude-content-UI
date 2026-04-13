@@ -22,6 +22,43 @@ export type ClaudeStreamChunkHandlers = {
   onStderrChunk?: (chunk: string) => void;
 };
 
+/** Claude Code maps bypassPermissions to dangerously-skip-permissions, which is refused when uid is 0. */
+function isUnixSuperuser(): boolean {
+  if (process.platform === 'win32') return false;
+  try {
+    return typeof process.getuid === 'function' && process.getuid() === 0;
+  } catch {
+    return false;
+  }
+}
+
+/** Log once at startup how auto --permission-mode behaves for this process. */
+export function logClaudeAutoPermissionPolicy(): void {
+  const disableAutoPerm = ['1', 'true', 'yes'].includes(
+    (process.env.CLAUDE_DISABLE_AUTO_PERMISSION_MODE ?? '').toLowerCase()
+  );
+  const extra = process.env.CLAUDE_EXTRA_ARGS ?? '';
+  if (/--permission-mode\b/.test(` ${extra} `)) {
+    console.log('[claude-seo-ui] Permission-mode: using CLAUDE_EXTRA_ARGS (auto append skipped).');
+    return;
+  }
+  if (disableAutoPerm) {
+    console.log('[claude-seo-ui] Permission-mode: auto append disabled (CLAUDE_DISABLE_AUTO_PERMISSION_MODE).');
+    return;
+  }
+  if (isUnixSuperuser()) {
+    console.warn(
+      '[claude-seo-ui] Permission-mode: not appending bypassPermissions — this process is root and Claude Code rejects it. Run Node as a non-root user (e.g. USER node in Docker) so headless WebFetch/MCP can use --permission-mode bypassPermissions.'
+    );
+    return;
+  }
+  console.log(
+    `[claude-seo-ui] Permission-mode: appending --permission-mode ${
+      process.env.CLAUDE_PERMISSION_MODE?.trim() || 'bypassPermissions'
+    } for headless runs (opt out: CLAUDE_DISABLE_AUTO_PERMISSION_MODE=1).`
+  );
+}
+
 /** Human-readable spawn failure (ENOENT, etc.) for logs and API responses. */
 export function formatClaudeSpawnError(err: unknown, argv: string[]): string {
   const msg = err instanceof Error ? err.message : String(err);
@@ -46,7 +83,7 @@ function buildArgs(prompt: string, model?: string): string[] {
     (process.env.CLAUDE_DISABLE_AUTO_PERMISSION_MODE ?? '').toLowerCase()
   );
   const extraAlreadyHasPermission = /--permission-mode\b/.test(extraForScan);
-  if (!disableAutoPerm && !extraAlreadyHasPermission) {
+  if (!disableAutoPerm && !extraAlreadyHasPermission && !isUnixSuperuser()) {
     const mode = process.env.CLAUDE_PERMISSION_MODE?.trim() || 'bypassPermissions';
     args.push('--permission-mode', mode);
   }
