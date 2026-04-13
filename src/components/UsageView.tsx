@@ -2,10 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { apiService } from '../services/api';
 import type { UsageInfo } from '../types';
 
-/** Empty or Claude Code "Unknown skill" (print mode treats many /commands as skill names). */
+/** Empty or Claude Code "Unknown skill" (unless we appended a local usage-exact.json snapshot). */
 function isUnusableProbe(raw: string): boolean {
   const s = raw.trim();
   if (!s) return true;
+  if (/usage-exact\.json \(local snapshot/i.test(s)) return false;
   return /unknown skill:/i.test(s);
 }
 
@@ -80,13 +81,11 @@ export default function UsageView() {
         <p className="text-gray-700 font-medium">Loading usage…</p>
         <p className="text-sm font-mono text-indigo-600 mt-2">{loadElapsedSec}s elapsed</p>
         <p className="text-sm text-gray-500 text-center mt-4 leading-relaxed">
-          Default: the server runs one <code className="text-xs bg-gray-100 px-1 rounded">claude /usage</code> subprocess
-          (via <code className="text-xs bg-gray-100 px-1 rounded">bash -lc</code> on Linux/macOS — same as{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">! claude /usage</code> in your terminal). Set{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">CLAUDE_USAGE_ONLY_USAGE=0</code> for{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">/status</code> and <code className="text-xs bg-gray-100 px-1 rounded">/stats</code> too.{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">CLAUDE_USAGE_NL_PROBES=1</code> switches to{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">claude -p</code> NL probes (heavier API use).
+          Default: one <code className="text-xs bg-gray-100 px-1 rounded">claude /usage</code> subprocess (argv like{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">! claude /usage</code>), cleaned env (no{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">npm_config_prefix</code>), optional{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">CLAUDE_USAGE_BASH_LC=1</code>. If the CLI still cannot draw
+          the TUI here, the API may append <code className="text-xs bg-gray-100 px-1 rounded">~/.claude/usage-exact.json</code>.
         </p>
       </div>
     );
@@ -219,15 +218,16 @@ export default function UsageView() {
         <p>
           <strong>Default:</strong> the API runs a single <code className="text-xs bg-gray-100 px-1 rounded">claude /usage</code>{' '}
           subprocess (raw stdout/stderr here — same as <code className="text-xs bg-gray-100 px-1 rounded">! claude /usage</code> in
-          the TUI). On Linux/macOS it uses <code className="text-xs bg-gray-100 px-1 rounded">bash -lc</code> so cwd and PATH
-          match a login shell; set <code className="text-xs bg-gray-100 px-1 rounded">CLAUDE_USAGE_BASH_LC=0</code> to spawn{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">claude</code> directly. Set{' '}
+          the TUI). The child environment clears <code className="text-xs bg-gray-100 px-1 rounded">npm_config_prefix</code> so
+          nvm inside an optional bash wrapper does not error. Set{' '}
           <code className="text-xs bg-gray-100 px-1 rounded">CLAUDE_USAGE_ONLY_USAGE=0</code> to add{' '}
           <code className="text-xs bg-gray-100 px-1 rounded">/status</code> and <code className="text-xs bg-gray-100 px-1 rounded">/stats</code>.{' '}
           <code className="text-xs bg-gray-100 px-1 rounded">CLAUDE_USAGE_NL_PROBES=1</code> uses natural-language{' '}
           <code className="text-xs bg-gray-100 px-1 rounded">claude -p</code> instead; optional{' '}
           <code className="text-xs bg-gray-100 px-1 rounded">CLAUDE_USAGE_NL_FALLBACK=1</code> adds a combined{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">-p</code> fallback when primaries look unusable.
+          <code className="text-xs bg-gray-100 px-1 rounded">-p</code> fallback when primaries look unusable. The bordered
+          TUI (welcome box, tabs) only renders in a real interactive terminal; here you get plain text, or{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">usage-exact.json</code> when the CLI cannot print /usage.
         </p>
         {hasHeadless ? (
           <p className="rounded-xl border border-emerald-200 bg-emerald-50/90 px-4 py-3 text-emerald-950">

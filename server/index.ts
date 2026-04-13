@@ -22,7 +22,11 @@ import {
   STATS_TAB_HEADLESS_PROMPT,
   USAGE_TAB_HEADLESS_PROMPT
 } from './usageParse';
-import { readUsageExactJsonFromHome, runClaudeAuthStatusText } from './usageLocalSnapshot';
+import {
+  enrichUsagePanelWithLocalJsonWhenCliFails,
+  readUsageExactJsonFromHome,
+  runClaudeAuthStatusText
+} from './usageLocalSnapshot';
 import { runClaudeSlashShellProbe, stripAnsiForWeb } from './usageShellProbe';
 import { SEO_COMMANDS, type HistoryItem, type RunResponse, type SeoCommand } from '../src/types';
 
@@ -108,7 +112,7 @@ function buildUsageHints(skillShadows: string[], cwd: string): string[] {
     );
   } else {
     hints.push(
-      'Default: primary panels run `claude /status`, `claude /usage`, and `claude /stats` via `bash -lc` on Linux/macOS (same as after `!` in the TUI). Set `CLAUDE_USAGE_BASH_LC=0` to spawn `claude` directly without bash.'
+      'Default: spawn `claude /usage` directly with a cleaned environment (unsets npm_config_prefix so nvm in a subshell does not abort). Set CLAUDE_USAGE_BASH_LC=1 to wrap in `bash -c`; add CLAUDE_USAGE_BASH_LOGIN=1 for `bash -lc` if you need profile PATH.'
     );
   }
   hints.push(
@@ -539,7 +543,7 @@ app.get('/api/usage', async (_req, res) => {
     res.json({
       terminals: {
         status: statusRaw,
-        usage: usageRaw,
+        usage: enrichUsagePanelWithLocalJsonWhenCliFails(usageRaw),
         stats: statsRaw,
         ...(headlessRaw.trim() ? { headless: headlessRaw } : {})
       },

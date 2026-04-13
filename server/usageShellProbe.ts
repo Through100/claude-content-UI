@@ -3,6 +3,19 @@ import { watchClaudeProcess, type ClaudeRunResult } from './claudeRunner';
 
 export type UsageSlash = '/status' | '/usage' | '/stats';
 
+/**
+ * Child env for Usage probes: Node/npm often sets `npm_config_prefix`, which breaks `nvm` when `bash -l` sources
+ * ~/.nvm/nvm.sh (see screenshot: "nvm is not compatible with the npm_config_prefix environment variable").
+ */
+export function usageProbeCleanEnv(): NodeJS.ProcessEnv {
+  const e: NodeJS.ProcessEnv = { ...process.env };
+  for (const k of Object.keys(e)) {
+    if (k.toLowerCase() === 'npm_config_prefix') delete e[k];
+  }
+  delete e.NPM_CONFIG_PREFIX;
+  return e;
+}
+
 /** Strip ANSI SGR sequences so Usage panels render cleanly in HTML `<pre>`. */
 export function stripAnsiForWeb(text: string): string {
   return text.replace(/\u001b\[[\d;]*[mGKH]/g, '').replace(/\u001b\]8;;[^\u0007]*\u0007/g, '');
@@ -26,11 +39,11 @@ function middleArgvPieces(model?: string): string[] {
 }
 
 /**
- * Run Claude Code the same way the interactive TUI does after `!` → shell:
- * `claude /usage` (argv: `claude`, `/usage`), not `claude -p "/usage"` (skill lookup in print mode).
+ * Run `claude /usage` (etc.) as argv — same *argv idea* as `! claude /usage` in a shell.
  *
- * On non-Windows hosts, default is `bash -lc 'cd … && exec claude … /usage'` so PATH and cwd match a login shell
- * more closely than a bare Node `spawn`. Set `CLAUDE_USAGE_BASH_LC=0` to spawn `claude` directly.
+ * Default: spawn `claude` directly with a **cleaned env** (avoids nvm vs `npm_config_prefix` when the API was started
+ * from npm/node). Set `CLAUDE_USAGE_BASH_LC=1` to wrap in bash: use `CLAUDE_USAGE_BASH_LOGIN=1` for `bash -lc`
+ * (sources profile/nvm); default bash wrapper is `bash -c` (non-login) to reduce profile side effects.
  */
 export async function runClaudeSlashShellProbe(opts: {
   claudeBin: string;
@@ -39,20 +52,23 @@ export async function runClaudeSlashShellProbe(opts: {
   model?: string;
   timeoutMs: number;
 }): Promise<ClaudeRunResult> {
+  const env = usageProbeCleanEnv();
   const mid = middleArgvPieces(opts.model);
   const useBash =
     process.platform !== 'win32' &&
-    !['0', 'false', 'no'].includes((process.env.CLAUDE_USAGE_BASH_LC ?? '1').toLowerCase());
+    ['1', 'true', 'yes'].includes((process.env.CLAUDE_USAGE_BASH_LC ?? '').toLowerCase());
 
   if (useBash) {
+    const login = ['1', 'true', 'yes'].includes((process.env.CLAUDE_USAGE_BASH_LOGIN ?? '').toLowerCase());
+    const flag = login ? '-lc' : '-c';
     const midStr = mid.map(shSingleQuote).join(' ');
     const inner = `cd ${shSingleQuote(opts.cwd)} && exec ${shSingleQuote(opts.claudeBin)}${
       midStr ? ` ${midStr}` : ''
     } ${opts.slash}`;
-    const bashArgv = ['bash', '-lc', inner];
-    const child = spawn('bash', ['-lc', inner], {
+    const bashArgv = ['bash', flag, inner];
+    const child = spawn('bash', [flag, inner], {
       cwd: opts.cwd,
-      env: { ...process.env },
+      env,
       stdio: ['ignore', 'pipe', 'pipe']
     });
     return watchClaudeProcess(child, opts.timeoutMs, bashArgv);
@@ -62,7 +78,7 @@ export async function runClaudeSlashShellProbe(opts: {
   const argv = [opts.claudeBin, ...args];
   const child = spawn(opts.claudeBin, args, {
     cwd: opts.cwd,
-    env: { ...process.env },
+    env,
     stdio: ['ignore', 'pipe', 'pipe']
   });
   return watchClaudeProcess(child, opts.timeoutMs, argv);

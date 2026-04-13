@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { watchClaudeProcess } from './claudeRunner';
+import { usageProbeCleanEnv } from './usageShellProbe';
 
 const READ_CAP = 96_000;
 
@@ -28,7 +29,7 @@ export async function runClaudeAuthStatusText(
   const argv = [claudeBin, 'auth', 'status', '--text'];
   const child = spawn(claudeBin, ['auth', 'status', '--text'], {
     cwd,
-    env: { ...process.env },
+    env: usageProbeCleanEnv(),
     stdio: ['ignore', 'pipe', 'pipe']
   });
   try {
@@ -38,4 +39,16 @@ export async function runClaudeAuthStatusText(
   } catch {
     return null;
   }
+}
+
+/** When `claude /usage` cannot render (Unknown skill, nvm/npm_prefix noise), append on-disk usage JSON if present. */
+export function enrichUsagePanelWithLocalJsonWhenCliFails(raw: string): string {
+  const bad =
+    /unknown skill:\s*usage/i.test(raw) ||
+    /nvm is not compatible/i.test(raw) ||
+    /npm_config_prefix/i.test(raw);
+  if (!bad) return raw;
+  const j = readUsageExactJsonFromHome();
+  if (!j) return raw;
+  return `${raw.trimEnd()}\n\n--- ~/.claude/usage-exact.json (local snapshot; CLI did not return interactive /usage text here) ---\n${j}`;
 }
