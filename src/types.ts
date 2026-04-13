@@ -99,6 +99,18 @@ export interface ContextCategory {
   percentage: number;
 }
 
+export interface ContextAgentRow {
+  name: string;
+  source?: string;
+  tokens: string;
+}
+
+export interface ContextSkillRow {
+  name: string;
+  source?: string;
+  tokens: string;
+}
+
 export interface ContextUsage {
   model: string;
   modelFull: string;
@@ -106,8 +118,8 @@ export interface ContextUsage {
   maxTokens: string;
   percentage: number;
   categories: ContextCategory[];
-  agents: { name: string; tokens: number }[];
-  skills: { name: string; tokens: number }[];
+  agents: ContextAgentRow[];
+  skills: ContextSkillRow[];
 }
 
 /** API GET /api/usage — structured fields are best-effort parses of Claude slash-command output. */
@@ -119,8 +131,6 @@ export interface UsageInfo {
     status?: string;
     cost?: string;
     context?: string;
-    usage?: string;
-    stats?: string;
   };
   exitCodes?: Record<string, number | null>;
 }

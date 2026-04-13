@@ -208,8 +208,8 @@ export const apiService = {
       todayRuns: 0,
       lastRun: '—',
       tokensUsed: '—',
-      usageRaw: info.terminals?.usage ?? '',
-      statsRaw: info.terminals?.stats ?? ''
+      costRaw: info.terminals?.cost ?? '',
+      statusRaw: info.terminals?.status ?? ''
     };
   }
 };

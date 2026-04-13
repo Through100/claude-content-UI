@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { FileText, Terminal, Copy, Download, ChevronRight, AlertTriangle, CheckCircle, Info, ExternalLink } from 'lucide-react';
-import { RunResponse, Severity } from '../types';
+import { ParsedReport, RunResponse, RunStats, Severity } from '../types';
+import { AuditMarkdown } from './AuditMarkdown';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface ResultsViewProps {
@@ -10,6 +11,19 @@ interface ResultsViewProps {
   loadingStartedAt?: number | null;
   /** Live stdout/stderr from Claude while the run is in progress (SSE) */
   liveTerminal?: string;
+}
+
+const EMPTY_PARSED_REPORT: ParsedReport = {
+  summary: { overallScore: 0, status: 'Unknown', highPriorityIssues: 0, categories: [] },
+  sections: [],
+};
+
+function hasParsedScorecard(report: ParsedReport): boolean {
+  if (report.summary.overallScore > 0) return true;
+  if (report.summary.categories && report.summary.categories.length > 0) return true;
+  if (report.rawSummary && report.rawSummary.trim().length > 0) return true;
+  if (report.sections.some((s) => s.findings && s.findings.length > 0)) return true;
+  return false;
 }
 
 function formatElapsed(startedAt: number) {
@@ -132,18 +146,11 @@ export default function ResultsView({ result, isLoading, loadingStartedAt, liveT
             exit={{ opacity: 0, y: -10 }}
             className="space-y-6"
           >
-            {result.parsedReport ? (
-              <PrettyReport report={result.parsedReport} stats={result.stats} />
-            ) : (
-              <div className="bg-white rounded-2xl border border-gray-200 p-8 text-center">
-                <Info className="mx-auto text-gray-400 mb-3" size={32} />
-                <h4 className="font-semibold text-gray-900">Structured Report Unavailable</h4>
-                <p className="text-sm text-gray-500 mt-1">
-                  The command executed successfully, but did not return a structured report. 
-                  Please check the Raw Output tab for details.
-                </p>
-              </div>
-            )}
+            <PrettyReport
+              report={result.parsedReport ?? EMPTY_PARSED_REPORT}
+              stats={result.stats}
+              rawOutput={result.rawOutput}
+            />
           </motion.div>
         ) : (
           <motion.div
@@ -174,54 +181,75 @@ export default function ResultsView({ result, isLoading, loadingStartedAt, liveT
   );
 }
 
-function PrettyReport({ report, stats }: { report: any, stats: any }) {
+function PrettyReport({ report, stats, rawOutput }: { report: ParsedReport; stats: RunStats; rawOutput: string }) {
+  const scorecard = hasParsedScorecard(report);
+  const sectionCount = report.sections?.length ?? 0;
+
   return (
     <div className="space-y-6">
-      {/* Executive Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm flex flex-col justify-between">
+      {!scorecard && (
+        <div className="bg-amber-50 border border-amber-100 rounded-2xl p-5 flex gap-3">
+          <Info className="text-amber-600 shrink-0 mt-0.5" size={20} />
           <div>
-            <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Overall Score</span>
-            <div className="flex items-end gap-2 mt-1">
-              <span className="text-4xl font-bold text-gray-900">{report.summary.overallScore}</span>
-              <span className="text-gray-400 font-medium mb-1">/ 100</span>
+            <h4 className="font-semibold text-amber-950 text-sm">No score-card pattern detected</h4>
+            <p className="text-sm text-amber-900/80 mt-1 leading-relaxed">
+              This output does not match the classic &quot;Overall Score&quot; layout. The full narrative is rendered
+              below — use the Raw Output tab if you need the exact terminal text.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Executive Summary */}
+      {scorecard && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm flex flex-col justify-between">
+            <div>
+              <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Overall Score</span>
+              <div className="flex items-end gap-2 mt-1">
+                <span className="text-4xl font-bold text-gray-900">{report.summary.overallScore}</span>
+                <span className="text-gray-400 font-medium mb-1">/ 100</span>
+              </div>
+            </div>
+            <div className="mt-4 h-2 bg-gray-100 rounded-full overflow-hidden">
+              <div
+                className={`h-full transition-all duration-1000 ${
+                  report.summary.overallScore >= 90
+                    ? 'bg-green-500'
+                    : report.summary.overallScore >= 70
+                      ? 'bg-yellow-500'
+                      : 'bg-red-500'
+                }`}
+                style={{ width: `${report.summary.overallScore}%` }}
+              ></div>
             </div>
           </div>
-          <div className="mt-4 h-2 bg-gray-100 rounded-full overflow-hidden">
-            <div 
-              className={`h-full transition-all duration-1000 ${
-                report.summary.overallScore >= 90 ? 'bg-green-500' : 
-                report.summary.overallScore >= 70 ? 'bg-yellow-500' : 'bg-red-500'
-              }`}
-              style={{ width: `${report.summary.overallScore}%` }}
-            ></div>
-          </div>
-        </div>
 
-        <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
-          <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Status</span>
-          <div className="flex items-center gap-2 mt-2">
-            <StatusBadge status={report.summary.status} />
+          <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+            <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Status</span>
+            <div className="flex items-center gap-2 mt-2">
+              <StatusBadge status={report.summary.status} />
+            </div>
+            <p className="text-sm text-gray-500 mt-4 leading-relaxed">
+              Based on {sectionCount} audit sections and technical analysis.
+            </p>
           </div>
-          <p className="text-sm text-gray-500 mt-4 leading-relaxed">
-            Based on {report.sections.length} audit sections and technical analysis.
-          </p>
-        </div>
 
-        <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
-          <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">High Priority Issues</span>
-          <div className="flex items-center gap-3 mt-2">
-            <span className="text-4xl font-bold text-red-600">{report.summary.highPriorityIssues}</span>
-            <AlertTriangle className="text-red-500" size={24} />
+          <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+            <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">High Priority Issues</span>
+            <div className="flex items-center gap-3 mt-2">
+              <span className="text-4xl font-bold text-red-600">{report.summary.highPriorityIssues}</span>
+              <AlertTriangle className="text-red-500" size={24} />
+            </div>
+            <p className="text-sm text-gray-500 mt-4">
+              Immediate action recommended for these critical findings.
+            </p>
           </div>
-          <p className="text-sm text-gray-500 mt-4">
-            Immediate action recommended for these critical findings.
-          </p>
         </div>
-      </div>
+      )}
 
       {/* Score Categories (Page Score Card) */}
-      {report.summary.categories && report.summary.categories.length > 0 && (
+      {scorecard && report.summary.categories && report.summary.categories.length > 0 && (
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
           <h4 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-6">Page Score Card</h4>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -244,7 +272,7 @@ function PrettyReport({ report, stats }: { report: any, stats: any }) {
       )}
 
       {/* Summary Text */}
-      {report.rawSummary && (
+      {scorecard && report.rawSummary && (
         <div className="bg-indigo-50 border border-indigo-100 rounded-2xl p-6">
           <h4 className="text-sm font-bold text-indigo-900 uppercase tracking-widest mb-3">Analysis Summary</h4>
           <p className="text-sm text-indigo-800 leading-relaxed whitespace-pre-wrap">
@@ -254,6 +282,7 @@ function PrettyReport({ report, stats }: { report: any, stats: any }) {
       )}
 
       {/* Sections */}
+      {scorecard && (
       <div className="space-y-4">
         {(report.sections || []).map((section: any, idx: number) => (
           <div key={idx} className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
@@ -292,6 +321,18 @@ function PrettyReport({ report, stats }: { report: any, stats: any }) {
           </div>
         ))}
       </div>
+      )}
+
+      {rawOutput?.trim() ? (
+        <div className="space-y-2">
+          <p className="text-xs text-gray-400 px-1">
+            Run finished in {(stats.durationMs / 1000).toFixed(1)}s — narrative below matches captured stdout/stderr.
+          </p>
+          <AuditMarkdown source={rawOutput} title="Full audit narrative" />
+        </div>
+      ) : (
+        <p className="text-sm text-gray-500 px-1">No stdout/stderr was captured for this run.</p>
+      )}
     </div>
   );
 }

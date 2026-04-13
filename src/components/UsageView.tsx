@@ -47,6 +47,7 @@ export default function UsageView() {
   if (!data) return null;
 
   const t = data.terminals;
+  const statusLooksLikeUnknownSkill = (t?.status ?? '').toLowerCase().includes('unknown skill');
 
   return (
     <div className="space-y-8 pb-12">
@@ -61,6 +62,17 @@ export default function UsageView() {
           <User className="text-indigo-600" size={20} />
           <h3 className="text-lg font-bold text-gray-900">Account & Status</h3>
         </div>
+        {statusLooksLikeUnknownSkill && (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+            <p className="font-semibold">`/status` was not available in this non-interactive run.</p>
+            <p className="mt-1 text-amber-900/90">
+              Claude Code often treats <code className="rounded bg-amber-100/80 px-1">/status</code> as an interactive
+              command (press Esc to leave). Fields below stay empty until print mode supports it. Use the raw output
+              block to confirm; billing and context still come from <code className="rounded bg-amber-100/80 px-1">/cost</code>{' '}
+              and <code className="rounded bg-amber-100/80 px-1">/context</code>.
+            </p>
+          </div>
+        )}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           <StatusCard 
             icon={<Info className="text-blue-600" size={18} />}
@@ -214,37 +226,61 @@ export default function UsageView() {
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 space-y-6">
-            <div>
-              <h4 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                <BarChart3 size={16} />
-                Custom Agents
-              </h4>
-              <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-                {data.context.agents.map((agent, idx) => (
-                  <div key={idx} className="flex items-center justify-between text-sm">
-                    <span className="text-gray-600 font-medium">{agent.name}</span>
-                    <span className="text-gray-400 font-mono text-xs">{agent.tokens} tokens</span>
-                  </div>
-                ))}
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 space-y-4">
+            <h4 className="text-sm font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
+              <BarChart3 size={16} />
+              Custom Agents
+            </h4>
+            {data.context.agents.length === 0 ? (
+              <p className="text-sm text-gray-500">No agent rows parsed — check raw /context if you expected a table.</p>
+            ) : (
+              <div className="overflow-x-auto max-h-[420px] overflow-y-auto custom-scrollbar rounded-xl border border-gray-100">
+                <table className="w-full text-left text-sm border-collapse min-w-[280px]">
+                  <thead>
+                    <tr className="bg-gray-50/80 text-[10px] font-bold uppercase tracking-wider text-gray-500">
+                      <th className="px-3 py-2">Agent</th>
+                      <th className="px-3 py-2">Source</th>
+                      <th className="px-3 py-2 text-right">Tokens</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {data.context.agents.map((agent, idx) => (
+                      <tr key={idx} className="hover:bg-gray-50/60">
+                        <td className="px-3 py-2 font-medium text-gray-900 font-mono text-xs">{agent.name}</td>
+                        <td className="px-3 py-2 text-gray-600 text-xs">{agent.source ?? '—'}</td>
+                        <td className="px-3 py-2 text-right font-mono text-xs text-gray-700">{agent.tokens}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-            </div>
+            )}
           </div>
         </div>
 
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
-          <h4 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-6 flex items-center gap-2">
+          <h4 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
             <PieChart size={16} />
-            Skills Usage Breakdown
+            Skills
           </h4>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-            {data.context.skills.map((skill, idx) => (
-              <div key={idx} className="p-3 rounded-xl bg-gray-50/50 border border-gray-100 flex flex-col items-center text-center">
-                <span className="text-xs font-bold text-gray-900 truncate w-full">{skill.name}</span>
-                <span className="text-[10px] font-mono text-gray-400 mt-1">{skill.tokens} tokens</span>
-              </div>
-            ))}
-          </div>
+          {data.context.skills.length === 0 ? (
+            <p className="text-sm text-gray-500">No skill rows parsed — check raw /context if you expected a table.</p>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 max-h-[480px] overflow-y-auto custom-scrollbar pr-1">
+              {data.context.skills.map((skill, idx) => (
+                <div
+                  key={idx}
+                  className="p-3 rounded-xl bg-gray-50/50 border border-gray-100 flex flex-col gap-1 min-w-0"
+                >
+                  <span className="text-xs font-bold text-gray-900 truncate font-mono" title={skill.name}>
+                    {skill.name}
+                  </span>
+                  <span className="text-[10px] text-gray-500 truncate">{skill.source ?? '—'}</span>
+                  <span className="text-[10px] font-mono text-indigo-600">{skill.tokens}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {t?.context && (
@@ -254,30 +290,6 @@ export default function UsageView() {
           </details>
         )}
       </section>
-
-      {(t?.usage || t?.stats) && (
-        <section className="space-y-4">
-          <div className="flex items-center gap-2 px-1">
-            <Terminal className="text-gray-700" size={20} />
-            <h3 className="text-lg font-bold text-gray-900">Plan usage &amp; stats</h3>
-          </div>
-          <p className="text-xs text-gray-500 px-1">
-            From <code className="bg-gray-100 px-1 rounded">/usage</code> and <code className="bg-gray-100 px-1 rounded">/stats</code> (same as Claude Code terminal).
-          </p>
-          {t.usage && (
-            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
-              <h4 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-3">/usage</h4>
-              <pre className="text-xs font-mono text-gray-700 overflow-auto max-h-96 whitespace-pre-wrap">{t.usage}</pre>
-            </div>
-          )}
-          {t.stats && (
-            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
-              <h4 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-3">/stats</h4>
-              <pre className="text-xs font-mono text-gray-700 overflow-auto max-h-96 whitespace-pre-wrap">{t.stats}</pre>
-            </div>
-          )}
-        </section>
-      )}
 
       {data.exitCodes && (
         <p className="text-[10px] font-mono text-gray-400 px-1">

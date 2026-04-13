@@ -212,19 +212,15 @@ app.get('/api/usage', async (_req, res) => {
   const t = usageTimeoutMs();
   const modelArg = process.env.CLAUDE_USAGE_MODEL;
   try {
-    const [statusR, costR, contextR, usageR, statsR] = await Promise.all([
+    const [statusR, costR, contextR] = await Promise.all([
       runClaudePrint({ prompt: '/status', cwd, model: modelArg, timeoutMs: t, claudeBin: bin }),
       runClaudePrint({ prompt: '/cost', cwd, model: modelArg, timeoutMs: t, claudeBin: bin }),
-      runClaudePrint({ prompt: '/context', cwd, model: modelArg, timeoutMs: t, claudeBin: bin }),
-      runClaudePrint({ prompt: '/usage', cwd, model: modelArg, timeoutMs: t, claudeBin: bin }),
-      runClaudePrint({ prompt: '/stats', cwd, model: modelArg, timeoutMs: t, claudeBin: bin })
+      runClaudePrint({ prompt: '/context', cwd, model: modelArg, timeoutMs: t, claudeBin: bin })
     ]);
 
     const statusText = [statusR.stdout, statusR.stderr].filter(Boolean).join('\n');
     const costText = [costR.stdout, costR.stderr].filter(Boolean).join('\n');
     const contextText = [contextR.stdout, contextR.stderr].filter(Boolean).join('\n');
-    const usageText = [usageR.stdout, usageR.stderr].filter(Boolean).join('\n');
-    const statsText = [statsR.stdout, statsR.stderr].filter(Boolean).join('\n');
 
     res.json({
       status: parseStatusOutput(statusText),
@@ -233,16 +229,12 @@ app.get('/api/usage', async (_req, res) => {
       terminals: {
         status: statusText,
         cost: costText,
-        context: contextText,
-        usage: usageText,
-        stats: statsText
+        context: contextText
       },
       exitCodes: {
         status: statusR.code,
         cost: costR.code,
-        context: contextR.code,
-        usage: usageR.code,
-        stats: statsR.code
+        context: contextR.code
       }
     });
   } catch (e) {
