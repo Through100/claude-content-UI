@@ -89,6 +89,19 @@ export function parseUsageResetTargetUtc(line: string, ref: Date = new Date()): 
   const s = line.trim();
   if (!s) return null;
 
+  /**
+   * TUI sometimes renders "3am (UTC)" as "in 3m (UTC)" (broken "am" after "in ").
+   * With a `(UTC)` suffix, small values are almost always a clock hour, not "N minutes".
+   */
+  const corruptedInSmallMAndUtc = s.match(/\bResets?\s+in\s+(\d{1,2})\s*m\s*\([Uu][Tt][Cc]\)/i);
+  if (corruptedInSmallMAndUtc) {
+    const n = Number(corruptedInSmallMAndUtc[1]);
+    if (n >= 1 && n <= 12) {
+      const asClock = nextUtcFromCorruptedAmMarker(n, ref);
+      if (asClock) return asClock;
+    }
+  }
+
   const inRel = s.match(/\bResets?\s+in\s+((?:\d+\s*(?:d|h|m|s)\s*)+)/i);
   if (inRel) {
     const total = parseRelativeDurationMs(inRel[1]);
@@ -181,11 +194,17 @@ function nextWeekdayUtc(weekday: number, hm: { h: number; m: number }, ref: Date
  * Values above 12 are left unchanged so minute-style lines can still be parsed on the client.
  */
 export function normalizeCorruptedResetsAmUtcLine(line: string): string {
-  return line.replace(/\b(?:Resets?|Reses)\s*(\d{1,2})m\s*\((UTC)\)/gi, (_full, hour: string, utc: string) => {
+  let s = line.replace(/\b(?:Resets?|Reses)\s*(\d{1,2})m\s*\((UTC)\)/gi, (_full, hour: string, utc: string) => {
     const n = Number(hour);
     if (n >= 1 && n <= 12) return `Resets ${n}:00am (${utc})`;
     return _full;
   });
+  s = s.replace(/\b(Resets?)\s+in\s+(\d{1,2})\s*m\s*\((UTC)\)/gi, (_full, _r: string, hour: string, utc: string) => {
+    const n = Number(hour);
+    if (n >= 1 && n <= 12) return `Resets ${n}:00am (${utc})`;
+    return _full;
+  });
+  return s;
 }
 
 /** Human-readable countdown until target (UTC wall clock semantics). */
