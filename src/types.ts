@@ -146,31 +146,14 @@ export interface UsageTabInfo {
 
 export type UsageBillingMode = 'api_credits' | 'subscription';
 
-/** API GET /api/usage — raw `claude -p` stdout/stderr (audit Raw Output style). */
+/** API GET /api/usage and POST /api/usage/exec — one Claude subprocess, slash line sent like the interactive REPL (stdin), merged stdout/stderr. */
 export interface UsageInfo {
-  terminals: {
-    status: string;
-    usage: string;
-    /** Stats-style NL print probe (interactive equivalent: /stats). */
-    stats: string;
-    /** Combined NL fallback when the three primary probes are unusable. */
-    headless?: string;
-  };
-  exitCodes?: Record<string, number | null>;
-  /** Project `.claude/skills/*` folder names that match built-in slash names (can cause Unknown skill). */
-  skillConflicts?: string[];
-  /** Actionable troubleshooting lines from the API. */
-  hints?: string[];
-  /** All three primary probes returned Claude Code rate-limit text (each probe is a real model session). */
-  rateLimitBlocked?: boolean;
-  /** Read from ~/.claude/usage-exact.json when rate-limited (no extra -p session). */
-  localUsageExactJson?: string | null;
-  /** Output of `claude auth status --text` when rate-limited (lightweight CLI). */
-  claudeAuthStatusText?: string | null;
-  /** How primary panels were collected: shell argv (default), NL `-p`, or skipped. */
-  usageProbeMode?: 'shell' | 'nl' | 'none';
-  /** Only `/usage` was executed (default); Status/Stats panels are omitted. */
-  usageOnlyPrimary?: boolean;
+  /** Slash command that was executed (e.g. `/usage`). */
+  line: string;
+  /** ANSI-stripped combined stdout/stderr; server may append local `usage-exact.json` when output looks empty. */
+  output: string;
+  exitCode: number | null;
+  argv: string[];
 }
 
 export interface ModelOption {

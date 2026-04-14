@@ -16,116 +16,12 @@ import {
 } from './claudeRunner';
 import { appendHistoryItem, groupHistory, loadHistory } from './historyStore';
 import { parseSeoOutput } from '../shared/parseSeoOutput';
-import {
-  STATUS_AND_USAGE_TAB_HEADLESS_PROMPT,
-  STATUS_TAB_HEADLESS_PROMPT,
-  STATS_TAB_HEADLESS_PROMPT,
-  USAGE_TAB_HEADLESS_PROMPT
-} from './usageParse';
-import {
-  enrichUsagePanelWithLocalJsonWhenCliFails,
-  readUsageExactJsonFromHome,
-  runClaudeAuthStatusText
-} from './usageLocalSnapshot';
-import { runClaudeSlashShellProbe, stripAnsiForWeb } from './usageShellProbe';
+import { enrichUsagePanelWithLocalJsonWhenCliFails } from './usageLocalSnapshot';
+import { assertSafeSlashLine, runUsageInteractiveLine, stripAnsiForWeb } from './usageShellProbe';
 import { SEO_COMMANDS, type HistoryItem, type RunResponse, type SeoCommand } from '../src/types';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
-
-/** If a skill folder under `.claude/skills/` uses these names, built-in slash commands can break (Unknown skill). */
-const USAGE_SHADOW_SKILL_NAMES = new Set(
-  [
-    'status',
-    'usage',
-    'stats',
-    'cost',
-    'context',
-    'help',
-    'doctor',
-    'compact',
-    'clear',
-    'model',
-    'init',
-    'skills',
-    'run',
-    'loop',
-    'exit'
-  ].map((s) => s.toLowerCase())
-);
-
-function projectSkillShadows(projectDir: string): string[] {
-  const skillsDir = path.join(projectDir, '.claude', 'skills');
-  let dirs: string[] = [];
-  try {
-    dirs = fs
-      .readdirSync(skillsDir, { withFileTypes: true })
-      .filter((e) => e.isDirectory())
-      .map((e) => e.name);
-  } catch {
-    return [];
-  }
-  const out: string[] = [];
-  for (const d of dirs) {
-    if (USAGE_SHADOW_SKILL_NAMES.has(d.toLowerCase())) out.push(d);
-  }
-  return out;
-}
-
-function usageBareProbes(): boolean {
-  return ['1', 'true', 'yes'].includes((process.env.CLAUDE_USAGE_BARE_PROBES ?? '').toLowerCase());
-}
-
-function usageNlProbes(): boolean {
-  return ['1', 'true', 'yes'].includes((process.env.CLAUDE_USAGE_NL_PROBES ?? '').toLowerCase());
-}
-
-function usageNlFallback(): boolean {
-  return ['1', 'true', 'yes'].includes((process.env.CLAUDE_USAGE_NL_FALLBACK ?? '').toLowerCase());
-}
-
-/** Default on: one `/usage` probe (like a single `! claude /usage`). Set CLAUDE_USAGE_ONLY_USAGE=0 for /status and /stats too. */
-function usageOnlyUsagePrimary(): boolean {
-  const raw = (process.env.CLAUDE_USAGE_ONLY_USAGE ?? '1').toLowerCase();
-  return !['0', 'false', 'no'].includes(raw);
-}
-
-function buildUsageHints(skillShadows: string[], cwd: string): string[] {
-  const hints: string[] = [];
-  if (skillShadows.length) {
-    hints.push(
-      `This workspace (${cwd}) has .claude/skills subfolder(s) named: ${skillShadows.join(', ')}. Names that overlap built-in Claude Code commands are a common cause of every slash returning "Unknown skill" — rename, move, or remove those folders, then restart \`claude\`. See anthropics/claude-code#18754.`
-    );
-  }
-  hints.push(
-    'Update Claude Code on the machine that runs this API: npm i -g @anthropic-ai/claude-code@latest — then verify `claude --version` matches what you use interactively.'
-  );
-  if (usageNlProbes()) {
-    hints.push(
-      'CLAUDE_USAGE_NL_PROBES=1: primary panels use `claude -p` natural-language prompts (full model sessions). Unset it for the default shell-style `claude /usage` probe.'
-    );
-    hints.push(
-      'Optional CLAUDE_USAGE_BARE_PROBES=1 adds `--bare` on those `-p` runs (see Claude Code headless docs).'
-    );
-    hints.push(
-      'With NL probes, default is still a single /usage panel unless you set CLAUDE_USAGE_ONLY_USAGE=0 to add NL /status and /stats.'
-    );
-  } else {
-    hints.push(
-      'Default: spawn `claude /usage` directly with a cleaned environment (unsets npm_config_prefix so nvm in a subshell does not abort). Set CLAUDE_USAGE_BASH_LC=1 to wrap in `bash -c`; add CLAUDE_USAGE_BASH_LOGIN=1 for `bash -lc` if you need profile PATH.'
-    );
-  }
-  hints.push(
-    'By default only the `/usage` probe runs (one subprocess — closest to a single `! claude /usage`). Set CLAUDE_USAGE_ONLY_USAGE=0 on the API to also run `/status` and `/stats`.'
-  );
-  hints.push(
-    'CLAUDE_USAGE_NL_FALLBACK=1 enables a fourth combined `claude -p` natural-language run when all primary outputs look empty or like Unknown skill (uses the API).'
-  );
-  hints.push(
-    'CLAUDE_USAGE_SKIP_SLASH_PROBES=1 skips the three primary probes and runs only the combined `-p` fallback (still one model session unless you also avoid that path).'
-  );
-  return hints;
-}
 
 function claudeBin(): string {
   return process.env.CLAUDE_BIN || 'claude';
@@ -355,222 +251,62 @@ app.get('/api/history', async (_req, res) => {
   }
 });
 
+function usageRunMergedOutput(r: ClaudeRunResult): string {
+  const merged = [r.stdout, r.stderr].filter(Boolean).join('\n');
+  return enrichUsagePanelWithLocalJsonWhenCliFails(stripAnsiForWeb(merged));
+}
+
 app.get('/api/usage', async (_req, res) => {
   const cwd = workdir();
   const bin = claudeBin();
   const t = usageTimeoutMs();
   const modelArg = process.env.CLAUDE_USAGE_MODEL;
-  const skillConflicts = projectSkillShadows(cwd);
-  const hints = buildUsageHints(skillConflicts, cwd);
-  const skipSlash = ['1', 'true', 'yes'].includes((process.env.CLAUDE_USAGE_SKIP_SLASH_PROBES ?? '').toLowerCase());
-  const bare = usageBareProbes();
-  const nlProbes = usageNlProbes();
-  const nlFallback = usageNlFallback();
-  const usageOnly = usageOnlyUsagePrimary();
-
+  const line = '/usage';
   try {
-    const joinRun = (r: ClaudeRunResult): string =>
-      stripAnsiForWeb([r.stdout, r.stderr].filter(Boolean).join('\n'));
-
-    const printProbeUnusable = (raw: string): boolean => {
-      const s = raw.trim();
-      if (!s) return true;
-      return /unknown skill:/i.test(s);
-    };
-
-    const looksLikeClaudeRateLimitMessage = (raw: string): boolean => {
-      const s = raw.trim();
-      if (!s) return false;
-      return /you'?ve hit your limit|hit your limit\b|usage limit exceeded|rate limit exceeded|\b429\b/i.test(s);
-    };
-
-    const skippedLine =
-      '(not executed — CLAUDE_USAGE_SKIP_SLASH_PROBES=1 on the server. Unset or set to 0 to run the three primary probes from this host.)\n';
-
-    let statusR: ClaudeRunResult;
-    let usageR: ClaudeRunResult;
-    let statsR: ClaudeRunResult;
-    let statusRaw: string;
-    let usageRaw: string;
-    let statsRaw: string;
-
-    const noop: ClaudeRunResult = { stdout: '', stderr: '', code: null, signal: null, argv: [] };
-
-    if (skipSlash) {
-      statusR = usageR = statsR = noop;
-      statusRaw = usageRaw = statsRaw = skippedLine;
-    } else if (nlProbes && usageOnly) {
-      statusR = statsR = noop;
-      usageR = await runClaudePrint({
-        prompt: USAGE_TAB_HEADLESS_PROMPT,
-        cwd,
-        model: modelArg,
-        timeoutMs: t,
-        claudeBin: bin,
-        bare
-      });
-      statusRaw = '';
-      usageRaw = joinRun(usageR);
-      statsRaw = '';
-    } else if (nlProbes) {
-      [statusR, usageR, statsR] = await Promise.all([
-        runClaudePrint({
-          prompt: STATUS_TAB_HEADLESS_PROMPT,
-          cwd,
-          model: modelArg,
-          timeoutMs: t,
-          claudeBin: bin,
-          bare
-        }),
-        runClaudePrint({
-          prompt: USAGE_TAB_HEADLESS_PROMPT,
-          cwd,
-          model: modelArg,
-          timeoutMs: t,
-          claudeBin: bin,
-          bare
-        }),
-        runClaudePrint({
-          prompt: STATS_TAB_HEADLESS_PROMPT,
-          cwd,
-          model: modelArg,
-          timeoutMs: t,
-          claudeBin: bin,
-          bare
-        })
-      ]);
-      statusRaw = joinRun(statusR);
-      usageRaw = joinRun(usageR);
-      statsRaw = joinRun(statsR);
-    } else if (usageOnly) {
-      statusR = statsR = noop;
-      usageR = await runClaudeSlashShellProbe({
-        claudeBin: bin,
-        cwd,
-        slash: '/usage',
-        model: modelArg,
-        timeoutMs: t
-      });
-      statusRaw = '';
-      usageRaw = joinRun(usageR);
-      statsRaw = '';
-    } else {
-      [statusR, usageR, statsR] = await Promise.all([
-        runClaudeSlashShellProbe({
-          claudeBin: bin,
-          cwd,
-          slash: '/status',
-          model: modelArg,
-          timeoutMs: t
-        }),
-        runClaudeSlashShellProbe({
-          claudeBin: bin,
-          cwd,
-          slash: '/usage',
-          model: modelArg,
-          timeoutMs: t
-        }),
-        runClaudeSlashShellProbe({
-          claudeBin: bin,
-          cwd,
-          slash: '/stats',
-          model: modelArg,
-          timeoutMs: t
-        })
-      ]);
-      statusRaw = joinRun(statusR);
-      usageRaw = joinRun(usageR);
-      statsRaw = joinRun(statsR);
-    }
-
-    const allRateLimited =
-      !skipSlash &&
-      (usageOnly
-        ? looksLikeClaudeRateLimitMessage(usageRaw)
-        : looksLikeClaudeRateLimitMessage(statusRaw) &&
-          looksLikeClaudeRateLimitMessage(usageRaw) &&
-          looksLikeClaudeRateLimitMessage(statsRaw));
-
-    let headlessRaw = '';
-    let headlessCode: number | null = null;
-    const allPrimaryUnusable = usageOnly
-      ? printProbeUnusable(usageRaw)
-      : printProbeUnusable(statusRaw) && printProbeUnusable(usageRaw) && printProbeUnusable(statsRaw);
-
-    const needHeadless = skipSlash || (nlFallback && !allRateLimited && allPrimaryUnusable);
-    if (needHeadless) {
-      const hr = await runClaudePrint({
-        prompt: STATUS_AND_USAGE_TAB_HEADLESS_PROMPT,
-        cwd,
-        model: modelArg,
-        timeoutMs: t,
-        claudeBin: bin,
-        bare
-      });
-      headlessRaw = joinRun(hr);
-      headlessCode = hr.code;
-    }
-
-    const hintsOut = [...hints];
-    if (headlessRaw.trim() && printProbeUnusable(headlessRaw)) {
-      hintsOut.push(
-        'The combined natural-language `claude -p` fallback returned only "Unknown skill" or empty text. Confirm CLAUDE_WORKDIR, try CLAUDE_USAGE_NL_PROBES=1, or upgrade @anthropic-ai/claude-code.'
-      );
-    }
-    if (!skipSlash && !nlFallback && allPrimaryUnusable) {
-      hintsOut.push(
-        nlProbes
-          ? usageOnly
-            ? 'The NL /usage probe looks unusable. Set CLAUDE_USAGE_NL_FALLBACK=1 for a combined `claude -p` fallback, or unset CLAUDE_USAGE_ONLY_USAGE to run all three NL panels.'
-            : 'All three NL primary probes look unusable. Set CLAUDE_USAGE_NL_FALLBACK=1 for one more combined `claude -p` fallback run.'
-          : usageOnly
-            ? 'The /usage shell probe looks unusable. Set CLAUDE_USAGE_NL_FALLBACK=1 for a combined `claude -p` fallback, unset CLAUDE_USAGE_ONLY_USAGE for three shell probes, or CLAUDE_USAGE_NL_PROBES=1 for NL panels.'
-            : 'All three shell-style probes look unusable. Set CLAUDE_USAGE_NL_FALLBACK=1 for one combined `claude -p` fallback, or CLAUDE_USAGE_NL_PROBES=1 to use natural-language `-p` prompts on all three primary panels instead.'
-      );
-    }
-
-    let localUsageExactJson: string | null = null;
-    let claudeAuthStatusText: string | null = null;
-    if (allRateLimited) {
-      localUsageExactJson = readUsageExactJsonFromHome();
-      try {
-        claudeAuthStatusText = await runClaudeAuthStatusText(bin, cwd, Math.min(25_000, t));
-      } catch {
-        claudeAuthStatusText = null;
-      }
-    }
-
+    const r = await runUsageInteractiveLine({
+      claudeBin: bin,
+      cwd,
+      line,
+      model: modelArg,
+      timeoutMs: t
+    });
     res.json({
-      terminals: {
-        status: statusRaw,
-        usage: enrichUsagePanelWithLocalJsonWhenCliFails(usageRaw),
-        stats: statsRaw,
-        ...(headlessRaw.trim() ? { headless: headlessRaw } : {})
-      },
-      exitCodes: skipSlash
-        ? {
-            status: null,
-            usage: null,
-            stats: null,
-            ...(headlessCode !== null && headlessRaw.trim() ? { headless: headlessCode } : {})
-          }
-        : {
-            status: statusR.code,
-            usage: usageR.code,
-            stats: statsR.code,
-            ...(headlessCode !== null && headlessRaw.trim() ? { headless: headlessCode } : {})
-          },
-      ...(skillConflicts.length ? { skillConflicts } : {}),
-      hints: hintsOut,
-      ...(allRateLimited
-        ? {
-            rateLimitBlocked: true,
-            ...(localUsageExactJson ? { localUsageExactJson } : {}),
-            ...(claudeAuthStatusText ? { claudeAuthStatusText } : {})
-          }
-        : {}),
-      usageProbeMode: skipSlash ? 'none' : nlProbes ? 'nl' : 'shell',
-      ...(usageOnly ? { usageOnlyPrimary: true } : {})
+      line,
+      output: usageRunMergedOutput(r),
+      exitCode: r.code,
+      argv: r.argv
+    });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+app.post('/api/usage/exec', async (req, res) => {
+  const line = assertSafeSlashLine(req.body?.line);
+  if (!line) {
+    res.status(400).json({
+      error:
+        'Invalid line: send JSON { "line": "/usage" } — one slash command, letters/digits/_/- only, no spaces.'
+    });
+    return;
+  }
+  const cwd = workdir();
+  const bin = claudeBin();
+  const t = usageTimeoutMs();
+  const modelArg = process.env.CLAUDE_USAGE_MODEL;
+  try {
+    const r = await runUsageInteractiveLine({
+      claudeBin: bin,
+      cwd,
+      line,
+      model: modelArg,
+      timeoutMs: t
+    });
+    res.json({
+      line,
+      output: usageRunMergedOutput(r),
+      exitCode: r.code,
+      argv: r.argv
     });
   } catch (e) {
     res.status(500).json({ error: String(e) });

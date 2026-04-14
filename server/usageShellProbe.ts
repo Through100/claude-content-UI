@@ -83,3 +83,73 @@ export async function runClaudeSlashShellProbe(opts: {
   });
   return watchClaudeProcess(child, opts.timeoutMs, argv);
 }
+
+/**
+ * Send a slash line on **stdin** (like typing `/usage` in an interactive Claude session). This avoids argv paths
+ * where the CLI treats `/usage` as a skill slug and prints `Unknown skill: usage` (slash stripped for lookup).
+ */
+export async function runClaudeWithSlashViaStdin(opts: {
+  claudeBin: string;
+  cwd: string;
+  /** e.g. `/usage` — leading slash preserved in the bytes written to stdin */
+  line: string;
+  model?: string;
+  timeoutMs: number;
+}): Promise<ClaudeRunResult> {
+  const env = usageProbeCleanEnv();
+  const args = middleArgvPieces(opts.model);
+  const argv = [opts.claudeBin, ...args];
+  const child = spawn(opts.claudeBin, args, {
+    cwd: opts.cwd,
+    env,
+    stdio: ['pipe', 'pipe', 'pipe']
+  });
+  const payload = opts.line.endsWith('\n') ? opts.line : `${opts.line}\n`;
+  try {
+    child.stdin?.write(payload);
+  } catch {
+    /* ignore broken pipe */
+  }
+  try {
+    child.stdin?.end();
+  } catch {
+    /* ignore */
+  }
+  return watchClaudeProcess(child, opts.timeoutMs, argv);
+}
+
+/** Allowed single-line slash commands from the Usage terminal (no spaces, no shell metacharacters). */
+const SAFE_SLASH_LINE = /^\/[a-zA-Z][a-zA-Z0-9_-]{0,63}$/;
+
+export function assertSafeSlashLine(line: unknown): string | null {
+  if (typeof line !== 'string') return null;
+  const t = line.trim();
+  if (!SAFE_SLASH_LINE.test(t)) return null;
+  return t;
+}
+
+/**
+ * Prefer stdin `/…` (interactive-style). If output still looks like `Unknown skill:` for /status|/usage|/stats,
+ * retry once with argv `claude /…` (shell-style).
+ */
+export async function runUsageInteractiveLine(opts: {
+  claudeBin: string;
+  cwd: string;
+  line: string;
+  model?: string;
+  timeoutMs: number;
+}): Promise<ClaudeRunResult> {
+  const stdinR = await runClaudeWithSlashViaStdin(opts);
+  const blob = `${stdinR.stdout}\n${stdinR.stderr}`;
+  if (!/unknown skill:/i.test(blob)) return stdinR;
+  if (opts.line === '/status' || opts.line === '/usage' || opts.line === '/stats') {
+    return runClaudeSlashShellProbe({
+      claudeBin: opts.claudeBin,
+      cwd: opts.cwd,
+      slash: opts.line as UsageSlash,
+      model: opts.model,
+      timeoutMs: opts.timeoutMs
+    });
+  }
+  return stdinR;
+}

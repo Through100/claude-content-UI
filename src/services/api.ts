@@ -13,7 +13,7 @@ function runTimeoutMs(): number {
   return n;
 }
 
-/** Browser abort for GET /api/usage (server runs several Claude probes in parallel). */
+/** Browser abort for GET /api/usage (server runs one Claude child). */
 const DEFAULT_USAGE_FETCH_TIMEOUT_MS = 360_000;
 
 function usageFetchTimeoutMs(): number {
@@ -215,7 +215,7 @@ export const apiService = {
       if (aborted) {
         const min = Math.round(ms / 60000);
         throw new Error(
-          `Usage request timed out after ${min} minute(s). The API runs at least one primary probe (default: shell-style claude /usage only; set CLAUDE_USAGE_ONLY_USAGE=0 for /status and /stats too), then may run an optional combined claude -p fallback when CLAUDE_USAGE_NL_FALLBACK=1. Raise CLAUDE_USAGE_TIMEOUT_MS and VITE_USAGE_FETCH_TIMEOUT_MS (client should stay higher than the server timeout).`
+          `Usage request timed out after ${min} minute(s). Raise CLAUDE_USAGE_TIMEOUT_MS on the server and VITE_USAGE_FETCH_TIMEOUT_MS in the client (keep the client value higher than the server timeout).`
         );
       }
       throw e;
@@ -226,6 +226,39 @@ export const apiService = {
       throw new Error(t || `Usage request failed (${res.status})`);
     }
     return parseJson<UsageInfo>(res);
+  },
+
+  async postUsageExec(line: string): Promise<UsageInfo> {
+    const ms = usageFetchTimeoutMs();
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), ms);
+    let res: Response;
+    try {
+      res = await fetch(`${apiBase()}/api/usage/exec`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ line }),
+        signal: ctrl.signal
+      });
+    } catch (e) {
+      clearTimeout(timer);
+      const aborted =
+        (typeof DOMException !== 'undefined' && e instanceof DOMException && e.name === 'AbortError') ||
+        (e instanceof Error && e.name === 'AbortError');
+      if (aborted) {
+        const min = Math.round(ms / 60000);
+        throw new Error(
+          `Usage exec timed out after ${min} minute(s). Raise CLAUDE_USAGE_TIMEOUT_MS and VITE_USAGE_FETCH_TIMEOUT_MS.`
+        );
+      }
+      throw e;
+    }
+    clearTimeout(timer);
+    const data = await parseJson<UsageInfo & { error?: string }>(res);
+    if (!res.ok) {
+      throw new Error(data.error || `Usage exec failed (${res.status})`);
+    }
+    return data;
   },
 
   async getSystemStatus() {
@@ -245,9 +278,7 @@ export const apiService = {
       lastRun: '—',
       tokensUsed: '—',
       costRaw: '',
-      statusRaw: [info.terminals?.status, info.terminals?.usage, info.terminals?.stats, info.terminals?.headless]
-        .filter(Boolean)
-        .join('\n\n')
+      statusRaw: info.output || ''
     };
   }
 };
