@@ -452,8 +452,8 @@ function PrettyReport({ report, stats, rawOutput }: { report: ParsedReport; stat
             </div>
             <p className="text-sm text-gray-500 mt-4 leading-relaxed">
               {findingTotal > 0
-                ? `${findingTotal} finding(s) parsed into structured sections below.`
-                : 'No findings were parsed into structured sections; counts stay at zero even when the narrative lists issues.'}
+                ? `${findingTotal} total — structured findings below, plus any extra rows counted from numbered lists (1. 2. …) per severity block in the raw output.`
+                : 'No structured findings and no numbered list lines (e.g. 1. …) were detected under Critical / High / Medium / Low in the captured output.'}
             </p>
           </div>
         </div>

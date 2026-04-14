@@ -100,8 +100,101 @@ function countIssuesBySeverity(sections: ReportSection[]): IssuesBySeverity {
   return out;
 }
 
-function finalizeSummaryFromSections(summary: ParsedReport['summary'], sections: ReportSection[]): void {
-  summary.issuesBySeverity = countIssuesBySeverity(sections);
+/** Lines that start an ordered issue (1. …, **1.** …) — matches executive PDF / audit layouts. */
+function countOrderedIssueLines(text: string): number {
+  let n = 0;
+  for (const rawLine of text.split('\n')) {
+    const line = rawLine.replace(/\r$/, '').trimStart();
+    if (/^\d+\.\s+/.test(line) || /^\*\*\d+\.\*\*\s+/.test(line)) n++;
+  }
+  return n;
+}
+
+function mergeIssueCounts(a: IssuesBySeverity, b: IssuesBySeverity): IssuesBySeverity {
+  return {
+    critical: Math.max(a.critical, b.critical),
+    high: Math.max(a.high, b.high),
+    medium: Math.max(a.medium, b.medium),
+    low: Math.max(a.low, b.low),
+    passed: Math.max(a.passed, b.passed)
+  };
+}
+
+/** `## Issues Found` → each ### severity body: count `1.` / `2.` lines (even when **title** findings are not parsed). */
+function countIssuesBySeverityFromIssuesFoundMarkdown(raw: string): IssuesBySeverity | null {
+  const m = raw.match(ISSUES_FOUND_SECTION);
+  if (!m) return null;
+
+  const block = m[1];
+  const re = /^###\s+(.+)$/gm;
+  const matches: { title: string; start: number; len: number }[] = [];
+  let x: RegExpExecArray | null;
+  while ((x = re.exec(block)) !== null) {
+    matches.push({ title: x[1].trim(), start: x.index, len: x[0].length });
+  }
+  if (matches.length === 0) return null;
+
+  const out: IssuesBySeverity = { ...EMPTY_ISSUES_BY_SEVERITY };
+  let totalNumbered = 0;
+  for (let i = 0; i < matches.length; i++) {
+    const sev = mapIssuesSubheadingToSeverity(matches[i].title);
+    if (!sev || sev === 'passed') continue;
+    const bodyStart = matches[i].start + matches[i].len;
+    const bodyEnd = i + 1 < matches.length ? matches[i + 1].start : block.length;
+    const body = block.slice(bodyStart, bodyEnd);
+    const c = countOrderedIssueLines(body);
+    out[sev] += c;
+    totalNumbered += c;
+  }
+  return totalNumbered > 0 ? out : null;
+}
+
+/** Classic `Critical` / `High` / … blocks separated by blank line + next label (not only `🔴 **title**` parsing). */
+function countIssuesBySeverityFromClassicLabels(raw: string): IssuesBySeverity | null {
+  const nl = String.raw`\r?\n`;
+  const chain: { key: keyof IssuesBySeverity; label: string }[] = [
+    { key: 'critical', label: 'Critical' },
+    { key: 'high', label: 'High' },
+    { key: 'medium', label: 'Medium' },
+    { key: 'low', label: 'Low' }
+  ];
+  const out: IssuesBySeverity = { ...EMPTY_ISSUES_BY_SEVERITY };
+  let any = false;
+  for (let i = 0; i < chain.length; i++) {
+    const { key, label } = chain[i];
+    const esc = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const next = chain[i + 1];
+    const until = next
+      ? `(?=${nl}\\s*---|${nl}##\\s|(?:${nl}){2}${next.label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\s+Issues)?\\s*${nl})`
+      : `(?=${nl}\\s*---|${nl}##\\s|$)`;
+    const re = new RegExp(`(?:^|${nl})${esc}(?:\\s+Issues)?\\s*(?:${nl})+([\\s\\S]*?)${until}`, 'i');
+    const hit = raw.match(re);
+    if (hit?.[1]) {
+      const c = countOrderedIssueLines(hit[1]);
+      out[key] = c;
+      if (c > 0) any = true;
+    }
+  }
+  return any ? out : null;
+}
+
+function inferIssuesBySeverityFromNumberedLists(raw: string): IssuesBySeverity {
+  let merged: IssuesBySeverity = { ...EMPTY_ISSUES_BY_SEVERITY };
+  const md = countIssuesBySeverityFromIssuesFoundMarkdown(raw);
+  if (md) merged = mergeIssueCounts(merged, md);
+  const classic = countIssuesBySeverityFromClassicLabels(raw);
+  if (classic) merged = mergeIssueCounts(merged, classic);
+  return merged;
+}
+
+function finalizeSummaryFromSections(
+  summary: ParsedReport['summary'],
+  sections: ReportSection[],
+  raw: string
+): void {
+  const fromFindings = countIssuesBySeverity(sections);
+  const fromNumbers = inferIssuesBySeverityFromNumberedLists(raw);
+  summary.issuesBySeverity = mergeIssueCounts(fromFindings, fromNumbers);
   summary.highPriorityIssues = summary.issuesBySeverity.critical + summary.issuesBySeverity.high;
   if (summary.overallScore > 0) {
     applyStatusForScore(summary, summary.overallScore);
@@ -221,10 +314,10 @@ function parseMarkdownIssueFindings(body: string, severity: Severity): Finding[]
 
 function mapIssuesSubheadingToSeverity(heading: string): Severity | null {
   const h = heading.trim().toLowerCase();
-  if (h === 'critical') return 'critical';
-  if (h === 'high' || /^high\s+priority/.test(h)) return 'high';
-  if (h === 'medium' || /^medium\s+priority/.test(h)) return 'medium';
-  if (h === 'low' || /^low\s+priority/.test(h)) return 'low';
+  if (h === 'critical' || h === 'critical issues') return 'critical';
+  if (h === 'high' || h === 'high issues' || /^high\s+priority/.test(h)) return 'high';
+  if (h === 'medium' || h === 'medium issues' || /^medium\s+priority/.test(h)) return 'medium';
+  if (h === 'low' || h === 'low issues' || /^low\s+priority/.test(h)) return 'low';
   return null;
 }
 
@@ -398,7 +491,7 @@ export const parseSeoOutput = (raw: string): ParsedReport => {
     }
   }
 
-  finalizeSummaryFromSections(summary, sections);
+  finalizeSummaryFromSections(summary, sections, raw);
 
   const summaryMatch = raw.match(/Summary\n\n([\s\S]*?)(?=\n\n---|$)/);
   let rawSummary = summaryMatch ? summaryMatch[1].trim() : undefined;
