@@ -12,9 +12,48 @@ export function usageProbeCleanEnv(): NodeJS.ProcessEnv {
   return e;
 }
 
-/** Strip ANSI SGR sequences so Usage panels render cleanly in HTML `<pre>`. */
+/**
+ * Strip terminal escape sequences (CSI, OSC, DCS, etc.) so Usage output is plain text in HTML `<pre>`.
+ * Box-drawing and Unicode text are preserved; cursor movement and TUI redraw codes are removed.
+ */
 export function stripAnsiForWeb(text: string): string {
-  return text.replace(/\u001b\[[\d;]*[mGKH]/g, '').replace(/\u001b\]8;;[^\u0007]*\u0007/g, '');
+  let s = text;
+  for (let pass = 0; pass < 12; pass++) {
+    const before = s;
+    s = s
+      // CSI (cursor, SGR, modes, etc.): ESC [ … final byte @–~
+      .replace(/\u001b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]/g, '')
+      // 8-bit CSI introducer (C1), rare but safe to remove
+      .replace(/\u009b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]/g, '')
+      // OSC … BEL or ST (ESC + backslash), including hyperlinks
+      .replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\x5c)/g, '')
+      // DCS / APC / PM / SOS … ST
+      .replace(/\u001bP[\s\S]*?\u001b\x5c/g, '')
+      .replace(/\u001b_[\s\S]*?\u001b\x5c/g, '')
+      .replace(/\u001b\^[\s\S]*?\u001b\x5c/g, '')
+      .replace(/\u001bX[\s\S]*?\u001b\x5c/g, '')
+      // Charset selects and SS2/SS3
+      .replace(/\u001b[\(\)][\x20-\x7f]/g, '')
+      .replace(/\u001b[NO][\x20-\x7f]/g, '')
+      // DEC save/restore cursor
+      .replace(/\u001b[78]/g, '')
+      // Other common Fe escapes (single letter / symbol after ESC)
+      .replace(/\u001b[@-Z\\-_]/g, '')
+      // DEC line attributes: ESC # {3,4,5,6,8}
+      .replace(/\u001b#[\x20-\x7f]/g, '');
+    if (s === before) break;
+  }
+  s = s.replace(/\u001b\x5c/g, '');
+  // Any remaining ESC + one 7-bit follow-up (partial sequences)
+  for (let i = 0; i < 4; i++) {
+    const before = s;
+    s = s.replace(/\u001b[\x00-\x7f]/g, '');
+    if (s === before) break;
+  }
+  s = s.replace(/\u009b/g, '');
+  s = s.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  s = s.replace(/\n{5,}/g, '\n\n\n\n');
+  return s;
 }
 
 function shSingleQuote(s: string): string {

@@ -17,7 +17,7 @@ import {
 import { appendHistoryItem, groupHistory, loadHistory } from './historyStore';
 import { parseSeoOutput } from '../shared/parseSeoOutput';
 import { enrichUsagePanelWithLocalJsonWhenCliFails } from './usageLocalSnapshot';
-import { runBashUsage, stripAnsiForWeb } from './usageShellProbe';
+import { runBashUsage } from './usageShellProbe';
 import { SEO_COMMANDS, type HistoryItem, type RunResponse, type SeoCommand } from '../src/types';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
