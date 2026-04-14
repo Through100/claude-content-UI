@@ -21,8 +21,17 @@ function shSingleQuote(s: string): string {
   return `'${String(s).replace(/'/g, `'\"'\"'`)}'`;
 }
 
+function usageInnerTimeoutSpec(): string {
+  const raw = (process.env.CLAUDE_USAGE_BASH_USAGE_TIMEOUT_SPEC ?? '5s').trim() || '5s';
+  return /^[0-9]+(?:\.[0-9]+)?\s*(?:s|m|h|ms)?$/i.test(raw) ? raw.replace(/\s+/g, '') : '5s';
+}
+
 /**
- * Run `bash -c 'timeout 5s claude "/usage"'` and return the raw stdout+stderr.
+ * Run the same idea as `timeout 5s claude "/usage"` in bash.
+ *
+ * When stdout/stderr are pipes (Node spawn), `claude` often treats `/usage` as a **skill** and prints
+ * `Unknown skill: usage`. In a real terminal it is an interactive slash command. On Linux we wrap with
+ * **`script -qec '…' /dev/null`** (util-linux) so the child gets a **PTY**, matching your manual bash test.
  */
 export async function runBashUsage(opts: {
   claudeBin: string;
@@ -30,7 +39,17 @@ export async function runBashUsage(opts: {
   timeoutMs: number;
 }): Promise<{ output: string; exitCode: number | null; argv: string[] }> {
   const env = usageProbeCleanEnv();
-  const cmd = `timeout 5s ${shSingleQuote(opts.claudeBin)} "/usage"`;
+  const dur = usageInnerTimeoutSpec();
+  const inner = `timeout ${dur} ${shSingleQuote(opts.claudeBin)} "/usage"`;
+
+  const forceScript = ['1', 'true', 'yes'].includes((process.env.CLAUDE_USAGE_SCRIPT_PTY ?? '').toLowerCase());
+  const skipScript = ['1', 'true', 'yes'].includes((process.env.CLAUDE_USAGE_NO_SCRIPT_PTY ?? '').toLowerCase());
+  const useScript = !skipScript && (process.platform === 'linux' || forceScript);
+
+  const cmd = useScript
+    ? `if command -v script >/dev/null 2>&1; then script -qec ${shSingleQuote(inner)} /dev/null; else ${inner}; fi`
+    : inner;
+
   const argv = ['bash', '-c', cmd];
 
   return new Promise((resolve) => {
@@ -45,6 +64,15 @@ export async function runBashUsage(opts: {
     child.stderr?.on('data', (d: Buffer) => chunks.push(d));
 
     const timer = setTimeout(() => child.kill('SIGTERM'), opts.timeoutMs);
+
+    child.on('error', () => {
+      clearTimeout(timer);
+      resolve({
+        output: stripAnsiForWeb(Buffer.concat(chunks).toString()),
+        exitCode: null,
+        argv
+      });
+    });
 
     child.on('close', (code) => {
       clearTimeout(timer);

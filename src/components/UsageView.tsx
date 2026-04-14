@@ -45,7 +45,9 @@ export default function UsageView() {
         <p className="text-gray-700 font-medium">Running /usage…</p>
         <p className="text-sm font-mono text-indigo-600 mt-2">{loadElapsedSec}s elapsed</p>
         <p className="text-sm text-gray-500 text-center mt-4 leading-relaxed">
-          Running <code className="text-xs bg-gray-100 px-1 rounded">bash -c &apos;timeout 5s claude &quot;/usage&quot;&apos;</code> on the server…
+          On Linux the server wraps <code className="text-xs bg-gray-100 px-1 rounded">script -qec &apos;timeout … claude &quot;/usage&quot;&apos; /dev/null</code> so
+          <code className="text-xs bg-gray-100 px-1 rounded"> claude</code> gets a PTY (avoids <code className="text-xs bg-gray-100 px-1 rounded">Unknown skill: usage</code> from piped I/O). Otherwise the same inner{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">timeout … claude &quot;/usage&quot;</code> runs without <code className="text-xs bg-gray-100 px-1 rounded">script</code>.
         </p>
       </div>
     );
@@ -62,7 +64,8 @@ export default function UsageView() {
 
       <div className="flex items-center justify-between">
         <p className="text-sm text-gray-600 leading-relaxed">
-          Runs <code className="text-xs bg-gray-100 px-1 rounded">bash -c &apos;timeout 5s claude &quot;/usage&quot;&apos;</code> on the server and displays the raw output.
+          Runs <code className="text-xs bg-gray-100 px-1 rounded">bash -c …</code> on the server (Linux: inside{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">script -qec … /dev/null</code> for a PTY when <code className="text-xs bg-gray-100 px-1 rounded">script</code> exists) and shows the combined stdout/stderr. See <code className="text-xs bg-gray-100 px-1 rounded">argv</code> below for the exact command.
         </p>
         <button
           type="button"
@@ -86,8 +89,8 @@ export default function UsageView() {
               <span className="text-[10px] font-mono text-gray-500 uppercase tracking-widest shrink-0">
                 Terminal output
               </span>
-              <code className="text-[10px] font-mono text-amber-200/90 truncate text-right">
-                bash -c &apos;timeout 5s claude &quot;/usage&quot;&apos;
+              <code className="text-[10px] font-mono text-amber-200/90 truncate text-right max-w-[55%]">
+                {data.argv?.length ? JSON.stringify(data.argv) : 'bash'}
               </code>
             </div>
             <pre className="p-6 text-sm font-mono text-gray-300 overflow-auto max-h-[min(75vh,720px)] leading-relaxed whitespace-pre-wrap">

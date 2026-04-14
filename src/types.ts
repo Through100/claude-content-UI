@@ -162,7 +162,7 @@ export type UsageBillingMode = 'api_credits' | 'subscription';
 export interface UsageInfo {
   /** Slash command that was run (always `/usage`). */
   line: string;
-  /** Always `bash_quoted_usage` — output of `bash -c 'timeout 5s claude "/usage"'`. */
+  /** Output from the server bash probe (`timeout … claude "/usage"`, often inside `script` for a PTY on Linux). */
   execMode: 'bash_quoted_usage';
   /** ANSI-stripped combined stdout/stderr. */
   output: string;
