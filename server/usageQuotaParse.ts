@@ -51,6 +51,26 @@ function pickBarLine(body: string[]): { barLine: string | undefined; percent: nu
   return { barLine: undefined, percent: null };
 }
 
+/** Lines that are TUI chrome, not quota metadata. */
+const PRETTY_DETAIL_NOISE = /^\s*esc\s+to\s+cancel\s*$/i;
+
+function cleanUsageDetailLine(line: string): string {
+  return line
+    .replace(/\s*[·•]\s*Esc\s+to\s+cancel\s*$/i, '')
+    .replace(/\s*,\s*Esc\s+to\s+cancel\s*$/i, '')
+    .trim();
+}
+
+function filterUsageDetailLines(lines: string[]): string[] {
+  const out: string[] = [];
+  for (const raw of lines) {
+    if (PRETTY_DETAIL_NOISE.test(raw)) continue;
+    const t = cleanUsageDetailLine(raw);
+    if (t.length > 0) out.push(t);
+  }
+  return out;
+}
+
 const HEADER_SPECS: { id: UsageQuotaSectionId; re: RegExp; defaultTitle: string }[] = [
   { id: 'current_session', re: /^Current\s+session\b/i, defaultTitle: 'Current session' },
   {
@@ -93,7 +113,7 @@ export function parseUsageQuotaSnapshot(raw: string): UsageQuotaSnapshot {
       .filter((l) => l.length > 0);
 
     const { barLine, percent } = pickBarLine(body);
-    const detailLines = barLine ? body.filter((l) => l !== barLine) : [...body];
+    const detailLines = filterUsageDetailLines(barLine ? body.filter((l) => l !== barLine) : [...body]);
 
     sections.push({
       id,

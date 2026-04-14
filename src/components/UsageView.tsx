@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { FileText, Terminal } from 'lucide-react';
 import { apiService } from '../services/api';
 import type { UsageInfo, UsageQuotaSection, UsageQuotaSnapshot } from '../types';
+import { formatResetCountdown, parseUsageResetTargetUtc } from '../utils/usageResetRelative';
 
 const EMPTY_QUOTA_SNAPSHOT: UsageQuotaSnapshot = {
   parseOk: false,
@@ -11,6 +12,26 @@ const EMPTY_QUOTA_SNAPSHOT: UsageQuotaSnapshot = {
     { id: 'extra_usage', title: 'Extra usage', percentUsed: null, detailLines: [], matched: false }
   ]
 };
+
+function UsageDetailLine({ line }: { line: string }) {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+  const target = parseUsageResetTargetUtc(line, now);
+  return (
+    <li className="space-y-1">
+      <div className="font-mono text-xs sm:text-sm text-gray-600 leading-snug">{line}</div>
+      {target ? (
+        <p className="text-xs font-medium text-indigo-600 tabular-nums pl-0.5">
+          <span className="text-gray-500 font-normal">Time until reset </span>
+          {formatResetCountdown(target, now)}
+        </p>
+      ) : null}
+    </li>
+  );
+}
 
 function UsageQuotaCard({ section }: { section: UsageQuotaSection }) {
   const isPlaceholder = section.matched === false;
@@ -45,11 +66,9 @@ function UsageQuotaCard({ section }: { section: UsageQuotaSection }) {
             </pre>
           ) : null}
           {section.detailLines.length > 0 ? (
-            <ul className="mt-3 space-y-1.5 text-sm text-gray-600 leading-snug">
+            <ul className="mt-3 space-y-2.5 text-sm text-gray-600 leading-snug">
               {section.detailLines.map((l, i) => (
-                <li key={i} className="font-mono text-xs sm:text-sm">
-                  {l}
-                </li>
+                <UsageDetailLine key={`${i}:${l.slice(0, 48)}`} line={l} />
               ))}
             </ul>
           ) : null}
