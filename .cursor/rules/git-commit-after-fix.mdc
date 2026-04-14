@@ -1,15 +1,15 @@
 ---
-description: After completing a fix, commit and push unless the user opts out
+description: Automatically commit and push after completed work unless the user opts out
 alwaysApply: true
 ---
 
-# Git: commit and push after fixes
+# Git: commit and push automatically
 
-Unless the user explicitly says **not** to commit/push for this task (or says to stop doing this in general):
+Unless the user explicitly says **not** to commit/push for **this** task (or says to stop doing this in general):
 
-1. When a fix or requested change is done and the working tree has changes, **commit** with a clear message (what changed and why, in full sentences).
-2. **Push** to `origin` on the current branch (typically `main`).
+1. **Do not wait** for the user to type "commit and push" — when a fix, feature, doc update, or any requested change is **done** and the working tree has changes, **commit** with a clear message (what changed and why, in full sentences).
+2. **Push** to `origin` on the current branch (typically `main`) in the same turn when possible.
 
-Run `npm run lint` (or the project’s usual check) before committing when the change touches code. If lint fails, fix first—do not push broken checks.
+Run `npm run lint` (or the project’s usual check) before committing when the change touches code. If lint fails, fix first — do not push broken checks.
 
-If there is nothing to commit, skip git steps.
+If there is **nothing** to commit, skip git steps.
