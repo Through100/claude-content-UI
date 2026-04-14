@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
-import { watchClaudeProcess, type ClaudeRunResult } from './claudeRunner';
+import { runClaudePrint, watchClaudeProcess, type ClaudeRunResult } from './claudeRunner';
+import { USAGE_TAB_HEADLESS_PROMPT } from './usageParse';
 
 export type UsageSlash = '/status' | '/usage' | '/stats';
 
@@ -128,9 +129,41 @@ export function assertSafeSlashLine(line: unknown): string | null {
   return t;
 }
 
+function usageBareProbes(): boolean {
+  return ['1', 'true', 'yes'].includes((process.env.CLAUDE_USAGE_BARE_PROBES ?? '').toLowerCase());
+}
+
+/** Force stdin/argv slash for `/usage` (opens the interactive TUI; often hangs without a TTY). Default: off. */
+function usageUsagePreferInteractiveSlash(): boolean {
+  return ['1', 'true', 'yes'].includes((process.env.CLAUDE_USAGE_USAGE_INTERACTIVE_SLASH ?? '').toLowerCase());
+}
+
+/**
+ * Interactive `/usage` is a tabbed TUI that expects keys (e.g. Esc) and often never exits under piped stdio.
+ * Default: one `claude -p` headless run that reproduces the **Usage** tab text and exits (same idea as dashboard NL probes).
+ */
+async function runUsageTabNonInteractive(opts: {
+  claudeBin: string;
+  cwd: string;
+  model?: string;
+  timeoutMs: number;
+}): Promise<ClaudeRunResult> {
+  return runClaudePrint({
+    prompt: USAGE_TAB_HEADLESS_PROMPT,
+    cwd: opts.cwd,
+    model: opts.model,
+    timeoutMs: opts.timeoutMs,
+    claudeBin: opts.claudeBin,
+    bare: usageBareProbes()
+  });
+}
+
 /**
  * Prefer stdin `/…` (interactive-style). If output still looks like `Unknown skill:` for /status|/usage|/stats,
  * retry once with argv `claude /…` (shell-style).
+ *
+ * `/usage` alone: headless Usage-tab fill by default (see `runUsageTabNonInteractive`). Opt in to slash/TUI with
+ * `CLAUDE_USAGE_USAGE_INTERACTIVE_SLASH=1`.
  */
 export async function runUsageInteractiveLine(opts: {
   claudeBin: string;
@@ -139,6 +172,10 @@ export async function runUsageInteractiveLine(opts: {
   model?: string;
   timeoutMs: number;
 }): Promise<ClaudeRunResult> {
+  if (opts.line === '/usage' && !usageUsagePreferInteractiveSlash()) {
+    return runUsageTabNonInteractive(opts);
+  }
+
   const stdinR = await runClaudeWithSlashViaStdin(opts);
   const blob = `${stdinR.stdout}\n${stdinR.stderr}`;
   if (!/unknown skill:/i.test(blob)) return stdinR;

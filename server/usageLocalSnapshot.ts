@@ -41,14 +41,24 @@ export async function runClaudeAuthStatusText(
   }
 }
 
-/** When `claude /usage` cannot render (Unknown skill, nvm/npm_prefix noise), append on-disk usage JSON if present. */
-export function enrichUsagePanelWithLocalJsonWhenCliFails(raw: string): string {
+export type EnrichUsageSnapshotOpts = {
+  /** When set (e.g. only for `/usage`), also append `usage-exact.json` if stdout/stderr merged to nothing useful. */
+  treatEmptyAsFailure?: boolean;
+};
+
+/** When usage probes fail (Unknown skill, nvm noise) or optionally empty `/usage` output, append on-disk usage JSON if present. */
+export function enrichUsagePanelWithLocalJsonWhenCliFails(
+  raw: string,
+  opts?: EnrichUsageSnapshotOpts
+): string {
+  const empty = !raw.trim();
   const bad =
     /unknown skill:\s*usage/i.test(raw) ||
     /nvm is not compatible/i.test(raw) ||
     /npm_config_prefix/i.test(raw);
-  if (!bad) return raw;
+  const wantSnapshot = bad || (opts?.treatEmptyAsFailure === true && empty);
+  if (!wantSnapshot) return raw;
   const j = readUsageExactJsonFromHome();
   if (!j) return raw;
-  return `${raw.trimEnd()}\n\n--- ~/.claude/usage-exact.json (local snapshot; CLI did not return interactive /usage text here) ---\n${j}`;
+  return `${raw.trimEnd()}\n\n--- ~/.claude/usage-exact.json (local snapshot; CLI did not return usable /usage text here) ---\n${j}`;
 }

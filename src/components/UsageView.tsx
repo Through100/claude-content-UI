@@ -74,9 +74,12 @@ export default function UsageView() {
         <p className="text-gray-700 font-medium">Running {DEFAULT_LINE}…</p>
         <p className="text-sm font-mono text-indigo-600 mt-2">{loadElapsedSec}s elapsed</p>
         <p className="text-sm text-gray-500 text-center mt-4 leading-relaxed">
-          The API sends the slash line on Claude&apos;s stdin (like typing in the interactive terminal), not as a skill
-          argv slug — so you should not see <code className="text-xs bg-gray-100 px-1 rounded">Unknown skill: usage</code>{' '}
-          from a dropped <code className="text-xs bg-gray-100 px-1 rounded">/</code> alone.
+          Default <code className="text-xs bg-gray-100 px-1 rounded">/usage</code> uses a one-shot{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">claude -p</code> prompt that reproduces the{' '}
+          <strong>Usage</strong> tab (plan limits, weekly %, resets) and exits — not the interactive /usage TUI that
+          needs Esc. Other slash lines use stdin like the REPL. Set{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">CLAUDE_USAGE_USAGE_INTERACTIVE_SLASH=1</code> on the server
+          to force the old slash/stdin path for <code className="text-xs bg-gray-100 px-1 rounded">/usage</code>.
         </p>
       </div>
     );
@@ -92,8 +95,9 @@ export default function UsageView() {
       )}
 
       <p className="text-sm text-gray-600 leading-relaxed">
-        Enter a single slash command (same shape as in Claude Code). <strong>Run</strong> sends it to the server;{' '}
-        <strong>Refresh /usage</strong> runs the default GET <code className="text-xs bg-gray-100 px-1 rounded">/usage</code>.
+        Enter a single slash command. <strong>Run</strong> executes it on the server;{' '}
+        <strong>Refresh /usage</strong> loads the default Usage tab snapshot (headless, exits on its own). Other commands
+        (e.g. <code className="text-xs bg-gray-100 px-1 rounded">/context</code>) use the REPL-style runner.
       </p>
 
       <div className="flex flex-wrap items-center gap-2">

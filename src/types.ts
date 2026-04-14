@@ -146,7 +146,7 @@ export interface UsageTabInfo {
 
 export type UsageBillingMode = 'api_credits' | 'subscription';
 
-/** API GET /api/usage and POST /api/usage/exec — one Claude subprocess, slash line sent like the interactive REPL (stdin), merged stdout/stderr. */
+/** API GET /api/usage and POST /api/usage/exec — merged stdout/stderr. `/usage` uses a headless `-p` Usage-tab fill; other lines use REPL-style stdin where supported. */
 export interface UsageInfo {
   /** Slash command that was executed (e.g. `/usage`). */
   line: string;

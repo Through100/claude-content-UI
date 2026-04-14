@@ -251,9 +251,12 @@ app.get('/api/history', async (_req, res) => {
   }
 });
 
-function usageRunMergedOutput(r: ClaudeRunResult): string {
+function usageRunMergedOutput(
+  r: ClaudeRunResult,
+  enrichOpts?: { treatEmptyAsFailure?: boolean }
+): string {
   const merged = [r.stdout, r.stderr].filter(Boolean).join('\n');
-  return enrichUsagePanelWithLocalJsonWhenCliFails(stripAnsiForWeb(merged));
+  return enrichUsagePanelWithLocalJsonWhenCliFails(stripAnsiForWeb(merged), enrichOpts);
 }
 
 app.get('/api/usage', async (_req, res) => {
@@ -272,7 +275,7 @@ app.get('/api/usage', async (_req, res) => {
     });
     res.json({
       line,
-      output: usageRunMergedOutput(r),
+      output: usageRunMergedOutput(r, { treatEmptyAsFailure: true }),
       exitCode: r.code,
       argv: r.argv
     });
@@ -304,7 +307,7 @@ app.post('/api/usage/exec', async (req, res) => {
     });
     res.json({
       line,
-      output: usageRunMergedOutput(r),
+      output: usageRunMergedOutput(r, { treatEmptyAsFailure: line === '/usage' }),
       exitCode: r.code,
       argv: r.argv
     });
