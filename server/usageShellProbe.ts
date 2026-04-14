@@ -138,12 +138,61 @@ function usageUsagePreferInteractiveSlash(): boolean {
   return ['1', 'true', 'yes'].includes((process.env.CLAUDE_USAGE_USAGE_INTERACTIVE_SLASH ?? '').toLowerCase());
 }
 
-/** How the server satisfied this slash line (for UI / debugging — not “stripped /”). */
-export type UsageExecMode = 'headless_usage_tab' | 'repl_stdin';
+/**
+ * On Unix, run `timeout … claude "/usage"` under bash (real Usage TUI frame before SIGTERM). Default on; set
+ * `CLAUDE_USAGE_BASH_QUOTED_USAGE=0` to skip. Windows: off (no bash); use WSL or headless `-p` instead.
+ */
+function usageBashQuotedUsageEnabled(): boolean {
+  if (process.platform === 'win32') return false;
+  return !['0', 'false', 'no'].includes((process.env.CLAUDE_USAGE_BASH_QUOTED_USAGE ?? '1').toLowerCase());
+}
 
-export function usageExecModeForLine(line: string): UsageExecMode {
-  if (line === '/usage' && !usageUsagePreferInteractiveSlash()) return 'headless_usage_tab';
-  return 'repl_stdin';
+function safeTimeoutSpec(): string {
+  const raw = (process.env.CLAUDE_USAGE_BASH_USAGE_TIMEOUT_SPEC ?? '5s').trim() || '5s';
+  return /^[0-9]+(?:\.[0-9]+)?[smh]?$/i.test(raw) ? raw : '5s';
+}
+
+function usageOutputLooksLikeUsageTui(blob: string): boolean {
+  const s = blob.trim();
+  if (s.length < 30) return false;
+  if (/unknown skill:/i.test(s)) return false;
+  return /% used|Current session|current week|weekly|extra usage|resets|UTC|█/i.test(s);
+}
+
+/** How the server satisfied this slash line (for UI / debugging). */
+export type UsageExecMode = 'bash_quoted_usage' | 'headless_usage_tab' | 'repl_stdin';
+
+/**
+ * Bash + optional GNU `timeout` + `claude "/usage"` — captures the same TUI-ish stdout as your shell workaround
+ * (`timeout 5s claude "/usage"`). Uses `timeout` when `command -v timeout` succeeds; otherwise relies on the API
+ * watch cap to SIGTERM the child.
+ */
+async function runClaudeQuotedUsageViaBash(opts: {
+  claudeBin: string;
+  cwd: string;
+  model?: string;
+  timeoutMs: number;
+}): Promise<ClaudeRunResult> {
+  const env = usageProbeCleanEnv();
+  const mid = middleArgvPieces(opts.model);
+  const midStr = mid.length ? ` ${mid.map(shSingleQuote).join(' ')}` : '';
+  const dur = safeTimeoutSpec();
+  const binQ = shSingleQuote(opts.claudeBin);
+  const inner = `cd ${shSingleQuote(opts.cwd)} && if command -v timeout >/dev/null 2>&1; then timeout ${dur} ${binQ}${midStr} "/usage"; else ${binQ}${midStr} "/usage"; fi`;
+  const login = ['1', 'true', 'yes'].includes((process.env.CLAUDE_USAGE_BASH_LOGIN ?? '').toLowerCase());
+  const flag = login ? '-lc' : '-c';
+  const child = spawn('bash', [flag, inner], {
+    cwd: opts.cwd,
+    env,
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+  const argv = ['bash', flag, inner];
+  const capRaw = parseInt(process.env.CLAUDE_USAGE_BASH_WATCH_CAP_MS ?? '', 10);
+  const cap = Math.min(
+    opts.timeoutMs,
+    Number.isFinite(capRaw) && capRaw >= 3000 ? capRaw : 30_000
+  );
+  return watchClaudeProcess(child, cap, argv);
 }
 
 /**
@@ -170,7 +219,8 @@ async function runUsageTabNonInteractive(opts: {
  * Prefer stdin `/…` (interactive-style). If output still looks like `Unknown skill:` for /status|/usage|/stats,
  * retry once with argv `claude /…` (shell-style).
  *
- * `/usage` alone: headless Usage-tab fill by default (see `runUsageTabNonInteractive`). Opt in to slash/TUI with
+ * `/usage` (default): on Unix try `bash -c 'timeout … claude "/usage"'` for real TUI stdout; if unusable, fall back to
+ * headless `-p` Usage-tab fill. Opt out of bash with `CLAUDE_USAGE_BASH_QUOTED_USAGE=0`. Opt in to stdin slash with
  * `CLAUDE_USAGE_USAGE_INTERACTIVE_SLASH=1`.
  */
 export async function runUsageInteractiveLine(opts: {
@@ -179,22 +229,30 @@ export async function runUsageInteractiveLine(opts: {
   line: string;
   model?: string;
   timeoutMs: number;
-}): Promise<ClaudeRunResult> {
+}): Promise<{ result: ClaudeRunResult; execMode: UsageExecMode }> {
   if (opts.line === '/usage' && !usageUsagePreferInteractiveSlash()) {
-    return runUsageTabNonInteractive(opts);
+    if (usageBashQuotedUsageEnabled()) {
+      const br = await runClaudeQuotedUsageViaBash(opts);
+      if (usageOutputLooksLikeUsageTui(`${br.stdout}\n${br.stderr}`)) {
+        return { result: br, execMode: 'bash_quoted_usage' };
+      }
+    }
+    const hr = await runUsageTabNonInteractive(opts);
+    return { result: hr, execMode: 'headless_usage_tab' };
   }
 
   const stdinR = await runClaudeWithSlashViaStdin(opts);
   const blob = `${stdinR.stdout}\n${stdinR.stderr}`;
-  if (!/unknown skill:/i.test(blob)) return stdinR;
+  if (!/unknown skill:/i.test(blob)) return { result: stdinR, execMode: 'repl_stdin' };
   if (opts.line === '/status' || opts.line === '/usage' || opts.line === '/stats') {
-    return runClaudeSlashShellProbe({
+    const ar = await runClaudeSlashShellProbe({
       claudeBin: opts.claudeBin,
       cwd: opts.cwd,
       slash: opts.line as UsageSlash,
       model: opts.model,
       timeoutMs: opts.timeoutMs
     });
+    return { result: ar, execMode: 'repl_stdin' };
   }
-  return stdinR;
+  return { result: stdinR, execMode: 'repl_stdin' };
 }
