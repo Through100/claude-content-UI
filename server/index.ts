@@ -17,7 +17,7 @@ import {
 import { appendHistoryItem, groupHistory, loadHistory } from './historyStore';
 import { parseSeoOutput } from '../shared/parseSeoOutput';
 import { enrichUsagePanelWithLocalJsonWhenCliFails } from './usageLocalSnapshot';
-import { assertSafeSlashLine, runUsageInteractiveLine, stripAnsiForWeb } from './usageShellProbe';
+import { runBashUsage, stripAnsiForWeb } from './usageShellProbe';
 import { SEO_COMMANDS, type HistoryItem, type RunResponse, type SeoCommand } from '../src/types';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -251,35 +251,18 @@ app.get('/api/history', async (_req, res) => {
   }
 });
 
-function usageRunMergedOutput(
-  r: ClaudeRunResult,
-  enrichOpts?: { treatEmptyAsFailure?: boolean }
-): string {
-  const merged = [r.stdout, r.stderr].filter(Boolean).join('\n');
-  return enrichUsagePanelWithLocalJsonWhenCliFails(stripAnsiForWeb(merged), enrichOpts);
-}
-
 app.get('/api/usage', async (_req, res) => {
   const cwd = workdir();
   const bin = claudeBin();
   const t = usageTimeoutMs();
-  const modelArg = process.env.CLAUDE_USAGE_MODEL;
-  const line = '/usage';
   try {
-    const { result: r, execMode, usageNote } = await runUsageInteractiveLine({
-      claudeBin: bin,
-      cwd,
-      line,
-      model: modelArg,
-      timeoutMs: t
-    });
+    const { output, exitCode, argv } = await runBashUsage({ claudeBin: bin, cwd, timeoutMs: t });
     res.json({
-      line,
-      execMode,
-      ...(usageNote ? { usageNote } : {}),
-      output: usageRunMergedOutput(r, { treatEmptyAsFailure: true }),
-      exitCode: r.code,
-      argv: r.argv
+      line: '/usage',
+      execMode: 'bash_quoted_usage',
+      output: enrichUsagePanelWithLocalJsonWhenCliFails(output, { treatEmptyAsFailure: true }),
+      exitCode,
+      argv
     });
   } catch (e) {
     res.status(500).json({ error: String(e) });
@@ -287,33 +270,17 @@ app.get('/api/usage', async (_req, res) => {
 });
 
 app.post('/api/usage/exec', async (req, res) => {
-  const line = assertSafeSlashLine(req.body?.line);
-  if (!line) {
-    res.status(400).json({
-      error:
-        'Invalid line: send JSON { "line": "/usage" } — one slash command, letters/digits/_/- only, no spaces.'
-    });
-    return;
-  }
   const cwd = workdir();
   const bin = claudeBin();
   const t = usageTimeoutMs();
-  const modelArg = process.env.CLAUDE_USAGE_MODEL;
   try {
-    const { result: r, execMode, usageNote } = await runUsageInteractiveLine({
-      claudeBin: bin,
-      cwd,
-      line,
-      model: modelArg,
-      timeoutMs: t
-    });
+    const { output, exitCode, argv } = await runBashUsage({ claudeBin: bin, cwd, timeoutMs: t });
     res.json({
-      line,
-      execMode,
-      ...(usageNote ? { usageNote } : {}),
-      output: usageRunMergedOutput(r, { treatEmptyAsFailure: line === '/usage' }),
-      exitCode: r.code,
-      argv: r.argv
+      line: '/usage',
+      execMode: 'bash_quoted_usage',
+      output: enrichUsagePanelWithLocalJsonWhenCliFails(output, { treatEmptyAsFailure: true }),
+      exitCode,
+      argv
     });
   } catch (e) {
     res.status(500).json({ error: String(e) });

@@ -158,17 +158,13 @@ export interface UsageTabInfo {
 
 export type UsageBillingMode = 'api_credits' | 'subscription';
 
-export type UsageExecMode = 'bash_quoted_usage' | 'headless_usage_tab' | 'repl_stdin';
-
 /** API GET /api/usage and POST /api/usage/exec — merged stdout/stderr. */
 export interface UsageInfo {
-  /** Slash command the user asked for (e.g. `/usage`). */
+  /** Slash command that was run (always `/usage`). */
   line: string;
-  /** How the server ran it: e.g. bash `timeout … claude "/usage"`, headless `-p`, or REPL stdin. */
-  execMode: UsageExecMode;
-  /** When headless ran after bash or bash was skipped: short server-side explanation (exit codes, stderr tail). */
-  usageNote?: string;
-  /** ANSI-stripped combined stdout/stderr; server may append local `usage-exact.json` when output looks empty. */
+  /** Always `bash_quoted_usage` — output of `bash -c 'timeout 5s claude "/usage"'`. */
+  execMode: 'bash_quoted_usage';
+  /** ANSI-stripped combined stdout/stderr. */
   output: string;
   exitCode: number | null;
   argv: string[];
