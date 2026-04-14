@@ -65,11 +65,6 @@ function UsageQuotaCard({ section }: { section: UsageQuotaSection }) {
               />
             </div>
           )}
-          {section.barLine ? (
-            <pre className="mt-4 text-[10px] leading-snug text-gray-600 font-mono overflow-x-auto whitespace-pre border-t border-gray-100 pt-3">
-              {section.barLine}
-            </pre>
-          ) : null}
           {section.detailLines.length > 0 ? (
             <ul className="mt-3 space-y-2.5 text-sm text-gray-600 leading-snug">
               {section.detailLines.map((l, i) => (
