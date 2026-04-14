@@ -24,11 +24,23 @@ export interface ScoreCategory {
   score: number;
 }
 
+/** Count of parsed findings per severity (executive summary third column). */
+export interface IssuesBySeverity {
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  passed: number;
+}
+
 export interface ParsedReport {
   summary: {
     overallScore: number;
+    /** Score-based label only (e.g. Excellent … Critical); not tied to issue severity mix. */
     status: string;
+    /** Critical + high finding counts; kept for older stored runs and simple totals. */
     highPriorityIssues: number;
+    issuesBySeverity: IssuesBySeverity;
     categories?: ScoreCategory[];
   };
   sections: ReportSection[];

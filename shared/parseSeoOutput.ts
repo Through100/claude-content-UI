@@ -1,4 +1,11 @@
-import type { ParsedReport, ReportSection, Finding, Severity, ScoreCategory } from '../src/types';
+import type {
+  ParsedReport,
+  ReportSection,
+  Finding,
+  Severity,
+  ScoreCategory,
+  IssuesBySeverity
+} from '../src/types';
 
 /** Shown when no Fix / structured bullets could be parsed (UI compares to this). */
 export const GENERIC_FINDING_RECOMMENDATION =
@@ -60,11 +67,45 @@ function parseStructuredBullets(body: string): Pick<
   return out;
 }
 
+const EMPTY_ISSUES_BY_SEVERITY: IssuesBySeverity = {
+  critical: 0,
+  high: 0,
+  medium: 0,
+  low: 0,
+  passed: 0
+};
+
+/** Status badge text from overall score only (independent of parsed issue sections). */
 function applyStatusForScore(summary: ParsedReport['summary'], score: number): void {
   summary.overallScore = score;
-  if (score >= 90) summary.status = 'Healthy';
-  else if (score >= 70) summary.status = 'Needs Improvement';
+  if (!Number.isFinite(score) || score <= 0) {
+    summary.status = 'Unknown';
+    return;
+  }
+  if (score >= 90) summary.status = 'Excellent';
+  else if (score >= 80) summary.status = 'Good';
+  else if (score >= 70) summary.status = 'Fair';
+  else if (score >= 55) summary.status = 'Needs work';
+  else if (score >= 40) summary.status = 'Poor';
   else summary.status = 'Critical';
+}
+
+function countIssuesBySeverity(sections: ReportSection[]): IssuesBySeverity {
+  const out: IssuesBySeverity = { ...EMPTY_ISSUES_BY_SEVERITY };
+  for (const s of sections) {
+    for (const f of s.findings) {
+      out[f.severity] += 1;
+    }
+  }
+  return out;
+}
+
+function finalizeSummaryFromSections(summary: ParsedReport['summary'], sections: ReportSection[]): void {
+  summary.issuesBySeverity = countIssuesBySeverity(sections);
+  summary.highPriorityIssues = summary.issuesBySeverity.critical + summary.issuesBySeverity.high;
+  if (summary.overallScore > 0) {
+    applyStatusForScore(summary, summary.overallScore);
+  }
 }
 
 /** Classic `Overall Score: 62/100` line. */
@@ -192,12 +233,9 @@ const ISSUES_FOUND_SECTION = /##\s*Issues\s+Found\s*\n+([\s\S]*?)(?=^##\s+|$)/im
 /**
  * Markdown `## Issues Found` / `### Critical` / `### High Priority` blocks with `🔴 **Title**` lines.
  */
-function parseMarkdownIssuesFound(raw: string): {
-  sections: ReportSection[];
-  highPriorityCount: number;
-} {
+function parseMarkdownIssuesFound(raw: string): { sections: ReportSection[] } {
   const m = raw.match(ISSUES_FOUND_SECTION);
-  if (!m) return { sections: [], highPriorityCount: 0 };
+  if (!m) return { sections: [] };
 
   const block = m[1];
   const re = /^###\s+(.+)$/gm;
@@ -206,7 +244,7 @@ function parseMarkdownIssuesFound(raw: string): {
   while ((x = re.exec(block)) !== null) {
     matches.push({ title: x[1].trim(), start: x.index, len: x[0].length });
   }
-  if (matches.length === 0) return { sections: [], highPriorityCount: 0 };
+  if (matches.length === 0) return { sections: [] };
 
   const bySeverity = new Map<Severity, Finding[]>();
   for (let i = 0; i < matches.length; i++) {
@@ -223,7 +261,6 @@ function parseMarkdownIssuesFound(raw: string): {
 
   const order: Severity[] = ['critical', 'high', 'medium', 'low'];
   const sections: ReportSection[] = [];
-  let highPriorityCount = 0;
   const labels: Record<Severity, string> = {
     critical: 'Critical Issues',
     high: 'High Issues',
@@ -236,10 +273,9 @@ function parseMarkdownIssuesFound(raw: string): {
     const findings = bySeverity.get(sev);
     if (!findings?.length) continue;
     sections.push({ title: labels[sev], score: 0, findings });
-    if (sev === 'critical' || sev === 'high') highPriorityCount += findings.length;
   }
 
-  return { sections, highPriorityCount };
+  return { sections };
 }
 
 function parseMarkdownSummary(raw: string): string | undefined {
@@ -252,6 +288,7 @@ export const parseSeoOutput = (raw: string): ParsedReport => {
     overallScore: 0,
     status: 'Unknown',
     highPriorityIssues: 0,
+    issuesBySeverity: { ...EMPTY_ISSUES_BY_SEVERITY },
     categories: []
   };
 
@@ -305,10 +342,6 @@ export const parseSeoOutput = (raw: string): ParsedReport => {
       const issues = content.split(/\d+\./).filter(s => s.trim());
 
       if (issues.length > 0) {
-        if (key === 'critical' || key === 'high') {
-          summary.highPriorityIssues += issues.length;
-        }
-
         const findings: Finding[] = issues.map(issueText => {
           const lines = issueText.trim().split('\n');
           const title = stripOuterMarkdownBold(lines[0].trim());
@@ -362,9 +395,10 @@ export const parseSeoOutput = (raw: string): ParsedReport => {
     const mdIssues = parseMarkdownIssuesFound(raw);
     if (mdIssues.sections.length > 0) {
       sections.push(...mdIssues.sections);
-      summary.highPriorityIssues = mdIssues.highPriorityCount;
     }
   }
+
+  finalizeSummaryFromSections(summary, sections);
 
   const summaryMatch = raw.match(/Summary\n\n([\s\S]*?)(?=\n\n---|$)/);
   let rawSummary = summaryMatch ? summaryMatch[1].trim() : undefined;

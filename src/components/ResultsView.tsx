@@ -1,6 +1,14 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { FileText, Terminal, Copy, Download, ChevronRight, AlertTriangle, CheckCircle, Info, ExternalLink, FileDown } from 'lucide-react';
-import { Finding, ParsedReport, ReportSection, RunResponse, RunStats, Severity } from '../types';
+import {
+  Finding,
+  IssuesBySeverity,
+  ParsedReport,
+  ReportSection,
+  RunResponse,
+  RunStats,
+  Severity
+} from '../types';
 import { AuditMarkdownSections, hasVisibleAuditNarrative } from './AuditMarkdown';
 import { motion, AnimatePresence } from 'motion/react';
 import { GENERIC_FINDING_RECOMMENDATION } from '../../shared/parseSeoOutput';
@@ -16,9 +24,23 @@ interface ResultsViewProps {
   liveTerminal?: string;
 }
 
+const ZERO_ISSUES: IssuesBySeverity = {
+  critical: 0,
+  high: 0,
+  medium: 0,
+  low: 0,
+  passed: 0
+};
+
 const EMPTY_PARSED_REPORT: ParsedReport = {
-  summary: { overallScore: 0, status: 'Unknown', highPriorityIssues: 0, categories: [] },
-  sections: [],
+  summary: {
+    overallScore: 0,
+    status: 'Unknown',
+    highPriorityIssues: 0,
+    issuesBySeverity: { ...ZERO_ISSUES },
+    categories: []
+  },
+  sections: []
 };
 
 function FindingDetailsExpand({ finding }: { finding: Finding }) {
@@ -344,9 +366,15 @@ export default function ResultsView({ result, isLoading, loadingStartedAt, liveT
   );
 }
 
+function issuesBySeverityOrLegacy(report: ParsedReport): IssuesBySeverity {
+  return report.summary.issuesBySeverity ?? { ...ZERO_ISSUES };
+}
+
 function PrettyReport({ report, stats, rawOutput }: { report: ParsedReport; stats: RunStats; rawOutput: string }) {
   const scorecard = hasParsedScorecard(report);
-  const sectionCount = report.sections?.length ?? 0;
+  const bySev = issuesBySeverityOrLegacy(report);
+  const findingTotal =
+    bySev.critical + bySev.high + bySev.medium + bySev.low + (bySev.passed ?? 0);
   const hidePageScoreCardNarrative =
     scorecard &&
     !!report.summary.categories &&
@@ -400,18 +428,32 @@ function PrettyReport({ report, stats, rawOutput }: { report: ParsedReport; stat
               <StatusBadge status={report.summary.status} />
             </div>
             <p className="text-sm text-gray-500 mt-4 leading-relaxed">
-              Based on {sectionCount} audit sections and technical analysis.
+              {report.summary.overallScore > 0 ? (
+                <>
+                  Tier from <strong>overall score</strong> ({report.summary.overallScore}/100), not from issue counts
+                  or section headers.
+                </>
+              ) : (
+                <>No overall score was detected in the output; status stays unknown until a score line is parsed.</>
+              )}
             </p>
           </div>
 
           <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
-            <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">High Priority Issues</span>
-            <div className="flex items-center gap-3 mt-2">
-              <span className="text-4xl font-bold text-red-600">{report.summary.highPriorityIssues}</span>
-              <AlertTriangle className="text-red-500" size={24} />
+            <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Issues by priority</span>
+            <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+              <SeverityCountRow label="Critical" count={bySev.critical} tone="critical" />
+              <SeverityCountRow label="High" count={bySev.high} tone="high" />
+              <SeverityCountRow label="Medium" count={bySev.medium} tone="medium" />
+              <SeverityCountRow label="Low" count={bySev.low} tone="low" />
+              {(bySev.passed ?? 0) > 0 ? (
+                <SeverityCountRow label="Passed" count={bySev.passed} tone="passed" />
+              ) : null}
             </div>
-            <p className="text-sm text-gray-500 mt-4">
-              Immediate action recommended for these critical findings.
+            <p className="text-sm text-gray-500 mt-4 leading-relaxed">
+              {findingTotal > 0
+                ? `${findingTotal} finding(s) parsed into structured sections below.`
+                : 'No findings were parsed into structured sections; counts stay at zero even when the narrative lists issues.'}
             </p>
           </div>
         </div>
@@ -503,14 +545,46 @@ function PrettyReport({ report, stats, rawOutput }: { report: ParsedReport; stat
   );
 }
 
-function StatusBadge({ status }: { status: string }) {
-  const colors = {
-    'Healthy': 'bg-green-100 text-green-700 border-green-200',
-    'Needs Improvement': 'bg-yellow-100 text-yellow-700 border-yellow-200',
-    'Critical': 'bg-red-100 text-red-700 border-red-200',
+function SeverityCountRow({
+  label,
+  count,
+  tone
+}: {
+  label: string;
+  count: number;
+  tone: 'critical' | 'high' | 'medium' | 'low' | 'passed';
+}) {
+  const ring: Record<typeof tone, string> = {
+    critical: 'border-red-200 bg-red-50/80 text-red-900',
+    high: 'border-orange-200 bg-orange-50/80 text-orange-950',
+    medium: 'border-amber-200 bg-amber-50/80 text-amber-950',
+    low: 'border-sky-200 bg-sky-50/80 text-sky-950',
+    passed: 'border-emerald-200 bg-emerald-50/80 text-emerald-950'
   };
-  
-  const colorClass = colors[status as keyof typeof colors] || 'bg-gray-100 text-gray-700 border-gray-200';
+  return (
+    <div
+      className={`flex items-center justify-between rounded-xl border px-3 py-2 ${ring[tone]}`}
+    >
+      <span className="font-medium">{label}</span>
+      <span className="tabular-nums font-bold text-lg">{count}</span>
+    </div>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const colors: Record<string, string> = {
+    Unknown: 'bg-gray-100 text-gray-700 border-gray-200',
+    Excellent: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+    Good: 'bg-green-100 text-green-800 border-green-200',
+    Fair: 'bg-lime-100 text-lime-900 border-lime-200',
+    'Needs work': 'bg-yellow-100 text-yellow-900 border-yellow-200',
+    Poor: 'bg-orange-100 text-orange-900 border-orange-200',
+    Critical: 'bg-red-100 text-red-800 border-red-200',
+    Healthy: 'bg-green-100 text-green-700 border-green-200',
+    'Needs Improvement': 'bg-yellow-100 text-yellow-800 border-yellow-200'
+  };
+
+  const colorClass = colors[status] || 'bg-gray-100 text-gray-700 border-gray-200';
   
   return (
     <span className={`px-3 py-1 rounded-full text-xs font-bold border ${colorClass}`}>
