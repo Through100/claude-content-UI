@@ -266,7 +266,7 @@ app.get('/api/usage', async (_req, res) => {
   const modelArg = process.env.CLAUDE_USAGE_MODEL;
   const line = '/usage';
   try {
-    const { result: r, execMode } = await runUsageInteractiveLine({
+    const { result: r, execMode, usageNote } = await runUsageInteractiveLine({
       claudeBin: bin,
       cwd,
       line,
@@ -276,6 +276,7 @@ app.get('/api/usage', async (_req, res) => {
     res.json({
       line,
       execMode,
+      ...(usageNote ? { usageNote } : {}),
       output: usageRunMergedOutput(r, { treatEmptyAsFailure: true }),
       exitCode: r.code,
       argv: r.argv
@@ -299,7 +300,7 @@ app.post('/api/usage/exec', async (req, res) => {
   const t = usageTimeoutMs();
   const modelArg = process.env.CLAUDE_USAGE_MODEL;
   try {
-    const { result: r, execMode } = await runUsageInteractiveLine({
+    const { result: r, execMode, usageNote } = await runUsageInteractiveLine({
       claudeBin: bin,
       cwd,
       line,
@@ -309,6 +310,7 @@ app.post('/api/usage/exec', async (req, res) => {
     res.json({
       line,
       execMode,
+      ...(usageNote ? { usageNote } : {}),
       output: usageRunMergedOutput(r, { treatEmptyAsFailure: line === '/usage' }),
       exitCode: r.code,
       argv: r.argv

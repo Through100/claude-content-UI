@@ -167,18 +167,22 @@ function parseTimeoutSpecToMs(spec: string): number {
 
 function usageOutputLooksLikeUsageTui(blob: string): boolean {
   const s = blob.trim();
-  if (s.length < 30) return false;
+  if (s.length < 15) return false;
   if (/unknown skill:/i.test(s)) return false;
-  return /% used|Current session|current week|weekly|extra usage|resets|UTC|█/i.test(s);
+  return /% used|used\b|current session|current week|weekly|extra usage|resets|UTC|█|opus|context window|spent/i.test(s);
 }
 
-/** Accept partial Usage TUI (GNU timeout exit 124, tab strip, Esc hint, etc.) so we do not always run slow headless -p. */
+/** Accept partial Usage TUI (GNU timeout 124, outer SIGTERM 143, tab strip, Esc hint, etc.). */
 function usageOutputAcceptableFromBash(r: ClaudeRunResult, blob: string): boolean {
   if (usageOutputLooksLikeUsageTui(blob)) return true;
   const t = blob.trim();
-  if (t.length < 15 || /unknown skill:/i.test(t)) return false;
-  if (r.code === 124) return true;
-  if (/status\s+config\s+usage|usage\s+stats|esc to cancel|current session|extra usage/i.test(t)) return true;
+  if (/unknown skill:/i.test(t)) return false;
+  // timeout(1) exits 124; our watch may SIGTERM bash → 143 — both often still carry a partial TUI frame
+  if (r.code === 124 || r.code === 143 || r.signal === 'SIGTERM') {
+    return t.length >= 8;
+  }
+  if (t.length < 12) return false;
+  if (/status\s+config\s+usage|usage\s+stats|esc to cancel|current session|extra usage|opus|█/i.test(t)) return true;
   return false;
 }
 
@@ -267,18 +271,29 @@ export async function runUsageInteractiveLine(opts: {
   line: string;
   model?: string;
   timeoutMs: number;
-}): Promise<{ result: ClaudeRunResult; execMode: UsageExecMode }> {
+}): Promise<{ result: ClaudeRunResult; execMode: UsageExecMode; usageNote?: string }> {
   if (opts.line === '/usage' && !usageUsagePreferInteractiveSlash()) {
     const triedBash = usageBashQuotedUsageEnabled();
+    let usageNote: string | undefined;
     if (triedBash) {
       const br = await runClaudeQuotedUsageViaBash(opts);
       const blob = `${br.stdout}\n${br.stderr}`;
       if (usageOutputAcceptableFromBash(br, blob)) {
         return { result: br, execMode: 'bash_quoted_usage' };
       }
+      const dur = safeTimeoutSpec();
+      const errTail = (br.stderr || '').trim().slice(0, 400);
+      usageNote = [
+        `Bash probe did run (same idea as: cd … && timeout ${dur} claude "/usage").`,
+        `platform=${process.platform}, bash/claude exit=${String(br.code)}, signal=${br.signal ?? '—'}, combinedLength=${blob.length}.`,
+        errTail ? `stderr (tail): ${errTail}` : 'stderr was empty.',
+        'Heuristics did not treat stdout as Usage TUI, so headless -p ran next.'
+      ].join(' ');
+    } else {
+      usageNote = `Bash quoted probe was skipped (platform=${process.platform}, or CLAUDE_USAGE_BASH_QUOTED_USAGE=0). The workaround needs bash on PATH; AlmaLinux containers are fine.`;
     }
     const hr = await runUsageTabNonInteractive(opts, triedBash);
-    return { result: hr, execMode: 'headless_usage_tab' };
+    return { result: hr, execMode: 'headless_usage_tab', usageNote };
   }
 
   const stdinR = await runClaudeWithSlashViaStdin(opts);

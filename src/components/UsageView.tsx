@@ -160,13 +160,21 @@ export default function UsageView() {
               </div>
             ) : null}
             {data.execMode === 'headless_usage_tab' ? (
-              <div className="px-4 py-2 bg-amber-950/40 border-b border-amber-900/50 text-[11px] text-amber-100/95 leading-relaxed">
-                <strong className="text-amber-50">execMode=headless_usage_tab</strong> — Bash{' '}
-                <code className="text-[10px] px-1 rounded bg-black/30">claude &quot;/usage&quot;</code> did not return usable
-                Usage text (or is disabled on Windows / <code className="text-[10px] px-1 rounded bg-black/30">CLAUDE_USAGE_BASH_QUOTED_USAGE=0</code>
-                ). The server used <code className="text-[10px] px-1 rounded bg-black/30">claude -p</code> with a fixed
-                prompt instead (<strong>model session</strong> / quota). Enable bash quoted usage on a Unix host or fix PATH
-                so <code className="text-[10px] px-1 rounded bg-black/30">claude</code> runs under bash as in your terminal.
+              <div className="px-4 py-2 bg-amber-950/40 border-b border-amber-900/50 text-[11px] text-amber-100/95 leading-relaxed space-y-2">
+                <p>
+                  <strong className="text-amber-50">execMode=headless_usage_tab</strong> — The server used{' '}
+                  <code className="text-[10px] px-1 rounded bg-black/30">claude -p</code> (model / quota), not only your
+                  bash one-liner in the browser. When the API runs on Linux, it still tries{' '}
+                  <code className="text-[10px] px-1 rounded bg-black/30">bash</code> +{' '}
+                  <code className="text-[10px] px-1 rounded bg-black/30">timeout … claude &quot;/usage&quot;</code> first;
+                  if that capture is rejected or bash is skipped (<code className="text-[10px] px-1 rounded bg-black/30">win32</code> /{' '}
+                  <code className="text-[10px] px-1 rounded bg-black/30">CLAUDE_USAGE_BASH_QUOTED_USAGE=0</code>), you see this mode.
+                </p>
+                {data.usageNote ? (
+                  <p className="text-amber-50/95 font-mono text-[10px] leading-snug whitespace-pre-wrap break-words">
+                    {data.usageNote}
+                  </p>
+                ) : null}
               </div>
             ) : null}
             <pre className="p-6 text-sm font-mono text-gray-300 overflow-auto max-h-[min(75vh,720px)] leading-relaxed whitespace-pre-wrap">

@@ -166,6 +166,8 @@ export interface UsageInfo {
   line: string;
   /** How the server ran it: e.g. bash `timeout … claude "/usage"`, headless `-p`, or REPL stdin. */
   execMode: UsageExecMode;
+  /** When headless ran after bash or bash was skipped: short server-side explanation (exit codes, stderr tail). */
+  usageNote?: string;
   /** ANSI-stripped combined stdout/stderr; server may append local `usage-exact.json` when output looks empty. */
   output: string;
   exitCode: number | null;
