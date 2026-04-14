@@ -1,4 +1,5 @@
 import type { UsageQuotaSection, UsageQuotaSectionId, UsageQuotaSnapshot } from '../src/types';
+import { normalizeCorruptedResetsAmUtcLine } from '../src/utils/usageResetRelative';
 
 const SNAPSHOT_MARKER = '\n--- ~/.claude/usage-exact.json';
 
@@ -55,7 +56,7 @@ function pickBarLine(body: string[]): { barLine: string | undefined; percent: nu
 const PRETTY_DETAIL_NOISE = /^\s*esc\s+to\s+cancel\s*$/i;
 
 function cleanUsageDetailLine(line: string): string {
-  return line
+  return normalizeCorruptedResetsAmUtcLine(line)
     .replace(/\s*[·•]\s*Esc\s+to\s+cancel\s*$/i, '')
     .replace(/\s*,\s*Esc\s+to\s+cancel\s*$/i, '')
     .trim();

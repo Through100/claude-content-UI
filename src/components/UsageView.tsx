@@ -2,7 +2,11 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { FileText, Terminal } from 'lucide-react';
 import { apiService } from '../services/api';
 import type { UsageInfo, UsageQuotaSection, UsageQuotaSnapshot } from '../types';
-import { formatResetCountdown, parseUsageResetTargetUtc } from '../utils/usageResetRelative';
+import {
+  formatResetCountdown,
+  normalizeCorruptedResetsAmUtcLine,
+  parseUsageResetTargetUtc
+} from '../utils/usageResetRelative';
 
 const EMPTY_QUOTA_SNAPSHOT: UsageQuotaSnapshot = {
   parseOk: false,
@@ -19,10 +23,11 @@ function UsageDetailLine({ line }: { line: string }) {
     const id = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(id);
   }, []);
-  const target = parseUsageResetTargetUtc(line, now);
+  const display = normalizeCorruptedResetsAmUtcLine(line);
+  const target = parseUsageResetTargetUtc(display, now);
   return (
     <li className="space-y-1">
-      <div className="font-mono text-xs sm:text-sm text-gray-600 leading-snug">{line}</div>
+      <div className="font-mono text-xs sm:text-sm text-gray-600 leading-snug">{display}</div>
       {target ? (
         <p className="text-xs font-medium text-indigo-600 tabular-nums pl-0.5">
           <span className="text-gray-500 font-normal">Time until reset </span>

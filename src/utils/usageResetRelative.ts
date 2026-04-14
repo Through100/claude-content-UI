@@ -61,6 +61,28 @@ function utcFromMonthDayTime(monthIdx: number, day: number, hm: { h: number; m: 
 }
 
 /**
+ * Next UTC instant at `hour24`:**:00 on the current UTC calendar day, or tomorrow if already past `ref`.
+ */
+function nextUtcHourOnDay(hour24: number, minute: number, ref: Date): Date {
+  const y = ref.getUTCFullYear();
+  const mo = ref.getUTCMonth();
+  const d = ref.getUTCDate();
+  let t = Date.UTC(y, mo, d, hour24, minute, 0, 0);
+  if (t <= ref.getTime()) t = Date.UTC(y, mo, d + 1, hour24, minute, 0, 0);
+  return new Date(t);
+}
+
+/**
+ * Ink/TUI often mangles "Resets 3am (UTC)" into "Reses3m (UTC)" (missing "t" + "A").
+ * For 1–12, treat trailing `m` before `(UTC)` as **AM** on the UTC clock, not minutes.
+ */
+function nextUtcFromCorruptedAmMarker(n12h: number, ref: Date): Date | null {
+  if (n12h < 1 || n12h > 12) return null;
+  const hour24 = n12h === 12 ? 0 : n12h;
+  return nextUtcHourOnDay(hour24, 0, ref);
+}
+
+/**
  * Best-effort parse of a reset instant from Usage tab detail text (UTC-oriented strings from Claude).
  */
 export function parseUsageResetTargetUtc(line: string, ref: Date = new Date()): Date | null {
@@ -73,15 +95,32 @@ export function parseUsageResetTargetUtc(line: string, ref: Date = new Date()): 
     if (total !== null && total >= 0) return new Date(ref.getTime() + total);
   }
 
-  const minsSpaced = s.match(/\bReses(?:ts?)?\s*(?:in\s*)?(\d{1,4})\s*m\s*\([Uu][Tt][Cc]\)/);
-  if (minsSpaced) {
-    const m = Number(minsSpaced[1]);
+  const wallAmPmUtc = s.match(
+    /\bResets?\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*\([Uu][Tt][Cc]\)/i
+  );
+  if (wallAmPmUtc) {
+    const chunk = `${wallAmPmUtc[1]}${wallAmPmUtc[2] ? `:${wallAmPmUtc[2]}` : ''}${wallAmPmUtc[3].toLowerCase()}`;
+    const hm = parseTimeToHm(chunk);
+    if (hm) return nextUtcHourOnDay(hm.h, hm.m, ref);
+  }
+
+  const corruptedAmUtc = s.match(/\b(?:Resets?|Reses)\s*(\d{1,2})m\s*\([Uu][Tt][Cc]\)/i);
+  if (corruptedAmUtc) {
+    const n = Number(corruptedAmUtc[1]);
+    const asClock = nextUtcFromCorruptedAmMarker(n, ref);
+    if (asClock) return asClock;
+  }
+
+  const minsIn = s.match(/\bResets?\s+in\s*(\d{1,4})\s*m\b/i);
+  if (minsIn) {
+    const m = Number(minsIn[1]);
     if (m >= 0 && m < 10_000) return new Date(ref.getTime() + m * 60_000);
   }
-  const minsGlued = s.match(/\bReses(?:t)?(\d{1,4})\s*m\s*\([Uu][Tt][Cc]\)/i);
-  if (minsGlued) {
-    const m = Number(minsGlued[1]);
-    if (m >= 0 && m < 10_000) return new Date(ref.getTime() + m * 60_000);
+
+  const manyMinUtc = s.match(/\b(?:Resets?|Reses)\s*(1[3-9]|[2-9]\d|\d{3,})\s*m\s*\([Uu][Tt][Cc]\)/i);
+  if (manyMinUtc) {
+    const m = Number(manyMinUtc[1]);
+    if (m >= 13 && m < 10_000) return new Date(ref.getTime() + m * 60_000);
   }
 
   const cal = s.match(
@@ -135,6 +174,18 @@ function nextWeekdayUtc(weekday: number, hm: { h: number; m: number }, ref: Date
   const cand = Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth(), ref.getUTCDate() + add, hm.h, hm.m, 0, 0);
   if (cand <= ref.getTime()) add += 7;
   return new Date(Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth(), ref.getUTCDate() + add, hm.h, hm.m, 0, 0));
+}
+
+/**
+ * Fix TUI-mangled "Reses3m (UTC)" → readable "Resets 3:00am (UTC)" for Pretty view (1–12 = AM on UTC clock).
+ * Values above 12 are left unchanged so minute-style lines can still be parsed on the client.
+ */
+export function normalizeCorruptedResetsAmUtcLine(line: string): string {
+  return line.replace(/\b(?:Resets?|Reses)\s*(\d{1,2})m\s*\((UTC)\)/gi, (_full, hour: string, utc: string) => {
+    const n = Number(hour);
+    if (n >= 1 && n <= 12) return `Resets ${n}:00am (${utc})`;
+    return _full;
+  });
 }
 
 /** Human-readable countdown until target (UTC wall clock semantics). */
