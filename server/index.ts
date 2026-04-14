@@ -17,8 +17,9 @@ import {
 import { appendHistoryItem, groupHistory, loadHistory } from './historyStore';
 import { parseSeoOutput } from '../shared/parseSeoOutput';
 import { enrichUsagePanelWithLocalJsonWhenCliFails } from './usageLocalSnapshot';
+import { parseAccountStatusSnapshot } from './accountStatusParse';
 import { parseUsageQuotaSnapshot, usagePanelMainText } from './usageQuotaParse';
-import { runBashUsage } from './usageShellProbe';
+import { runBashAccountStatus, runBashUsage } from './usageShellProbe';
 import { SEO_COMMANDS, type HistoryItem, type RunResponse, type SeoCommand } from '../src/types';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -288,6 +289,46 @@ app.post('/api/usage/exec', async (req, res) => {
       exitCode,
       argv,
       quotaSnapshot
+    });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+app.get('/api/account', async (_req, res) => {
+  const cwd = workdir();
+  const bin = claudeBin();
+  const t = usageTimeoutMs();
+  try {
+    const { output, exitCode, argv } = await runBashAccountStatus({ claudeBin: bin, cwd, timeoutMs: t });
+    const statusSnapshot = parseAccountStatusSnapshot(output);
+    res.json({
+      line: '/status',
+      execMode: 'bash_quoted_status',
+      output,
+      exitCode,
+      argv,
+      statusSnapshot
+    });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+app.post('/api/account/exec', async (_req, res) => {
+  const cwd = workdir();
+  const bin = claudeBin();
+  const t = usageTimeoutMs();
+  try {
+    const { output, exitCode, argv } = await runBashAccountStatus({ claudeBin: bin, cwd, timeoutMs: t });
+    const statusSnapshot = parseAccountStatusSnapshot(output);
+    res.json({
+      line: '/status',
+      execMode: 'bash_quoted_status',
+      output,
+      exitCode,
+      argv,
+      statusSnapshot
     });
   } catch (e) {
     res.status(500).json({ error: String(e) });

@@ -3,6 +3,7 @@ import Layout from './components/Layout';
 import SeoCommandForm from './components/SeoCommandForm';
 import ResultsView from './components/ResultsView';
 import HistoryView from './components/HistoryView';
+import AccountView from './components/AccountView';
 import UsageView from './components/UsageView';
 import { apiService } from './services/api';
 import { RunResponse } from './types';
@@ -10,7 +11,7 @@ import { AlertCircle, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 export default function App() {
-  const [activeView, setActiveView] = useState<'dashboard' | 'history' | 'usage'>('dashboard');
+  const [activeView, setActiveView] = useState<'dashboard' | 'history' | 'usage' | 'account'>('dashboard');
   const [isLoading, setIsLoading] = useState(false);
   const [runStartedAt, setRunStartedAt] = useState<number | null>(null);
   const [, tickLoading] = useReducer((n: number) => n + 1, 0);
@@ -123,7 +124,7 @@ export default function App() {
           >
             <HistoryView />
           </motion.div>
-        ) : (
+        ) : activeView === 'usage' ? (
           <motion.div
             key="usage"
             initial={{ opacity: 0, y: 10 }}
@@ -131,6 +132,15 @@ export default function App() {
             exit={{ opacity: 0, y: -10 }}
           >
             <UsageView />
+          </motion.div>
+        ) : (
+          <motion.div
+            key="account"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+          >
+            <AccountView />
           </motion.div>
         )}
       </AnimatePresence>

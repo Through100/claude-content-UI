@@ -194,6 +194,31 @@ export interface UsageInfo {
   quotaSnapshot?: UsageQuotaSnapshot;
 }
 
+/** Fields parsed from the Status tab of interactive `claude "/status"`. */
+export interface AccountStatusSnapshot {
+  version?: string;
+  sessionName?: string;
+  sessionId?: string;
+  cwd?: string;
+  loginMethod?: string;
+  organization?: string;
+  email?: string;
+  model?: string;
+  settingSources?: string;
+  /** True when several labeled rows were found (TUI text was readable). */
+  parseOk: boolean;
+}
+
+/** API GET /api/account — same bash/script PTY tactic as Usage, for `claude "/status"`. */
+export interface AccountStatusInfo {
+  line: string;
+  execMode: 'bash_quoted_status';
+  output: string;
+  exitCode: number | null;
+  argv: string[];
+  statusSnapshot?: AccountStatusSnapshot;
+}
+
 export interface ModelOption {
   id: string;
   label: string;

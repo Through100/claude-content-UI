@@ -65,21 +65,26 @@ function usageInnerTimeoutSpec(): string {
   return /^[0-9]+(?:\.[0-9]+)?\s*(?:s|m|h|ms)?$/i.test(raw) ? raw.replace(/\s+/g, '') : '5s';
 }
 
+/** Inner `timeout` duration for `claude "/status"` (PTY probe). */
+export function accountStatusInnerTimeoutSpec(): string {
+  const raw = (process.env.CLAUDE_ACCOUNT_STATUS_TIMEOUT_SPEC ?? '2s').trim() || '2s';
+  return /^[0-9]+(?:\.[0-9]+)?\s*(?:s|m|h|ms)?$/i.test(raw) ? raw.replace(/\s+/g, '') : '2s';
+}
+
+type SlashQuoted = '"/usage"' | '"/status"';
+
 /**
- * Run the same idea as `timeout 5s claude "/usage"` in bash.
- *
- * When stdout/stderr are pipes (Node spawn), `claude` often treats `/usage` as a **skill** and prints
- * `Unknown skill: usage`. In a real terminal it is an interactive slash command. On Linux we wrap with
- * **`script -qec '…' /dev/null`** (util-linux) so the child gets a **PTY**, matching your manual bash test.
+ * Run `timeout … claude "/usage"` or `… "/status"` in bash, optionally under `script` for a PTY on Linux.
  */
-export async function runBashUsage(opts: {
+async function runBashClaudeSlashProbe(opts: {
   claudeBin: string;
   cwd: string;
   timeoutMs: number;
+  slashQuoted: SlashQuoted;
+  innerTimeoutSpec: string;
 }): Promise<{ output: string; exitCode: number | null; argv: string[] }> {
   const env = usageProbeCleanEnv();
-  const dur = usageInnerTimeoutSpec();
-  const inner = `timeout ${dur} ${shSingleQuote(opts.claudeBin)} "/usage"`;
+  const inner = `timeout ${opts.innerTimeoutSpec} ${shSingleQuote(opts.claudeBin)} ${opts.slashQuoted}`;
 
   const forceScript = ['1', 'true', 'yes'].includes((process.env.CLAUDE_USAGE_SCRIPT_PTY ?? '').toLowerCase());
   const skipScript = ['1', 'true', 'yes'].includes((process.env.CLAUDE_USAGE_NO_SCRIPT_PTY ?? '').toLowerCase());
@@ -121,5 +126,41 @@ export async function runBashUsage(opts: {
         argv
       });
     });
+  });
+}
+
+/**
+ * Run the same idea as `timeout 5s claude "/usage"` in bash.
+ *
+ * When stdout/stderr are pipes (Node spawn), `claude` often treats `/usage` as a **skill** and prints
+ * `Unknown skill: usage`. In a real terminal it is an interactive slash command. On Linux we wrap with
+ * **`script -qec '…' /dev/null`** (util-linux) so the child gets a **PTY**, matching your manual bash test.
+ */
+export async function runBashUsage(opts: {
+  claudeBin: string;
+  cwd: string;
+  timeoutMs: number;
+}): Promise<{ output: string; exitCode: number | null; argv: string[] }> {
+  return runBashClaudeSlashProbe({
+    claudeBin: opts.claudeBin,
+    cwd: opts.cwd,
+    timeoutMs: opts.timeoutMs,
+    slashQuoted: '"/usage"',
+    innerTimeoutSpec: usageInnerTimeoutSpec()
+  });
+}
+
+/** Same PTY tactic as {@link runBashUsage} for interactive `claude "/status"`. */
+export async function runBashAccountStatus(opts: {
+  claudeBin: string;
+  cwd: string;
+  timeoutMs: number;
+}): Promise<{ output: string; exitCode: number | null; argv: string[] }> {
+  return runBashClaudeSlashProbe({
+    claudeBin: opts.claudeBin,
+    cwd: opts.cwd,
+    timeoutMs: opts.timeoutMs,
+    slashQuoted: '"/status"',
+    innerTimeoutSpec: accountStatusInnerTimeoutSpec()
   });
 }

@@ -1,10 +1,10 @@
 import React from 'react';
-import { LayoutDashboard, Terminal, Settings, History, BarChart3, Box, Cpu, ShieldCheck } from 'lucide-react';
+import { LayoutDashboard, Terminal, History, BarChart3, UserCircle, ShieldCheck } from 'lucide-react';
 
 interface LayoutProps {
   children: React.ReactNode;
-  activeView: 'dashboard' | 'history' | 'usage';
-  onViewChange: (view: 'dashboard' | 'history' | 'usage') => void;
+  activeView: 'dashboard' | 'history' | 'usage' | 'account';
+  onViewChange: (view: 'dashboard' | 'history' | 'usage' | 'account') => void;
 }
 
 export default function Layout({ children, activeView, onViewChange }: LayoutProps) {
@@ -38,6 +38,12 @@ export default function Layout({ children, activeView, onViewChange }: LayoutPro
             active={activeView === 'usage'} 
             onClick={() => onViewChange('usage')}
           />
+          <NavItem
+            icon={<UserCircle size={20} />}
+            label="Account Info"
+            active={activeView === 'account'}
+            onClick={() => onViewChange('account')}
+          />
         </nav>
 
         <div className="p-4 border-t border-gray-100">
@@ -60,7 +66,13 @@ export default function Layout({ children, activeView, onViewChange }: LayoutPro
             <span className="text-sm font-medium text-gray-500">Internal Tool</span>
             <span className="text-gray-300">/</span>
             <span className="text-sm font-semibold text-gray-900 uppercase tracking-wider">
-              {activeView === 'dashboard' ? 'Dashboard' : activeView === 'history' ? 'History' : 'Usage Info'}
+              {activeView === 'dashboard'
+                ? 'Dashboard'
+                : activeView === 'history'
+                  ? 'History'
+                  : activeView === 'usage'
+                    ? 'Usage Info'
+                    : 'Account Info'}
             </span>
           </div>
           

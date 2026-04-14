@@ -1,4 +1,4 @@
-import type { GroupedHistory, ModelOption, RunResponse, UsageInfo } from '../types';
+import type { AccountStatusInfo, GroupedHistory, ModelOption, RunResponse, UsageInfo } from '../types';
 
 const apiBase = () => (import.meta.env.VITE_API_BASE_URL as string | undefined) || '';
 
@@ -226,6 +226,34 @@ export const apiService = {
       throw new Error(t || `Usage request failed (${res.status})`);
     }
     return parseJson<UsageInfo>(res);
+  },
+
+  async getAccountStatus(): Promise<AccountStatusInfo> {
+    const ms = usageFetchTimeoutMs();
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), ms);
+    let res: Response;
+    try {
+      res = await fetch(`${apiBase()}/api/account`, { signal: ctrl.signal });
+    } catch (e) {
+      clearTimeout(timer);
+      const aborted =
+        (typeof DOMException !== 'undefined' && e instanceof DOMException && e.name === 'AbortError') ||
+        (e instanceof Error && e.name === 'AbortError');
+      if (aborted) {
+        const min = Math.round(ms / 60000);
+        throw new Error(
+          `Account status request timed out after ${min} minute(s). Raise CLAUDE_USAGE_TIMEOUT_MS on the server and VITE_USAGE_FETCH_TIMEOUT_MS in the client.`
+        );
+      }
+      throw e;
+    }
+    clearTimeout(timer);
+    if (!res.ok) {
+      const t = await res.text();
+      throw new Error(t || `Account request failed (${res.status})`);
+    }
+    return parseJson<AccountStatusInfo>(res);
   },
 
   async postUsageExec(line: string): Promise<UsageInfo> {
