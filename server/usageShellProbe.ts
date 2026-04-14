@@ -149,7 +149,20 @@ function usageBashQuotedUsageEnabled(): boolean {
 
 function safeTimeoutSpec(): string {
   const raw = (process.env.CLAUDE_USAGE_BASH_USAGE_TIMEOUT_SPEC ?? '5s').trim() || '5s';
-  return /^[0-9]+(?:\.[0-9]+)?[smh]?$/i.test(raw) ? raw : '5s';
+  return /^[0-9]+(?:\.[0-9]+)?\s*(?:s|m|h|ms)?$/i.test(raw) ? raw.replace(/\s+/g, '') : '5s';
+}
+
+/** Parse GNU-timeout-style duration for outer watch slack (e.g. 5s → 5000). */
+function parseTimeoutSpecToMs(spec: string): number {
+  const t = spec.trim();
+  const m = t.match(/^([0-9]+(?:\.[0-9]+)?)(s|m|h|ms)?$/i);
+  if (!m) return 5000;
+  const n = parseFloat(m[1]);
+  const u = (m[2] || 's').toLowerCase();
+  if (u === 'ms') return Math.max(100, Math.round(n));
+  if (u === 'm') return Math.round(n * 60_000);
+  if (u === 'h') return Math.round(n * 3_600_000);
+  return Math.max(100, Math.round(n * 1000));
 }
 
 function usageOutputLooksLikeUsageTui(blob: string): boolean {
@@ -157,6 +170,16 @@ function usageOutputLooksLikeUsageTui(blob: string): boolean {
   if (s.length < 30) return false;
   if (/unknown skill:/i.test(s)) return false;
   return /% used|Current session|current week|weekly|extra usage|resets|UTC|█/i.test(s);
+}
+
+/** Accept partial Usage TUI (GNU timeout exit 124, tab strip, Esc hint, etc.) so we do not always run slow headless -p. */
+function usageOutputAcceptableFromBash(r: ClaudeRunResult, blob: string): boolean {
+  if (usageOutputLooksLikeUsageTui(blob)) return true;
+  const t = blob.trim();
+  if (t.length < 15 || /unknown skill:/i.test(t)) return false;
+  if (r.code === 124) return true;
+  if (/status\s+config\s+usage|usage\s+stats|esc to cancel|current session|extra usage/i.test(t)) return true;
+  return false;
 }
 
 /** How the server satisfied this slash line (for UI / debugging). */
@@ -187,10 +210,13 @@ async function runClaudeQuotedUsageViaBash(opts: {
     stdio: ['ignore', 'pipe', 'pipe']
   });
   const argv = ['bash', flag, inner];
+  const innerMs = parseTimeoutSpecToMs(dur);
   const capRaw = parseInt(process.env.CLAUDE_USAGE_BASH_WATCH_CAP_MS ?? '', 10);
+  /** Outer SIGTERM must be only slightly above inner `timeout` so the UI does not sit at ~30s. */
+  const derivedCap = Math.min(20_000, Math.max(7000, innerMs + 4000));
   const cap = Math.min(
     opts.timeoutMs,
-    Number.isFinite(capRaw) && capRaw >= 3000 ? capRaw : 30_000
+    Number.isFinite(capRaw) && capRaw >= 3000 ? capRaw : derivedCap
   );
   return watchClaudeProcess(child, cap, argv);
 }
@@ -199,17 +225,29 @@ async function runClaudeQuotedUsageViaBash(opts: {
  * Interactive `/usage` is a tabbed TUI that expects keys (e.g. Esc) and often never exits under piped stdio.
  * Default: one `claude -p` headless run that reproduces the **Usage** tab text and exits (same idea as dashboard NL probes).
  */
-async function runUsageTabNonInteractive(opts: {
-  claudeBin: string;
-  cwd: string;
-  model?: string;
-  timeoutMs: number;
-}): Promise<ClaudeRunResult> {
+async function runUsageTabNonInteractive(
+  opts: {
+    claudeBin: string;
+    cwd: string;
+    model?: string;
+    timeoutMs: number;
+  },
+  /** After bash `/usage` looked unusable — cap so total wait is not bash + full CLAUDE_USAGE_TIMEOUT_MS. */
+  capAsHeadlessFallback = false
+): Promise<ClaudeRunResult> {
+  let timeoutMs = opts.timeoutMs;
+  if (capAsHeadlessFallback) {
+    const fbRaw = parseInt(process.env.CLAUDE_USAGE_HEADLESS_FALLBACK_MS ?? '', 10);
+    timeoutMs = Math.min(
+      opts.timeoutMs,
+      Number.isFinite(fbRaw) && fbRaw >= 5000 ? fbRaw : 25_000
+    );
+  }
   return runClaudePrint({
     prompt: USAGE_TAB_HEADLESS_PROMPT,
     cwd: opts.cwd,
     model: opts.model,
-    timeoutMs: opts.timeoutMs,
+    timeoutMs,
     claudeBin: opts.claudeBin,
     bare: usageBareProbes()
   });
@@ -231,13 +269,15 @@ export async function runUsageInteractiveLine(opts: {
   timeoutMs: number;
 }): Promise<{ result: ClaudeRunResult; execMode: UsageExecMode }> {
   if (opts.line === '/usage' && !usageUsagePreferInteractiveSlash()) {
-    if (usageBashQuotedUsageEnabled()) {
+    const triedBash = usageBashQuotedUsageEnabled();
+    if (triedBash) {
       const br = await runClaudeQuotedUsageViaBash(opts);
-      if (usageOutputLooksLikeUsageTui(`${br.stdout}\n${br.stderr}`)) {
+      const blob = `${br.stdout}\n${br.stderr}`;
+      if (usageOutputAcceptableFromBash(br, blob)) {
         return { result: br, execMode: 'bash_quoted_usage' };
       }
     }
-    const hr = await runUsageTabNonInteractive(opts);
+    const hr = await runUsageTabNonInteractive(opts, triedBash);
     return { result: hr, execMode: 'headless_usage_tab' };
   }
 
