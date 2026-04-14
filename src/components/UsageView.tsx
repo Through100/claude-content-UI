@@ -74,12 +74,12 @@ export default function UsageView() {
         <p className="text-gray-700 font-medium">Running {DEFAULT_LINE}…</p>
         <p className="text-sm font-mono text-indigo-600 mt-2">{loadElapsedSec}s elapsed</p>
         <p className="text-sm text-gray-500 text-center mt-4 leading-relaxed">
-          Default <code className="text-xs bg-gray-100 px-1 rounded">/usage</code> uses a one-shot{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">claude -p</code> prompt that reproduces the{' '}
-          <strong>Usage</strong> tab (plan limits, weekly %, resets) and exits — not the interactive /usage TUI that
-          needs Esc. Other slash lines use stdin like the REPL. Set{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">CLAUDE_USAGE_USAGE_INTERACTIVE_SLASH=1</code> on the server
-          to force the old slash/stdin path for <code className="text-xs bg-gray-100 px-1 rounded">/usage</code>.
+          Default <code className="text-xs bg-gray-100 px-1 rounded">/usage</code> is{' '}
+          <strong>not</strong> passed as the literal slash command to Claude Code here (that TUI often never exits
+          without Esc). The server runs <code className="text-xs bg-gray-100 px-1 rounded">claude -p</code> with a
+          fixed dashboard prompt instead — that uses <strong>API quota</strong>. Other lines use REPL stdin. Set{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">CLAUDE_USAGE_USAGE_INTERACTIVE_SLASH=1</code> to force the
+          real <code className="text-xs bg-gray-100 px-1 rounded">/usage</code> slash path on the server.
         </p>
       </div>
     );
@@ -95,9 +95,11 @@ export default function UsageView() {
       )}
 
       <p className="text-sm text-gray-600 leading-relaxed">
-        Enter a single slash command. <strong>Run</strong> executes it on the server;{' '}
-        <strong>Refresh /usage</strong> loads the default Usage tab snapshot (headless, exits on its own). Other commands
-        (e.g. <code className="text-xs bg-gray-100 px-1 rounded">/context</code>) use the REPL-style runner.
+        Enter a single slash command. <strong>Run</strong> executes it on the server. Default{' '}
+        <code className="text-xs bg-gray-100 px-1 rounded">/usage</code> uses a headless{' '}
+        <code className="text-xs bg-gray-100 px-1 rounded">claude -p</code> prompt (Usage tab text, counts toward limits),
+        not the interactive <code className="text-xs bg-gray-100 px-1 rounded">/usage</code> skill UI.{' '}
+        <code className="text-xs bg-gray-100 px-1 rounded">/context</code> and similar use stdin like the REPL.
       </p>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -146,12 +148,24 @@ export default function UsageView() {
               </span>
               <code className="text-[10px] font-mono text-amber-200/90 truncate text-right">{data.line}</code>
             </div>
+            {data.execMode === 'headless_usage_tab' ? (
+              <div className="px-4 py-2 bg-amber-950/40 border-b border-amber-900/50 text-[11px] text-amber-100/95 leading-relaxed">
+                <strong className="text-amber-50">execMode=headless_usage_tab</strong> — The leading slash is not
+                &quot;ignored&quot;: this page deliberately does <strong>not</strong> invoke the interactive{' '}
+                <code className="text-[10px] px-1 rounded bg-black/30">/usage</code> TUI (it often needs Esc and hangs
+                under piped I/O). You are seeing <code className="text-[10px] px-1 rounded bg-black/30">claude -p</code>{' '}
+                argv below; that is a <strong>model session</strong>, so messages like &quot;hit your limit&quot; come from
+                quota, not from a broken <code className="text-[10px] px-1 rounded bg-black/30">/</code> character. Set{' '}
+                <code className="text-[10px] px-1 rounded bg-black/30">CLAUDE_USAGE_USAGE_INTERACTIVE_SLASH=1</code> on
+                the API host to force the real slash path instead.
+              </div>
+            ) : null}
             <pre className="p-6 text-sm font-mono text-gray-300 overflow-auto max-h-[min(75vh,720px)] leading-relaxed whitespace-pre-wrap">
               {data.output.trim() ? data.output : '(no output)'}
             </pre>
           </div>
           <p className="text-[10px] font-mono text-gray-400 px-1 break-all">
-            exitCode={String(data.exitCode)} argv={JSON.stringify(data.argv)}
+            execMode={data.execMode} exitCode={String(data.exitCode)} argv={JSON.stringify(data.argv)}
           </p>
         </>
       )}

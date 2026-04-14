@@ -138,6 +138,14 @@ function usageUsagePreferInteractiveSlash(): boolean {
   return ['1', 'true', 'yes'].includes((process.env.CLAUDE_USAGE_USAGE_INTERACTIVE_SLASH ?? '').toLowerCase());
 }
 
+/** How the server satisfied this slash line (for UI / debugging — not “stripped /”). */
+export type UsageExecMode = 'headless_usage_tab' | 'repl_stdin';
+
+export function usageExecModeForLine(line: string): UsageExecMode {
+  if (line === '/usage' && !usageUsagePreferInteractiveSlash()) return 'headless_usage_tab';
+  return 'repl_stdin';
+}
+
 /**
  * Interactive `/usage` is a tabbed TUI that expects keys (e.g. Esc) and often never exits under piped stdio.
  * Default: one `claude -p` headless run that reproduces the **Usage** tab text and exits (same idea as dashboard NL probes).

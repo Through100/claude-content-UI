@@ -146,10 +146,14 @@ export interface UsageTabInfo {
 
 export type UsageBillingMode = 'api_credits' | 'subscription';
 
-/** API GET /api/usage and POST /api/usage/exec — merged stdout/stderr. `/usage` uses a headless `-p` Usage-tab fill; other lines use REPL-style stdin where supported. */
+export type UsageExecMode = 'headless_usage_tab' | 'repl_stdin';
+
+/** API GET /api/usage and POST /api/usage/exec — merged stdout/stderr. */
 export interface UsageInfo {
-  /** Slash command that was executed (e.g. `/usage`). */
+  /** Slash command the user asked for (e.g. `/usage`). */
   line: string;
+  /** How the server ran it: default `/usage` is headless `claude -p` (not the interactive slash TUI). */
+  execMode: UsageExecMode;
   /** ANSI-stripped combined stdout/stderr; server may append local `usage-exact.json` when output looks empty. */
   output: string;
   exitCode: number | null;

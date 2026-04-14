@@ -17,7 +17,12 @@ import {
 import { appendHistoryItem, groupHistory, loadHistory } from './historyStore';
 import { parseSeoOutput } from '../shared/parseSeoOutput';
 import { enrichUsagePanelWithLocalJsonWhenCliFails } from './usageLocalSnapshot';
-import { assertSafeSlashLine, runUsageInteractiveLine, stripAnsiForWeb } from './usageShellProbe';
+import {
+  assertSafeSlashLine,
+  runUsageInteractiveLine,
+  stripAnsiForWeb,
+  usageExecModeForLine
+} from './usageShellProbe';
 import { SEO_COMMANDS, type HistoryItem, type RunResponse, type SeoCommand } from '../src/types';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -275,6 +280,7 @@ app.get('/api/usage', async (_req, res) => {
     });
     res.json({
       line,
+      execMode: usageExecModeForLine(line),
       output: usageRunMergedOutput(r, { treatEmptyAsFailure: true }),
       exitCode: r.code,
       argv: r.argv
@@ -307,6 +313,7 @@ app.post('/api/usage/exec', async (req, res) => {
     });
     res.json({
       line,
+      execMode: usageExecModeForLine(line),
       output: usageRunMergedOutput(r, { treatEmptyAsFailure: line === '/usage' }),
       exitCode: r.code,
       argv: r.argv
