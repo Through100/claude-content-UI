@@ -158,6 +158,28 @@ export interface UsageTabInfo {
 
 export type UsageBillingMode = 'api_credits' | 'subscription';
 
+export type UsageQuotaSectionId = 'current_session' | 'current_week' | 'extra_usage';
+
+/** Parsed Usage tab rows (Current session / Current week / Extra usage) from TUI text. */
+export interface UsageQuotaSection {
+  id: UsageQuotaSectionId;
+  title: string;
+  percentUsed: number | null;
+  /** Raw progress line from the terminal, when detected. */
+  barLine?: string;
+  /** Lines below the bar: resets, spend, UTC, etc. */
+  detailLines: string[];
+  /** False when this slot was not found in the captured output (placeholder row). */
+  matched?: boolean;
+}
+
+/** Snapshot extracted from `/usage` raw output for the Pretty Usage view. */
+export interface UsageQuotaSnapshot {
+  sections: UsageQuotaSection[];
+  /** True when at least one section header and a usable % were detected. */
+  parseOk: boolean;
+}
+
 /** API GET /api/usage and POST /api/usage/exec — merged stdout/stderr. */
 export interface UsageInfo {
   /** Slash command that was run (always `/usage`). */
@@ -168,6 +190,8 @@ export interface UsageInfo {
   output: string;
   exitCode: number | null;
   argv: string[];
+  /** Parsed quota rows from the Usage tab portion of `output` (before any appended local JSON snapshot). */
+  quotaSnapshot?: UsageQuotaSnapshot;
 }
 
 export interface ModelOption {

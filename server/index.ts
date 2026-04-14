@@ -17,6 +17,7 @@ import {
 import { appendHistoryItem, groupHistory, loadHistory } from './historyStore';
 import { parseSeoOutput } from '../shared/parseSeoOutput';
 import { enrichUsagePanelWithLocalJsonWhenCliFails } from './usageLocalSnapshot';
+import { parseUsageQuotaSnapshot, usagePanelMainText } from './usageQuotaParse';
 import { runBashUsage } from './usageShellProbe';
 import { SEO_COMMANDS, type HistoryItem, type RunResponse, type SeoCommand } from '../src/types';
 
@@ -257,12 +258,15 @@ app.get('/api/usage', async (_req, res) => {
   const t = usageTimeoutMs();
   try {
     const { output, exitCode, argv } = await runBashUsage({ claudeBin: bin, cwd, timeoutMs: t });
+    const merged = enrichUsagePanelWithLocalJsonWhenCliFails(output, { treatEmptyAsFailure: true });
+    const quotaSnapshot = parseUsageQuotaSnapshot(usagePanelMainText(merged));
     res.json({
       line: '/usage',
       execMode: 'bash_quoted_usage',
-      output: enrichUsagePanelWithLocalJsonWhenCliFails(output, { treatEmptyAsFailure: true }),
+      output: merged,
       exitCode,
-      argv
+      argv,
+      quotaSnapshot
     });
   } catch (e) {
     res.status(500).json({ error: String(e) });
@@ -275,12 +279,15 @@ app.post('/api/usage/exec', async (req, res) => {
   const t = usageTimeoutMs();
   try {
     const { output, exitCode, argv } = await runBashUsage({ claudeBin: bin, cwd, timeoutMs: t });
+    const merged = enrichUsagePanelWithLocalJsonWhenCliFails(output, { treatEmptyAsFailure: true });
+    const quotaSnapshot = parseUsageQuotaSnapshot(usagePanelMainText(merged));
     res.json({
       line: '/usage',
       execMode: 'bash_quoted_usage',
-      output: enrichUsagePanelWithLocalJsonWhenCliFails(output, { treatEmptyAsFailure: true }),
+      output: merged,
       exitCode,
-      argv
+      argv,
+      quotaSnapshot
     });
   } catch (e) {
     res.status(500).json({ error: String(e) });
