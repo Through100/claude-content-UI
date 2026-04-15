@@ -10,9 +10,11 @@ import ClaudeTerminalView from './ClaudeTerminalView';
 export type LogonViewProps = {
   /** Run when the Logon page mounts (re-read /status snapshot for the shell header). */
   onVisible?: () => void;
+  onPtyWelcomeName?: (name: string) => void;
+  onPtySessionEnd?: () => void;
 };
 
-export default function LogonView({ onVisible }: LogonViewProps) {
+export default function LogonView({ onVisible, onPtyWelcomeName, onPtySessionEnd }: LogonViewProps) {
   const [terminalWsEnabled, setTerminalWsEnabled] = useState(true);
   const [healthError, setHealthError] = useState<string | null>(null);
 
@@ -105,7 +107,12 @@ export default function LogonView({ onVisible }: LogonViewProps) {
           to allow the WebSocket PTY.
         </div>
       ) : (
-        <ClaudeTerminalView compact title="Claude — interactive (PTY)" />
+        <ClaudeTerminalView
+          compact
+          title="Claude — interactive (PTY)"
+          onWelcomeBackDetected={onPtyWelcomeName}
+          onPtySessionEnd={onPtySessionEnd}
+        />
       )}
     </div>
   );

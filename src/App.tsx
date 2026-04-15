@@ -18,7 +18,8 @@ export default function App() {
   const [headerSession, setHeaderSession] = useState<HeaderSessionSnapshot>({
     apiReachable: null,
     claudeEmail: null,
-    accountLoading: true
+    accountLoading: true,
+    ptyWelcomeName: null
   });
 
   const refreshHeaderSession = useCallback(async () => {
@@ -38,7 +39,22 @@ export default function App() {
     } catch {
       /* leave null — e.g. API down or /status parse failed */
     }
-    setHeaderSession({ apiReachable: apiOk, claudeEmail: email, accountLoading: false });
+    setHeaderSession((prev) => ({
+      apiReachable: apiOk,
+      claudeEmail: email,
+      accountLoading: false,
+      ptyWelcomeName: prev.ptyWelcomeName
+    }));
+  }, []);
+
+  const onPtyWelcomeName = useCallback((name: string) => {
+    const t = name.trim();
+    if (!t) return;
+    setHeaderSession((prev) => ({ ...prev, ptyWelcomeName: t }));
+  }, []);
+
+  const onPtySessionEnd = useCallback(() => {
+    setHeaderSession((prev) => ({ ...prev, ptyWelcomeName: null }));
   }, []);
 
   useEffect(() => {
@@ -184,7 +200,11 @@ export default function App() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
           >
-            <LogonView onVisible={refreshHeaderSession} />
+            <LogonView
+              onVisible={refreshHeaderSession}
+              onPtyWelcomeName={onPtyWelcomeName}
+              onPtySessionEnd={onPtySessionEnd}
+            />
           </motion.div>
         ) : (
           <motion.div

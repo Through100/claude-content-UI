@@ -13,6 +13,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
+import { PtyWelcomeNameScanner } from '../../shared/ptyWelcomeDetect';
 
 function wsUrl(): string {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -26,6 +27,10 @@ export type ClaudeTerminalViewProps = {
   title?: string;
   /** When true, use a shorter fixed height suitable for Account Info (default: full-page style). */
   compact?: boolean;
+  /** Fired once when Claude Code prints `Welcome back {name}!` in PTY output. */
+  onWelcomeBackDetected?: (name: string) => void;
+  /** PTY/WebSocket session ended or component unmounted — clear header-derived welcome name. */
+  onPtySessionEnd?: () => void;
 };
 
 /** Best-effort copy without Clipboard API (helps on some HTTP / locked-down setups). */
@@ -49,9 +54,15 @@ function copyTextExecCommand(text: string): boolean {
 export default function ClaudeTerminalView({
   initialInput,
   title = 'Claude Code — PTY Terminal',
-  compact = false
+  compact = false,
+  onWelcomeBackDetected,
+  onPtySessionEnd
 }: ClaudeTerminalViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const onWelcomeRef = useRef(onWelcomeBackDetected);
+  const onEndRef = useRef(onPtySessionEnd);
+  onWelcomeRef.current = onWelcomeBackDetected;
+  onEndRef.current = onPtySessionEnd;
   const [exited, setExited] = useState(false);
   const [restartKey, setRestartKey] = useState(0);
   const [pasteModalOpen, setPasteModalOpen] = useState(false);
@@ -83,6 +94,14 @@ export default function ClaudeTerminalView({
     const ws = new WebSocket(wsUrl());
     let sessionCreated = false;
     let destroyed = false;
+    const welcomeScanner = new PtyWelcomeNameScanner();
+    let ptyHeaderEnded = false;
+    const endPtyHeader = () => {
+      if (ptyHeaderEnded) return;
+      ptyHeaderEnded = true;
+      welcomeScanner.reset();
+      onEndRef.current?.();
+    };
 
     const sendRawToPty = (data: string) => {
       if (ws.readyState === WebSocket.OPEN) {
@@ -117,7 +136,11 @@ export default function ClaudeTerminalView({
       }
 
       if (msg.type === 'data' && typeof msg.data === 'string') {
-        term.write(msg.data as string);
+        const d = msg.data as string;
+        welcomeScanner.feed(d, (name) => {
+          if (!destroyed) onWelcomeRef.current?.(name);
+        });
+        term.write(d);
         return;
       }
 
@@ -128,6 +151,7 @@ export default function ClaudeTerminalView({
       }
 
       if (msg.type === 'exit') {
+        endPtyHeader();
         term.writeln('\r\n\x1b[33m[Claude process exited — click Restart to reconnect]\x1b[0m');
         setExited(true);
       }
@@ -136,6 +160,7 @@ export default function ClaudeTerminalView({
     ws.onclose = () => {
       if (destroyed) return;
       if (sessionCreated) {
+        endPtyHeader();
         term.writeln('\r\n\x1b[31m[Connection closed]\x1b[0m');
       }
     };
@@ -266,6 +291,11 @@ export default function ClaudeTerminalView({
 
     return () => {
       destroyed = true;
+      if (sessionCreated || welcomeScanner.didEmit) {
+        endPtyHeader();
+      } else {
+        welcomeScanner.reset();
+      }
       insertIntoPtyRef.current = () => {};
       if (chordPasteTimer !== undefined) window.clearTimeout(chordPasteTimer);
       host.removeEventListener('pointerdown', onPointerDown, true);

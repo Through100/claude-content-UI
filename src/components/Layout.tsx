@@ -8,6 +8,8 @@ export type HeaderSessionSnapshot = {
   /** Parsed Status email when present (implies signed in for header UX). */
   claudeEmail: string | null;
   accountLoading: boolean;
+  /** First name from interactive PTY "Welcome back {name}!" (Claude Code home banner). */
+  ptyWelcomeName: string | null;
 };
 
 interface LayoutProps {
@@ -106,13 +108,14 @@ export default function Layout({ children, activeView, onViewChange, headerSessi
 }
 
 function HeaderSessionPill({ snapshot }: { snapshot: HeaderSessionSnapshot }) {
-  const { apiReachable, claudeEmail, accountLoading } = snapshot;
+  const { apiReachable, claudeEmail, accountLoading, ptyWelcomeName } = snapshot;
   const apiDown = apiReachable === false;
-  const signedIn = Boolean(claudeEmail) && apiReachable !== false;
+  const hasSessionHint = Boolean(ptyWelcomeName) || Boolean(claudeEmail);
+  const signedIn = hasSessionHint && apiReachable !== false;
 
   const dotClass = apiDown
     ? 'bg-red-500'
-    : accountLoading && apiReachable === null
+    : accountLoading && apiReachable === null && !ptyWelcomeName
       ? 'bg-gray-400 animate-pulse'
       : signedIn
         ? 'bg-emerald-500'
@@ -122,7 +125,7 @@ function HeaderSessionPill({ snapshot }: { snapshot: HeaderSessionSnapshot }) {
 
   const statusLabel = apiDown
     ? 'API offline'
-    : accountLoading && claudeEmail === null && apiReachable === null
+    : accountLoading && claudeEmail === null && apiReachable === null && !ptyWelcomeName
       ? 'Checking…'
       : signedIn
         ? 'Online'
@@ -130,18 +133,23 @@ function HeaderSessionPill({ snapshot }: { snapshot: HeaderSessionSnapshot }) {
           ? 'Not signed in'
           : 'Checking…';
 
+  const pillPrimary = ptyWelcomeName?.trim() || claudeEmail;
+  const pillTitle = [ptyWelcomeName && `PTY: ${ptyWelcomeName}`, claudeEmail && `/status: ${claudeEmail}`]
+    .filter(Boolean)
+    .join(' · ');
+
   return (
     <div className="flex items-center gap-3 sm:gap-4 shrink-0">
-      <div className="flex items-center gap-2 min-w-0" title={claudeEmail ?? 'From last /status snapshot (Account page or periodic refresh)'}>
+      <div className="flex items-center gap-2 min-w-0" title={pillTitle || 'From PTY welcome banner and/or /status (Account refresh)'}>
         <div className={`w-2 h-2 rounded-full shrink-0 ${dotClass}`} />
         <span className="text-xs font-medium text-gray-600 whitespace-nowrap">{statusLabel}</span>
       </div>
       <div
         className="h-8 min-w-8 max-w-[min(12rem,40vw)] px-2 rounded-full border border-gray-200 bg-gray-50 flex items-center justify-center"
-        title={claudeEmail ?? undefined}
+        title={pillTitle || undefined}
       >
-        {claudeEmail ? (
-          <span className="text-[11px] font-mono text-gray-700 truncate">{claudeEmail}</span>
+        {pillPrimary ? (
+          <span className="text-[11px] font-semibold text-gray-800 truncate">{pillPrimary}</span>
         ) : (
           <span className="text-[11px] font-bold text-gray-400">{accountLoading ? '…' : '—'}</span>
         )}
