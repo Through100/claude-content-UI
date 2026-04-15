@@ -18,8 +18,6 @@ const ROW_DEFS: { key: keyof Omit<AccountStatusSnapshot, 'parseOk'>; label: stri
   { key: 'settingSources', label: 'Setting sources' }
 ];
 
-const LOGIN_INITIAL = '/login\r';
-
 function AccountPrettyPanel({ data }: { data: AccountStatusInfo }) {
   const snap = data.statusSnapshot ?? EMPTY_SNAPSHOT;
   return (
@@ -126,8 +124,8 @@ export default function AccountView() {
         <p className="text-sm text-gray-600 leading-relaxed">
           <span className="text-gray-700 font-medium">Pretty</span> / <span className="text-gray-700 font-medium">Raw</span>{' '}
           use the same bash + <code className="text-xs bg-gray-100 px-1 rounded">script</code> probe as Usage (inner timeout default <strong>4s</strong>).{' '}
-          <span className="text-gray-700 font-medium">Login terminal</span> opens a real PTY to <code className="text-xs bg-gray-100 px-1 rounded">claude</code> in{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">CLAUDE_WORKDIR</code> so staff can run <code className="text-xs bg-gray-100 px-1 rounded">/login</code> (requires{' '}
+          <span className="text-gray-700 font-medium">Interactive terminal</span> opens a real PTY to <code className="text-xs bg-gray-100 px-1 rounded">claude</code> in{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">CLAUDE_WORKDIR</code> (type <code className="text-xs bg-gray-100 px-1 rounded">/login</code> yourself). Requires{' '}
           <code className="text-xs bg-gray-100 px-1 rounded">python3</code> and <code className="text-xs bg-gray-100 px-1 rounded">scripts/pty-proxy.py</code> on the server).
         </p>
         <button
@@ -169,7 +167,7 @@ export default function AccountView() {
           }`}
         >
           <Keyboard size={16} />
-          Login terminal
+          Interactive terminal
         </button>
       </div>
 
@@ -208,26 +206,22 @@ export default function AccountView() {
         <div className="space-y-3">
           {!terminalWsEnabled ? (
             <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-              Interactive terminal is disabled on the server (<code className="text-xs bg-white/70 px-1 rounded">CLAUDE_TERMINAL_WS=0</code>). Remove it to allow WebSocket login.
+              Interactive terminal is disabled on the server (<code className="text-xs bg-white/70 px-1 rounded">CLAUDE_TERMINAL_WS=0</code>). Remove it to allow the WebSocket PTY.
             </div>
           ) : (
             <>
               <p className="text-xs text-gray-500 leading-relaxed">
-                Opens a live <code className="bg-gray-100 px-1 rounded">claude</code> session and sends <code className="bg-gray-100 px-1 rounded">/login</code> for you. Complete auth in the browser when prompted, then paste any code back here. Only for trusted internal networks — this is a full interactive shell as the API user.
+                Starts <code className="bg-gray-100 px-1 rounded">claude</code> in a real PTY with no extra commands — type <code className="bg-gray-100 px-1 rounded">/login</code> (or anything else) yourself. Complete browser auth when prompted, then paste codes here. Trusted internal networks only — full shell as the API user.
               </p>
-              <ClaudeTerminalView
-                compact
-                initialInput={LOGIN_INITIAL}
-                title="Claude — /login (PTY)"
-              />
+              <ClaudeTerminalView compact title="Claude — interactive (PTY)" />
             </>
           )}
         </div>
       )}
 
-      {data && (
+      {data && activeTab !== 'login' && (
         <p className="text-[10px] font-mono text-gray-400 px-1 break-all">
-          exitCode={String(data.exitCode)} argv={JSON.stringify(data.argv)}
+          Last /status probe: exitCode={String(data.exitCode)} argv={JSON.stringify(data.argv)}
         </p>
       )}
     </div>
