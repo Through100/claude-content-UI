@@ -8,3 +8,6 @@ coverage/
 !.env.example
 /data/
 tmp
+
+# Container image build kept out of the repo (local / CI only)
+Dockerfile
