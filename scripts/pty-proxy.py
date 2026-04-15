@@ -108,6 +108,12 @@ def main() -> None:
         # Many hosts (Docker, CI, mis-allocated SSH) set TERM=dumb or CI=1; Claude may exit instantly.
         if not os.environ.get("TERM") or os.environ.get("TERM", "").strip().lower() in ("", "dumb"):
             os.environ["TERM"] = "xterm-256color"
+        # Align with typical SSH: UTF-8 locale so apps emit UTF-8 box-drawing / bullets.
+        if not (os.environ.get("LC_ALL") or "").strip():
+            if not (os.environ.get("LANG") or "").strip():
+                os.environ["LANG"] = "C.UTF-8"
+            if not (os.environ.get("LC_CTYPE") or "").strip():
+                os.environ["LC_CTYPE"] = os.environ.get("LANG", "C.UTF-8")
         if os.environ.get("PTY_KEEP_CI") != "1":
             os.environ.pop("CI", None)
         try:

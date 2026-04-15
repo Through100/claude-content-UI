@@ -17,6 +17,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
+import { StringDecoder } from 'node:string_decoder';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -67,12 +68,21 @@ export function createPtySession(opts: {
   const cols = opts.cols ?? 220;
   const rows = opts.rows ?? 50;
 
+  const ptyEnv: NodeJS.ProcessEnv = { ...opts.env, PTY_COLS: String(cols), PTY_ROWS: String(rows) };
+  // Match a normal SSH session: UTF-8 locale so Unicode borders and bullets are not mojibake.
+  if (!ptyEnv.LC_ALL?.trim()) {
+    if (!ptyEnv.LANG?.trim()) ptyEnv.LANG = 'C.UTF-8';
+    if (!ptyEnv.LC_CTYPE?.trim()) ptyEnv.LC_CTYPE = ptyEnv.LANG ?? 'C.UTF-8';
+  }
+
+  const utf8Decoder = new StringDecoder('utf8');
+
   const child = spawn(
     'python3',
     [PROXY_SCRIPT, resolveClaudeBinForPty(opts.claudeBin)],
     {
       cwd: opts.cwd,
-      env: { ...opts.env, PTY_COLS: String(cols), PTY_ROWS: String(rows) },
+      env: ptyEnv,
       // fd 0: stdin from server → PTY  (piped)
       // fd 1: PTY output → server      (piped)
       // fd 2: stderr for diagnostics   (piped — we forward to onData)
@@ -93,7 +103,8 @@ export function createPtySession(opts: {
 
   child.stdout?.on('data', (buf: Buffer) => {
     session.lastActivity = Date.now();
-    opts.onData(buf.toString('binary'));
+    const chunk = utf8Decoder.write(buf);
+    if (chunk) opts.onData(chunk);
   });
 
   child.stderr?.on('data', (buf: Buffer) => {
@@ -104,6 +115,8 @@ export function createPtySession(opts: {
   });
 
   child.on('close', (code) => {
+    const tail = utf8Decoder.end();
+    if (tail) opts.onData(tail);
     sessions.delete(id);
     opts.onExit(code);
   });
@@ -116,7 +129,7 @@ export function createPtySession(opts: {
 export function writeToPty(session: PtySession, data: string): void {
   session.lastActivity = Date.now();
   try {
-    session.child.stdin?.write(Buffer.from(data, 'binary'));
+    session.child.stdin?.write(Buffer.from(data, 'utf8'));
   } catch {
     /* ignore broken pipe */
   }

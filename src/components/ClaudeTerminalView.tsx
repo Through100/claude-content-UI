@@ -114,11 +114,29 @@ export default function ClaudeTerminalView({
       term.writeln('\r\n\x1b[31m[WebSocket error — is the API running and is PTY enabled?]\x1b[0m');
     };
 
-    term.onData((data: string) => {
+    const sendToPty = (data: string) => {
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'input', data }));
       }
-    });
+    };
+
+    term.onData(sendToPty);
+
+    /** Right-click → paste (same path as typing). Shift+right-click keeps the browser menu. */
+    const onContextMenu = async (ev: MouseEvent) => {
+      if (ev.shiftKey) return;
+      ev.preventDefault();
+      term.focus();
+      try {
+        const text = await navigator.clipboard.readText();
+        if (text) term.paste(text);
+      } catch {
+        term.writeln(
+          '\r\n\x1b[33m[Paste failed — try Ctrl+Shift+V, or allow clipboard (HTTPS). Shift+right-click opens the browser menu.]\x1b[0m'
+        );
+      }
+    };
+    term.element?.addEventListener('contextmenu', onContextMenu);
 
     const ro = new ResizeObserver(() => {
       fitAddon.fit();
@@ -131,6 +149,7 @@ export default function ClaudeTerminalView({
 
     return () => {
       destroyed = true;
+      term.element?.removeEventListener('contextmenu', onContextMenu);
       ro.disconnect();
       ws.onopen = null;
       ws.onmessage = null;
