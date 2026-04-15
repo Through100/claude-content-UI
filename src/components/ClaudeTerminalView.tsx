@@ -122,6 +122,70 @@ export default function ClaudeTerminalView({
 
     term.onData(sendToPty);
 
+    const host = containerRef.current as HTMLElement;
+    let swallowNextPasteFromChord = false;
+    let chordPasteTimer: number | undefined;
+
+    const focusTerminal = () => {
+      term.focus();
+      term.textarea?.focus();
+    };
+
+    /** Clicks often land on the renderer canvas; xterm needs the hidden textarea focused for native Paste / keys. */
+    const onPointerDown = () => {
+      focusTerminal();
+    };
+    host.addEventListener('pointerdown', onPointerDown, true);
+
+    /**
+     * Browser "Paste" (menu or Ctrl/Cmd+V) delivers a ClipboardEvent with text — no async permission edge cases.
+     * Capture so we run before children and can send one paste to the PTY.
+     */
+    const onDocumentPasteCapture = (ev: ClipboardEvent) => {
+      if (destroyed) return;
+      const target = ev.target as Node | null;
+      if (!target || !host.contains(target as Node)) return;
+      if (swallowNextPasteFromChord) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        return;
+      }
+      const text = ev.clipboardData?.getData('text/plain') ?? '';
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (text) term.paste(text);
+    };
+    document.addEventListener('paste', onDocumentPasteCapture, true);
+
+    const pasteChordActive = (ev: KeyboardEvent) => {
+      const v = ev.key === 'v' || ev.key === 'V';
+      if (!v) return false;
+      // Windows/Linux terminal paste; macOS often uses Cmd+Shift+V here too
+      if (ev.shiftKey && (ev.ctrlKey || ev.metaKey) && !ev.altKey) return true;
+      // macOS: Cmd+V paste into PTY (Ctrl+V stays as literal for shells)
+      if (ev.metaKey && !ev.ctrlKey && !ev.shiftKey && !ev.altKey) return true;
+      return false;
+    };
+
+    /** Ctrl+Shift+V / Cmd+Shift+V / Cmd+V when focus is already in the terminal host. */
+    const onDocumentKeyDownCapture = (ev: KeyboardEvent) => {
+      if (destroyed) return;
+      if (!pasteChordActive(ev)) return;
+      if (!host.matches(':focus-within')) return;
+      ev.preventDefault();
+      ev.stopImmediatePropagation();
+      swallowNextPasteFromChord = true;
+      if (chordPasteTimer !== undefined) window.clearTimeout(chordPasteTimer);
+      chordPasteTimer = window.setTimeout(() => {
+        swallowNextPasteFromChord = false;
+        chordPasteTimer = undefined;
+      }, 200);
+      void navigator.clipboard.readText().then((t) => {
+        if (t && !destroyed) term.paste(t);
+      });
+    };
+    document.addEventListener('keydown', onDocumentKeyDownCapture, true);
+
     /**
      * Right-click uses a real user gesture so the browser allows Clipboard API calls.
      * - Selection active → copy to OS clipboard (then clear selection).
@@ -131,7 +195,7 @@ export default function ClaudeTerminalView({
     const onContextMenu = async (ev: MouseEvent) => {
       if (ev.shiftKey) return;
       ev.preventDefault();
-      term.focus();
+      focusTerminal();
 
       if (term.hasSelection()) {
         const selected = term.getSelection();
@@ -152,7 +216,7 @@ export default function ClaudeTerminalView({
         if (clip) term.paste(clip);
       } catch {
         term.writeln(
-          '\r\n\x1b[33m[Paste failed — try Ctrl+Shift+V, or allow clipboard (HTTPS). Shift+right-click opens the browser menu.]\x1b[0m'
+          '\r\n\x1b[33m[Clipboard read blocked — click inside the terminal, then Shift+right-click → Paste, or Ctrl+Shift+V (Cmd+Shift+V / Cmd+V on Mac).]\x1b[0m'
         );
       }
     };
@@ -169,6 +233,10 @@ export default function ClaudeTerminalView({
 
     return () => {
       destroyed = true;
+      if (chordPasteTimer !== undefined) window.clearTimeout(chordPasteTimer);
+      host.removeEventListener('pointerdown', onPointerDown, true);
+      document.removeEventListener('paste', onDocumentPasteCapture, true);
+      document.removeEventListener('keydown', onDocumentKeyDownCapture, true);
       term.element?.removeEventListener('contextmenu', onContextMenu);
       ro.disconnect();
       ws.onopen = null;
@@ -221,7 +289,7 @@ export default function ClaudeTerminalView({
         ref={containerRef}
         className="flex-1 min-h-0 px-1 py-1"
         style={{ overflow: 'hidden' }}
-        title="Right-click: copy when text is selected, otherwise paste from your PC. Shift+right-click: browser menu."
+        title="Click inside first. Paste: Ctrl+Shift+V (Windows/Linux), Cmd+V or Cmd+Shift+V (Mac), or Shift+right-click → Paste. Right-click without selection: paste; with selection: copy."
       />
     </div>
   );
