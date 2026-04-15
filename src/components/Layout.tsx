@@ -109,54 +109,36 @@ export default function Layout({ children, activeView, onViewChange, headerSessi
 }
 
 function HeaderSessionPill({ snapshot }: { snapshot: HeaderSessionSnapshot }) {
-  const { apiReachable, claudeEmail, accountLoading, ptyWelcomeName } = snapshot;
-  const apiDown = apiReachable === false;
-  const hasSessionHint = Boolean(ptyWelcomeName) || Boolean(claudeEmail);
-  const signedIn = hasSessionHint && apiReachable !== false;
+  const { apiReachable, claudeEmail } = snapshot;
+  const email = claudeEmail?.trim() ?? '';
 
-  const dotClass = apiDown
-    ? 'bg-red-500'
-    : accountLoading && apiReachable === null && !ptyWelcomeName
-      ? 'bg-gray-400 animate-pulse'
-      : signedIn
-        ? 'bg-emerald-500'
-        : apiReachable
-          ? 'bg-amber-400'
-          : 'bg-gray-400 animate-pulse';
-
-  const statusLabel = apiDown
-    ? 'API offline'
-    : accountLoading && claudeEmail === null && apiReachable === null && !ptyWelcomeName
-      ? 'Checking…'
-      : signedIn
-        ? 'Online'
-        : apiReachable
-          ? 'Not signed in'
-          : 'Checking…';
-
-  const pillPrimary = ptyWelcomeName?.trim() || claudeEmail;
-  const pillTitle = [ptyWelcomeName && `PTY: ${ptyWelcomeName}`, claudeEmail && `/status: ${claudeEmail}`]
-    .filter(Boolean)
-    .join(' · ');
-
-  return (
-    <div className="flex items-center gap-3 sm:gap-4 shrink-0">
-      <div className="flex items-center gap-2 min-w-0" title={pillTitle || 'From PTY welcome banner and/or /status (Account refresh)'}>
-        <div className={`w-2 h-2 rounded-full shrink-0 ${dotClass}`} />
-        <span className="text-xs font-medium text-gray-600 whitespace-nowrap">{statusLabel}</span>
+  if (apiReachable === false) {
+    return (
+      <div className="flex items-center gap-2 shrink-0">
+        <div className="w-2 h-2 rounded-full shrink-0 bg-red-500" />
+        <span className="text-xs font-medium text-gray-600 whitespace-nowrap">API offline</span>
       </div>
-      <div
-        className="h-8 min-w-8 max-w-[min(12rem,40vw)] px-2 rounded-full border border-gray-200 bg-gray-50 flex items-center justify-center"
-        title={pillTitle || undefined}
-      >
-        {pillPrimary ? (
-          <span className="text-[11px] font-semibold text-gray-800 truncate">{pillPrimary}</span>
-        ) : (
-          <span className="text-[11px] font-bold text-gray-400">{accountLoading ? '…' : '—'}</span>
-        )}
+    );
+  }
+
+  if (email) {
+    return (
+      <div className="flex items-center gap-3 sm:gap-4 shrink-0">
+        <div className="flex items-center gap-2 min-w-0" title="From Account Info /status refresh">
+          <div className="w-2 h-2 rounded-full shrink-0 bg-emerald-500" />
+          <span className="text-xs font-medium text-gray-600 whitespace-nowrap">Online</span>
+        </div>
+        <div
+          className="h-8 min-w-8 max-w-[min(12rem,40vw)] px-2 rounded-full border border-gray-200 bg-gray-50 flex items-center justify-center"
+          title={email}
+        >
+          <span className="text-[11px] font-mono text-gray-800 truncate">{email}</span>
+        </div>
       </div>
-    </div>
-  );
+    );
+  }
+
+  return null;
 }
 
 function NavItem({ icon, label, active = false, onClick }: { icon: React.ReactNode, label: string, active?: boolean, onClick: () => void }) {

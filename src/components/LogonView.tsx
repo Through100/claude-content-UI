@@ -51,10 +51,10 @@ export default function LogonView({ onVisible, onPtyWelcomeName, onPtySessionEnd
           <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Logon</h2>
         </div>
         <p className="text-sm text-gray-600 leading-relaxed max-w-3xl">
-          Use the interactive terminal below to sign in or out of Claude Code in the same environment as SEO runs
-          (<code className="text-xs bg-gray-100 px-1 rounded">CLAUDE_WORKDIR</code>). Account Info still shows a one-shot{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">/status</code> snapshot; this page is only for live{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">/login</code> / <code className="text-xs bg-gray-100 px-1 rounded">/logout</code>.
+          Use the interactive terminal below to sign in to Claude Code in the same environment as SEO runs (
+          <code className="text-xs bg-gray-100 px-1 rounded">CLAUDE_WORKDIR</code>). Account Info shows a one-shot{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">/status</code> snapshot (use Refresh there so the header can show your email). This page
+          is for live <code className="text-xs bg-gray-100 px-1 rounded">/login</code> in the PTY.
         </p>
         <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 leading-relaxed max-w-3xl mt-4">
           This interactive terminal runs as the direct Claude CLI session on the host (claude-seo) container. Anyone who can open this page can use
@@ -65,7 +65,7 @@ export default function LogonView({ onVisible, onPtyWelcomeName, onPtySessionEnd
       <section className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2 bg-gray-50/80">
           <Terminal size={18} className="text-indigo-600 shrink-0" />
-          <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wider">How to log in and out</h3>
+          <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wider">How to sign in</h3>
         </div>
         <div className="px-5 py-5 space-y-4 text-sm text-gray-700 leading-relaxed">
           <ol className="list-decimal list-inside space-y-3 marker:font-semibold marker:text-indigo-700">
@@ -82,10 +82,10 @@ export default function LogonView({ onVisible, onPtyWelcomeName, onPtySessionEnd
               <strong>Notice</strong> prompt when Claude shows it.
             </li>
             <li>
-              Once you are signed in, you can use all Claude Code features from this terminal. When you are finished, type{' '}
+              Once you are signed in, you can use all Claude Code features from this terminal. If you need to sign out, run{' '}
               <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded font-mono">/logout</code> and press{' '}
-              <kbd className="text-xs font-mono bg-gray-200 px-1 rounded">Enter</kbd> to sign out; you can run <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded font-mono">/login</code>{' '}
-              again later if your workflow allows it.
+              <kbd className="text-xs font-mono bg-gray-200 px-1 rounded">Enter</kbd>. To start a fresh Claude Code session for the next login, click{' '}
+              <strong>Restart</strong> on the terminal (reconnects the PTY).
             </li>
           </ol>
           <p className="text-xs text-gray-500">
