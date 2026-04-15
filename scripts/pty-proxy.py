@@ -124,6 +124,23 @@ def main() -> None:
     # ── parent ───────────────────────────────────────────────────────────────
     os.close(slave_fd)
 
+    if os.environ.get("PTY_PROXY_DEBUG") == "1":
+        try:
+            argv_dbg = build_child_argv(args)
+            os.write(
+                2,
+                (
+                    f"pty-proxy: child_pid={pid} argv={argv_dbg!r} cwd={os.getcwd()!r}\n"
+                ).encode("utf-8", errors="replace"),
+            )
+        except OSError as e:
+            os.write(
+                2,
+                f"pty-proxy: PTY_PROXY_DEBUG build argv failed: {e}\n".encode(
+                    "utf-8", errors="replace"
+                ),
+            )
+
     stdin_fd = sys.stdin.fileno()
     stdout_fd = sys.stdout.fileno()
 
@@ -142,9 +159,19 @@ def main() -> None:
     child_alive = True
 
     def reap() -> int:
+        # waitpid(..., WNOHANG) returns (0, 0) when no child is ready — do NOT treat
+        # status 0 as "exited 0" or we break the proxy loop and SIGTERM a live child.
         try:
-            _, status = os.waitpid(pid, os.WNOHANG)
-            return os.WEXITSTATUS(status) if os.WIFEXITED(status) else -1
+            wpid, status = os.waitpid(pid, os.WNOHANG)
+            if wpid == 0:
+                return -1
+            if wpid != pid:
+                return -1
+            if os.WIFEXITED(status):
+                return os.WEXITSTATUS(status)
+            if os.WIFSIGNALED(status):
+                return 128 + os.WTERMSIG(status)
+            return 1
         except ChildProcessError:
             return -1
 
