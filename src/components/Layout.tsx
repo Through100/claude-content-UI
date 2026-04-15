@@ -68,10 +68,11 @@ export default function Layout({ children, activeView, onViewChange, headerSessi
           <div className="bg-indigo-50 rounded-xl p-4">
             <div className="flex items-center gap-2 mb-2">
               <ShieldCheck size={16} className="text-indigo-600" />
-              <span className="text-xs font-semibold text-indigo-900 uppercase tracking-wider">System Secure</span>
+              <span className="text-xs font-semibold text-indigo-900 tracking-wide">System secure</span>
             </div>
             <p className="text-xs text-indigo-700 leading-relaxed">
-              Terminal environment is isolated and restricted to SEO commands.
+              Meant to run within the DDM VPN. The terminal environment is isolated in a container and is intended only
+              for the Claude Code CLI with the SEO skill.
             </p>
           </div>
         </div>
