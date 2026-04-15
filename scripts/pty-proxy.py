@@ -21,12 +21,50 @@ import sys
 import os
 import select
 import signal
+import shutil
 import struct
 import termios
 import fcntl
 import json
 
 CHUNK = 4096
+
+
+def find_node_executable_for_js(js_path: str) -> str | None:
+    """
+    execvp cannot run a .js file as the program image unless it is +x with a shebang.
+    NVM-style installs often expose cli.js without that, so we run: node <cli.js> …
+    """
+    for key in ("PTY_NODE", "CLAUDE_NODE"):
+        raw = os.environ.get(key)
+        if raw:
+            candidate = os.path.expanduser(raw.strip())
+            if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+                return candidate
+    cur = os.path.dirname(os.path.abspath(js_path))
+    for _ in range(24):
+        cand = os.path.join(cur, "bin", "node")
+        if os.path.isfile(cand) and os.access(cand, os.X_OK):
+            return cand
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            break
+        cur = parent
+    return shutil.which("node") or shutil.which("nodejs")
+
+
+def build_child_argv(args: list[str]) -> list[str]:
+    prog = os.path.expanduser(args[0])
+    tail = list(args[1:])
+    if prog.endswith(".js"):
+        node = find_node_executable_for_js(prog)
+        if not node:
+            raise OSError(
+                "cannot find `node` for this .js entrypoint — set PTY_NODE to your node binary "
+                "(e.g. …/versions/node/v20.20.2/bin/node) or put node on PATH"
+            )
+        return [node, prog] + tail
+    return [prog] + tail
 
 
 def set_winsize(fd: int, rows: int, cols: int) -> None:
@@ -43,6 +81,7 @@ def main() -> None:
         sys.exit(
             "Usage: pty-proxy.py <command> [args...]\n"
             "  Example: python3 pty-proxy.py /home/you/.local/bin/claude\n"
+            "  .js entrypoints (e.g. …/claude-code/cli.js) are run via `node` (see PTY_NODE).\n"
             "  Tip: use an absolute path, or ~/... (expanded here); bare 'claude' uses PATH."
         )
 
@@ -66,18 +105,16 @@ def main() -> None:
         os.dup2(slave_fd, 2)
         if slave_fd > 2:
             os.close(slave_fd)
-        # execvp does NOT expand "~" — a literal ~/.nvm/.../claude fails. Expand like a shell.
-        prog = os.path.expanduser(args[0])
-        argv = [prog] + list(args[1:])
         # Many hosts (Docker, CI, mis-allocated SSH) set TERM=dumb or CI=1; Claude may exit instantly.
         if not os.environ.get("TERM") or os.environ.get("TERM", "").strip().lower() in ("", "dumb"):
             os.environ["TERM"] = "xterm-256color"
         if os.environ.get("PTY_KEEP_CI") != "1":
             os.environ.pop("CI", None)
         try:
-            os.execvp(prog, argv)
+            argv = build_child_argv(args)
+            os.execvp(argv[0], argv)
         except OSError as e:
-            msg = f"pty-proxy: could not run {prog!r}: {e}\r\n"
+            msg = f"pty-proxy: {e}\r\n"
             try:
                 os.write(2, msg.encode("utf-8", errors="replace"))
             except OSError:
