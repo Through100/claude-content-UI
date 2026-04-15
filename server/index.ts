@@ -23,7 +23,13 @@ import { parseUsageCostSnapshot } from './usageCostParse';
 import { parseUsageQuotaSnapshot, usagePanelMainText } from './usageQuotaParse';
 import { attachClaudeTerminalWebSocket } from './terminalWs';
 import { runBashAccountStatus, runBashCost, runBashUsage } from './usageShellProbe';
-import { SEO_COMMANDS, type HistoryItem, type RunResponse, type SeoCommand } from '../src/types';
+import {
+  BLOG_COMMANDS,
+  buildBlogPrompt,
+  type BlogCommand,
+  type HistoryItem,
+  type RunResponse
+} from '../src/types';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
@@ -146,7 +152,7 @@ function logClaudeRun(meta: {
 }
 
 type ParsedRunRequest =
-  | { ok: true; cmd: SeoCommand; prompt: string; targetTrimmed: string; model?: string }
+  | { ok: true; cmd: BlogCommand; prompt: string; targetTrimmed: string; model?: string }
   | { ok: false; error: string };
 
 function parseRunRequest(body: unknown): ParsedRunRequest {
@@ -159,19 +165,23 @@ function parseRunRequest(body: unknown): ParsedRunRequest {
   if (typeof commandKey !== 'string' || typeof target !== 'string') {
     return { ok: false as const, error: 'commandKey and target are required' };
   }
-  const cmd = SEO_COMMANDS.find(c => c.key === commandKey);
+  const cmd = BLOG_COMMANDS.find(c => c.key === commandKey);
   if (!cmd) return { ok: false as const, error: 'Unknown commandKey' };
-  const prompt = `${cmd.command} ${target.trim()}`.trim();
+  const targetTrimmed = target.trim();
+  if (!cmd.targetOptional && !targetTrimmed) {
+    return { ok: false as const, error: 'Target is required for this command' };
+  }
+  const prompt = buildBlogPrompt(cmd, targetTrimmed);
   const rawModel = b.model;
   const model =
     typeof rawModel === 'string' && rawModel.trim() !== '' ? rawModel.trim() : 'haiku';
-  return { ok: true as const, cmd, prompt, targetTrimmed: target.trim(), model };
+  return { ok: true as const, cmd, prompt, targetTrimmed, model };
 }
 
 function buildRunBody(input: {
   result: ClaudeRunResult;
   prompt: string;
-  cmd: SeoCommand;
+  cmd: BlogCommand;
   targetTrimmed: string;
   startedAt: string;
   t0: number;
@@ -509,7 +519,7 @@ async function startupClaude(): Promise<void> {
   if (!fs.existsSync(cwd)) {
     console.error(
       `[claude-seo-ui] ERROR: CLAUDE_WORKDIR does not exist: "${cwd}"\n` +
-      `  All SEO runs will fail with "spawn claude ENOENT" until this is fixed.\n` +
+      `  All dashboard runs will fail with "spawn claude ENOENT" until this is fixed.\n` +
       `  Set CLAUDE_WORKDIR in your .env to an existing directory.`
     );
   }

@@ -28,7 +28,7 @@ export default function Layout({ children, activeView, onViewChange, headerSessi
           <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
             <Terminal className="text-white w-5 h-5" />
           </div>
-          <h1 className="font-bold text-lg tracking-tight">Claude SEO</h1>
+          <h1 className="font-bold text-lg tracking-tight">Claude Content</h1>
         </div>
         
         <nav className="flex-1 p-4 space-y-1">
@@ -72,7 +72,7 @@ export default function Layout({ children, activeView, onViewChange, headerSessi
             </div>
             <p className="text-xs text-indigo-700 leading-relaxed">
               Meant to run within the DDM VPN. The terminal environment is isolated in a container and is intended only
-              for the Claude Code CLI with the SEO skill.
+              for the Claude Code CLI with the blog skill.
             </p>
           </div>
         </div>
@@ -82,7 +82,7 @@ export default function Layout({ children, activeView, onViewChange, headerSessi
       <main className="flex-1 flex flex-col min-w-0 overflow-auto">
         <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 sm:px-8 sticky top-0 z-10 gap-3">
           <div className="flex items-center gap-4 min-w-0">
-            <span className="text-sm font-medium text-gray-700 shrink-0">Claude SEO</span>
+            <span className="text-sm font-medium text-gray-700 shrink-0">Claude Content</span>
             <span className="text-gray-300 shrink-0">/</span>
             <span className="text-sm font-semibold text-gray-900 uppercase tracking-wider truncate">
               {activeView === 'dashboard'

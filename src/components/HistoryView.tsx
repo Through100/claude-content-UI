@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { apiService } from '../services/api';
-import { GroupedHistory, HistoryItem, SEO_COMMANDS } from '../types';
+import { BLOG_COMMANDS, GroupedHistory, HistoryItem, historyCommandLine, isLikelyHttpUrl } from '../types';
 import { 
   ChevronDown, 
   ChevronRight, 
@@ -48,7 +48,7 @@ export default function HistoryView() {
   const filteredHistory = history.map(group => ({
     ...group,
     items: (group.items || []).filter(item => 
-      filter === 'all' || (item.commandKey && item.commandKey.includes(filter))
+      filter === 'all' || item.commandKey === filter
     )
   })).filter(group => group.items && group.items.length > 0);
 
@@ -92,7 +92,7 @@ export default function HistoryView() {
           <div className="flex items-center justify-between mb-6">
             <div>
               <h2 className="text-xl font-bold text-gray-900">{selectedItem.commandLabel}</h2>
-              <p className="text-sm text-gray-500 mt-1">Historical analysis report</p>
+              <p className="text-sm text-gray-500 mt-1">Historical run output</p>
             </div>
             <div className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
               selectedItem.status === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
@@ -104,7 +104,7 @@ export default function HistoryView() {
           <ResultsView 
             result={{
               success: selectedItem.status === 'success',
-              commandExecuted: `/seo ${selectedItem.commandKey} ${selectedItem.target}`,
+              commandExecuted: historyCommandLine(selectedItem),
               rawOutput: selectedItem.rawOutput,
               parsedReport: selectedItem.parsedReport,
               stats: {
@@ -127,7 +127,7 @@ export default function HistoryView() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
           <input 
             type="text" 
-            placeholder="Search URLs or commands..."
+            placeholder="Search targets or commands..."
             className="w-full pl-10 pr-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all shadow-sm"
           />
         </div>
@@ -139,10 +139,12 @@ export default function HistoryView() {
             onChange={(e) => setFilter(e.target.value)}
             className="bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium text-gray-700 outline-none focus:ring-2 focus:ring-indigo-500 transition-all shadow-sm"
           >
-            <option value="all">All Categories</option>
-            <option value="audit">Full Audit</option>
-            <option value="page">Single Page</option>
-            <option value="schema">Schema Audit</option>
+            <option value="all">All commands</option>
+            {BLOG_COMMANDS.map((c) => (
+              <option key={c.key} value={c.key}>
+                {c.label}
+              </option>
+            ))}
           </select>
         </div>
       </div>
@@ -175,15 +177,17 @@ export default function HistoryView() {
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <h3 className="font-bold text-gray-900 truncate">{group.target}</h3>
-                      <a 
-                        href={group.target} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="text-gray-400 hover:text-indigo-600 transition-colors"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <ExternalLink size={14} />
-                      </a>
+                      {isLikelyHttpUrl(group.target) ? (
+                        <a
+                          href={group.target}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-gray-400 hover:text-indigo-600 transition-colors"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <ExternalLink size={14} />
+                        </a>
+                      ) : null}
                     </div>
                     <div className="flex items-center gap-3 mt-1">
                       <span className="text-xs text-gray-500 font-medium">

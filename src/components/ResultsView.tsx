@@ -144,7 +144,7 @@ export default function ResultsView({ result, isLoading, loadingStartedAt, liveT
     setPdfExporting(true);
     try {
       const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-      await downloadElementAsPdf(el, `seo-audit-report-${stamp}.pdf`);
+      await downloadElementAsPdf(el, `blog-run-report-${stamp}.pdf`);
     } catch (e) {
       console.error(e);
       window.alert(
@@ -191,7 +191,7 @@ export default function ResultsView({ result, isLoading, loadingStartedAt, liveT
             <Terminal className="absolute inset-0 m-auto text-indigo-600" size={24} />
           </div>
           <div className="text-center w-full max-w-xl mx-auto">
-            <h3 className="text-lg font-semibold text-gray-900">Executing SEO Command</h3>
+            <h3 className="text-lg font-semibold text-gray-900">Executing blog command</h3>
             <p className="text-sm text-gray-500">Live output from Claude appears below as it is produced.</p>
             {loadingStartedAt != null && (
               <p className="text-sm font-mono text-indigo-600 mt-3">Elapsed: {formatElapsed(loadingStartedAt)}</p>
@@ -226,7 +226,7 @@ export default function ResultsView({ result, isLoading, loadingStartedAt, liveT
               )}
               {showLongRunHint ? (
                 <p className="text-xs text-amber-800/90 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 max-w-lg">
-                  Full-site SEO audits can take several minutes. If the timer above keeps increasing and the terminal
+                  Long blog skill runs can take several minutes. If the timer above keeps increasing and the terminal
                   scrolls, the run is still active—not frozen.
                 </p>
               ) : null}
@@ -271,7 +271,7 @@ export default function ResultsView({ result, isLoading, loadingStartedAt, liveT
         </div>
         <h3 className="text-lg font-medium text-gray-900">No Results Yet</h3>
         <p className="text-sm text-gray-500 max-w-xs mx-auto mt-2">
-          Run a command above to see the SEO audit report and terminal output.
+          Run a command above to see the parsed report (when available) and terminal output.
         </p>
       </div>
     );

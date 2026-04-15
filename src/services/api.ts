@@ -137,7 +137,7 @@ async function consumeRunStream(
 }
 
 export const apiService = {
-  async runSeoCommand(
+  async runBlogCommand(
     commandKey: string,
     target: string,
     model?: string,

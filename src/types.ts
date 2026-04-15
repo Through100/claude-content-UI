@@ -245,29 +245,153 @@ export interface ModelOption {
   description?: string;
 }
 
-export interface SeoCommand {
+/** Dashboard slash-command (blog skill). */
+export interface BlogCommand {
   key: string;
   label: string;
   command: string;
   placeholder: string;
-  requiresUrl: boolean;
+  /** When true, the target field may be left empty (prompt is just `command`). */
+  targetOptional: boolean;
 }
 
-export const SEO_COMMANDS: SeoCommand[] = [
-  { key: 'audit', label: 'Full Website Audit', command: '/seo audit', placeholder: 'https://example.com', requiresUrl: true },
-  { key: 'page', label: 'Single Page Analysis', command: '/seo page', placeholder: 'https://example.com', requiresUrl: true },
-  { key: 'sitemap', label: 'Sitemap Analyze / Generate', command: '/seo sitemap', placeholder: 'https://example.com or generate', requiresUrl: false },
-  { key: 'schema', label: 'Schema Audit / Generate', command: '/seo schema', placeholder: 'https://example.com', requiresUrl: true },
-  { key: 'images', label: 'Image SEO', command: '/seo images', placeholder: 'https://example.com or optimize', requiresUrl: false },
-  { key: 'technical', label: 'Technical SEO Audit', command: '/seo technical', placeholder: 'https://example.com', requiresUrl: true },
-  { key: 'content', label: 'Content Quality Audit', command: '/seo content', placeholder: 'https://example.com', requiresUrl: true },
-  { key: 'geo', label: 'GEO / AI Overviews Audit', command: '/seo geo', placeholder: 'https://example.com', requiresUrl: true },
-  { key: 'plan', label: 'Strategic SEO Plan', command: '/seo plan', placeholder: 'holiday park, saas booking platform, etc.', requiresUrl: false },
-  { key: 'programmatic', label: 'Programmatic SEO', command: '/seo programmatic', placeholder: 'https://example.com or plan', requiresUrl: false },
-  { key: 'competitor-pages', label: 'Competitor Pages', command: '/seo competitor-pages', placeholder: 'https://example.com or generate', requiresUrl: false },
-  { key: 'local', label: 'Local SEO Audit', command: '/seo local', placeholder: 'https://example.com', requiresUrl: true },
-  { key: 'maps', label: 'Maps Intelligence', command: '/seo maps', placeholder: 'e.g. gbp-audit Auckland plumber', requiresUrl: false },
-  { key: 'hreflang', label: 'Hreflang Audit', command: '/seo hreflang', placeholder: 'https://example.com', requiresUrl: true },
-  { key: 'google', label: 'Google SEO APIs', command: '/seo google', placeholder: 'e.g. pagespeed https://example.com', requiresUrl: false },
-  { key: 'backlinks', label: 'Backlink Analysis', command: '/seo backlinks', placeholder: 'https://example.com', requiresUrl: true },
+export const BLOG_COMMANDS: BlogCommand[] = [
+  {
+    key: 'write',
+    label: 'Write — new post from scratch',
+    command: '/blog write',
+    placeholder: 'Topic or angle, e.g. "Rust async for web APIs"',
+    targetOptional: false
+  },
+  {
+    key: 'rewrite',
+    label: 'Rewrite — optimize existing post',
+    command: '/blog rewrite',
+    placeholder: 'Path to file, e.g. content/posts/guide.md',
+    targetOptional: false
+  },
+  {
+    key: 'analyze',
+    label: 'Analyze — quality audit (0–100)',
+    command: '/blog analyze',
+    placeholder: 'Path to file, e.g. content/posts/guide.md',
+    targetOptional: false
+  },
+  {
+    key: 'brief',
+    label: 'Brief — detailed content brief',
+    command: '/blog brief',
+    placeholder: 'Topic, e.g. "email onboarding for SaaS"',
+    targetOptional: false
+  },
+  {
+    key: 'calendar',
+    label: 'Calendar — editorial calendar',
+    command: '/blog calendar',
+    placeholder: 'Optional: quarter, theme, or leave empty',
+    targetOptional: true
+  },
+  {
+    key: 'strategy',
+    label: 'Strategy — blog strategy & topics',
+    command: '/blog strategy',
+    placeholder: 'Niche, e.g. "B2B analytics for manufacturers"',
+    targetOptional: false
+  },
+  {
+    key: 'outline',
+    label: 'Outline — SERP-informed outline',
+    command: '/blog outline',
+    placeholder: 'Topic, e.g. "best CRM for agencies"',
+    targetOptional: false
+  },
+  {
+    key: 'seo-check',
+    label: 'SEO check — post-writing validation',
+    command: '/blog seo-check',
+    placeholder: 'Path to file, e.g. content/posts/guide.md',
+    targetOptional: false
+  },
+  {
+    key: 'schema',
+    label: 'Schema — JSON-LD markup',
+    command: '/blog schema',
+    placeholder: 'Path to file, e.g. content/posts/guide.md',
+    targetOptional: false
+  },
+  {
+    key: 'repurpose',
+    label: 'Repurpose — social, email, YouTube',
+    command: '/blog repurpose',
+    placeholder: 'Path to file, e.g. content/posts/guide.md',
+    targetOptional: false
+  },
+  {
+    key: 'geo',
+    label: 'GEO — AI citation readiness',
+    command: '/blog geo',
+    placeholder: 'Path to file, e.g. content/posts/guide.md',
+    targetOptional: false
+  },
+  {
+    key: 'image',
+    label: 'Image — Gemini image generation',
+    command: '/blog image',
+    placeholder: 'Optional prompt or leave empty',
+    targetOptional: true
+  },
+  {
+    key: 'site-health',
+    label: 'Audit — full-site blog health',
+    command: '/blog audit',
+    placeholder: 'Optional directory, e.g. content/ (or leave empty for default)',
+    targetOptional: true
+  },
+  {
+    key: 'cannibalization',
+    label: 'Cannibalization — keyword overlap',
+    command: '/blog cannibalization',
+    placeholder: 'Optional directory to scan (or leave empty)',
+    targetOptional: true
+  },
+  {
+    key: 'factcheck',
+    label: 'Factcheck — verify statistics',
+    command: '/blog factcheck',
+    placeholder: 'Path to file, e.g. content/posts/guide.md',
+    targetOptional: false
+  },
+  {
+    key: 'persona',
+    label: 'Persona — voice & personas',
+    command: '/blog persona',
+    placeholder: 'Optional: persona name or subcommand (or leave empty)',
+    targetOptional: true
+  },
+  {
+    key: 'taxonomy',
+    label: 'Taxonomy — tags & categories',
+    command: '/blog taxonomy',
+    placeholder: 'Optional: action or leave empty',
+    targetOptional: true
+  }
 ];
+
+/** Prompt string sent to Claude for this dashboard run. */
+export function buildBlogPrompt(cmd: BlogCommand, targetTrimmed: string): string {
+  const t = targetTrimmed.trim();
+  if (!t) return cmd.command.trim();
+  return `${cmd.command} ${t}`.trim();
+}
+
+/** Reconstruct a display line for history (supports legacy SEO keys not in BLOG_COMMANDS). */
+export function historyCommandLine(item: Pick<HistoryItem, 'commandKey' | 'commandLabel' | 'target'>): string {
+  const def = BLOG_COMMANDS.find((c) => c.key === item.commandKey);
+  if (def) return buildBlogPrompt(def, item.target);
+  const parts = [item.commandLabel, item.target].filter((p) => (p || '').trim().length > 0);
+  return parts.join(' — ') || item.commandLabel;
+}
+
+export function isLikelyHttpUrl(s: string): boolean {
+  return /^https?:\/\//i.test((s || '').trim());
+}

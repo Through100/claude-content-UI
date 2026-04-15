@@ -91,7 +91,7 @@ export default function App() {
     setLiveTerminal('');
     setError(null);
     try {
-      const response = await apiService.runSeoCommand(commandKey, target, model, (_ch, text) => {
+      const response = await apiService.runBlogCommand(commandKey, target, model, (_ch, text) => {
         setLiveTerminal(prev => prev + text);
       });
       setResult(response);
@@ -99,7 +99,7 @@ export default function App() {
         setError(response.error);
       }
     } catch (err) {
-      console.error('Failed to run SEO command:', err);
+      console.error('Failed to run blog command:', err);
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg || 'The backend terminal environment is unreachable or returned an error.');
     } finally {
@@ -123,8 +123,8 @@ export default function App() {
             {/* Header Section */}
             <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
               <div>
-                <h2 className="text-3xl font-bold text-gray-900 tracking-tight">SEO Command Center</h2>
-                <p className="text-gray-500 mt-1">Execute professional SEO audits and technical analysis via Claude Code.</p>
+                <h2 className="text-3xl font-bold text-gray-900 tracking-tight">Blog Command Center</h2>
+                <p className="text-gray-500 mt-1">Run the blog skill (/blog …) via Claude Code in your project workdir.</p>
               </div>
               <div className="flex items-center gap-2 text-xs font-bold text-gray-400 uppercase tracking-widest bg-white px-4 py-2 rounded-xl border border-gray-100 shadow-sm">
                 <span className="w-2 h-2 bg-green-500 rounded-full"></span>
@@ -164,7 +164,7 @@ export default function App() {
             {/* Results Section */}
             <div className="space-y-4">
               <div className="flex items-center gap-2">
-                <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest">Audit Results</h3>
+                <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest">Run results</h3>
                 <div className="flex-1 h-px bg-gray-100"></div>
               </div>
               <ResultsView

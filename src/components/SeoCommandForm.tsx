@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Play, AlertCircle, CheckCircle2 } from 'lucide-react';
-import { SEO_COMMANDS } from '../types';
+import { BLOG_COMMANDS } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { apiService } from '../services/api';
 import type { ModelOption } from '../types';
@@ -20,13 +20,13 @@ const FALLBACK_MODELS: ModelOption[] = [
 ];
 
 export default function SeoCommandForm({ onRun, isLoading }: SeoCommandFormProps) {
-  const [selectedKey, setSelectedKey] = useState(SEO_COMMANDS[0].key);
+  const [selectedKey, setSelectedKey] = useState(BLOG_COMMANDS[0].key);
   const [target, setTarget] = useState('');
   const [model, setModel] = useState('haiku');
   const [error, setError] = useState<string | null>(null);
   const [models, setModels] = useState<ModelOption[]>(FALLBACK_MODELS);
 
-  const selectedCommand = SEO_COMMANDS.find(c => c.key === selectedKey)!;
+  const selectedCommand = BLOG_COMMANDS.find(c => c.key === selectedKey)!;
 
   useEffect(() => {
     let cancelled = false;
@@ -50,13 +50,8 @@ export default function SeoCommandForm({ onRun, isLoading }: SeoCommandFormProps
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!target.trim()) {
-      setError('Target input is required');
-      return;
-    }
-
-    if (selectedCommand.requiresUrl && !target.startsWith('https://')) {
-      setError('Target must be a valid URL starting with https://');
+    if (!selectedCommand.targetOptional && !target.trim()) {
+      setError('Target input is required for this command');
       return;
     }
 
@@ -68,7 +63,7 @@ export default function SeoCommandForm({ onRun, isLoading }: SeoCommandFormProps
       <div className="p-6 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold text-gray-900">Command Runner</h2>
-          <p className="text-sm text-gray-500">Select an SEO tool and provide the target input.</p>
+          <p className="text-sm text-gray-500">Select a blog skill command and optional target (topic, file path, or directory).</p>
         </div>
         
         <div className="flex items-center gap-3">
@@ -90,7 +85,7 @@ export default function SeoCommandForm({ onRun, isLoading }: SeoCommandFormProps
       <form onSubmit={handleSubmit} className="p-6 space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="space-y-2">
-            <label className="text-sm font-semibold text-gray-700 block">SEO Command</label>
+            <label className="text-sm font-semibold text-gray-700 block">Blog command</label>
             <div className="relative">
               <select
                 value={selectedKey}
@@ -98,7 +93,7 @@ export default function SeoCommandForm({ onRun, isLoading }: SeoCommandFormProps
                 disabled={isLoading}
                 className="w-full pl-3 pr-10 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all outline-none appearance-none disabled:bg-gray-50 disabled:text-gray-400"
               >
-                {SEO_COMMANDS.map((cmd) => (
+                {BLOG_COMMANDS.map((cmd) => (
                   <option key={cmd.key} value={cmd.key}>
                     {cmd.label}
                   </option>
@@ -111,7 +106,9 @@ export default function SeoCommandForm({ onRun, isLoading }: SeoCommandFormProps
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-semibold text-gray-700 block">Target</label>
+            <label className="text-sm font-semibold text-gray-700 block">
+              Target{selectedCommand.targetOptional ? ' (optional)' : ''}
+            </label>
             <input
               type="text"
               value={target}
@@ -142,7 +139,14 @@ export default function SeoCommandForm({ onRun, isLoading }: SeoCommandFormProps
         <div className="flex items-center justify-between pt-2">
           <div className="flex items-center gap-2 text-xs text-gray-500">
             <CheckCircle2 size={14} className="text-green-500" />
-            <span>Command: <code className="bg-gray-100 px-1.5 py-0.5 rounded text-indigo-600 font-mono">{selectedCommand.command} {target || '<target>'}</code></span>
+            <span>
+              Command:{' '}
+              <code className="bg-gray-100 px-1.5 py-0.5 rounded text-indigo-600 font-mono">
+                {selectedCommand.targetOptional && !target.trim()
+                  ? selectedCommand.command
+                  : `${selectedCommand.command} ${target || '…'}`.trim()}
+              </code>
+            </span>
           </div>
 
           <button

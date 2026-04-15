@@ -51,13 +51,13 @@ export default function LogonView({ onVisible, onPtyWelcomeName, onPtySessionEnd
           <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Logon</h2>
         </div>
         <p className="text-sm text-gray-600 leading-relaxed max-w-3xl">
-          Use the interactive terminal below to sign in to Claude Code in the same environment as SEO runs (
+          Use the interactive terminal below to sign in to Claude Code in the same environment as dashboard runs (
           <code className="text-xs bg-gray-100 px-1 rounded">CLAUDE_WORKDIR</code>). Account Info shows a one-shot{' '}
           <code className="text-xs bg-gray-100 px-1 rounded">/status</code> snapshot (use Refresh there so the header can show your email). This page
           is for live <code className="text-xs bg-gray-100 px-1 rounded">/login</code> in the PTY.
         </p>
         <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 leading-relaxed max-w-3xl mt-4">
-          This interactive terminal runs as the direct Claude CLI session on the host (claude-seo) container. Anyone who can open this page can use
+          This interactive terminal runs as the direct Claude CLI session on the host container. Anyone who can open this page can use
           the Claude Code terminal with the associated account used for Logon.
         </p>
       </div>
