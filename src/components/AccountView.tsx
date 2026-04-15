@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { FileText, Terminal } from 'lucide-react';
+import { FileText, Keyboard, Terminal } from 'lucide-react';
 import { apiService } from '../services/api';
 import type { AccountStatusInfo, AccountStatusSnapshot } from '../types';
+import ClaudeTerminalView from './ClaudeTerminalView';
 
 const EMPTY_SNAPSHOT: AccountStatusSnapshot = { parseOk: false };
 
@@ -16,6 +17,8 @@ const ROW_DEFS: { key: keyof Omit<AccountStatusSnapshot, 'parseOk'>; label: stri
   { key: 'model', label: 'Model' },
   { key: 'settingSources', label: 'Setting sources' }
 ];
+
+const LOGIN_INITIAL = '/login\r';
 
 function AccountPrettyPanel({ data }: { data: AccountStatusInfo }) {
   const snap = data.statusSnapshot ?? EMPTY_SNAPSHOT;
@@ -49,17 +52,33 @@ export default function AccountView() {
   const [isRunning, setIsRunning] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [loadElapsedSec, setLoadElapsedSec] = useState(0);
-  const [activeTab, setActiveTab] = useState<'pretty' | 'raw'>('pretty');
+  const [activeTab, setActiveTab] = useState<'pretty' | 'raw' | 'login'>('pretty');
+  const [terminalWsEnabled, setTerminalWsEnabled] = useState(true);
 
   const refresh = useCallback(async () => {
     setFetchError(null);
     setIsRunning(true);
     try {
-      const info = await apiService.getAccountStatus();
+      const [info, health] = await Promise.all([apiService.getAccountStatus(), apiService.getSystemStatus()]);
       setData(info);
+      setTerminalWsEnabled(
+        typeof (health as { terminalWebSocket?: boolean }).terminalWebSocket === 'boolean'
+          ? (health as { terminalWebSocket: boolean }).terminalWebSocket
+          : true
+      );
     } catch (error) {
       console.error('Account GET failed:', error);
       setFetchError(error instanceof Error ? error.message : String(error));
+      try {
+        const health = await apiService.getSystemStatus();
+        setTerminalWsEnabled(
+          typeof (health as { terminalWebSocket?: boolean }).terminalWebSocket === 'boolean'
+            ? (health as { terminalWebSocket: boolean }).terminalWebSocket
+            : true
+        );
+      } catch {
+        setTerminalWsEnabled(false);
+      }
     } finally {
       setIsLoading(false);
       setIsRunning(false);
@@ -88,7 +107,7 @@ export default function AccountView() {
         <p className="text-sm font-mono text-indigo-600 mt-2">{loadElapsedSec}s elapsed</p>
         <p className="text-sm text-gray-500 text-center mt-4 leading-relaxed">
           Same PTY setup as Usage: on Linux the server uses <code className="text-xs bg-gray-100 px-1 rounded">script -qec &apos;timeout … claude &quot;/status&quot;&apos; /dev/null</code> when <code className="text-xs bg-gray-100 px-1 rounded">script</code> is available so <code className="text-xs bg-gray-100 px-1 rounded">/status</code> runs interactively (avoids{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">Unknown skill: status</code> from piped I/O).
+          <code className="text-xs bg-gray-100 px-1 rounded">Unknown skill: status</code> from piped I/O). Inner timeout defaults to 4s — raise <code className="text-xs bg-gray-100 px-1 rounded">CLAUDE_ACCOUNT_STATUS_TIMEOUT_SPEC</code> if the capture is often cut short.
         </p>
       </div>
     );
@@ -105,10 +124,11 @@ export default function AccountView() {
 
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <p className="text-sm text-gray-600 leading-relaxed">
-          Runs <code className="text-xs bg-gray-100 px-1 rounded">bash -c …</code> on the server with the same{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">script</code>-based PTY as Usage Info.{' '}
-          <span className="text-gray-700 font-medium">Pretty view</span> extracts the Status tab fields;{' '}
-          <span className="text-gray-700 font-medium">Raw</span> shows the full capture.
+          <span className="text-gray-700 font-medium">Pretty</span> / <span className="text-gray-700 font-medium">Raw</span>{' '}
+          use the same bash + <code className="text-xs bg-gray-100 px-1 rounded">script</code> probe as Usage (inner timeout default <strong>4s</strong>).{' '}
+          <span className="text-gray-700 font-medium">Login terminal</span> opens a real PTY to <code className="text-xs bg-gray-100 px-1 rounded">claude</code> in{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">CLAUDE_WORKDIR</code> so staff can run <code className="text-xs bg-gray-100 px-1 rounded">/login</code> (requires{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">python3</code> and <code className="text-xs bg-gray-100 px-1 rounded">scripts/pty-proxy.py</code> on the server).
         </p>
         <button
           type="button"
@@ -120,58 +140,95 @@ export default function AccountView() {
         </button>
       </div>
 
-      {data && (
-        <>
-          <div className="flex bg-gray-100 p-1 rounded-xl w-full sm:w-fit">
-            <button
-              type="button"
-              onClick={() => setActiveTab('pretty')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
-                activeTab === 'pretty' ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              <FileText size={16} />
-              Pretty view
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('raw')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
-                activeTab === 'raw' ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              <Terminal size={16} />
-              Raw output
-            </button>
-          </div>
+      <div className="flex flex-wrap bg-gray-100 p-1 rounded-xl w-full gap-1 sm:w-fit">
+        <button
+          type="button"
+          onClick={() => setActiveTab('pretty')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+            activeTab === 'pretty' ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <FileText size={16} />
+          Pretty view
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('raw')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+            activeTab === 'raw' ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <Terminal size={16} />
+          Raw output
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('login')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+            activeTab === 'login' ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <Keyboard size={16} />
+          Login terminal
+        </button>
+      </div>
 
-          {activeTab === 'pretty' ? (
-            <AccountPrettyPanel data={data} />
-          ) : (
-            <div className="bg-[#1e1e1e] rounded-2xl border border-gray-800 shadow-xl overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-2 bg-[#2d2d2d] border-b border-gray-800 gap-2">
-                <div className="flex gap-1.5 shrink-0">
-                  <div className="w-3 h-3 rounded-full bg-[#ff5f56]" />
-                  <div className="w-3 h-3 rounded-full bg-[#ffbd2e]" />
-                  <div className="w-3 h-3 rounded-full bg-[#27c93f]" />
-                </div>
-                <span className="text-[10px] font-mono text-gray-500 uppercase tracking-widest shrink-0">
-                  Terminal output
-                </span>
-                <code className="text-[10px] font-mono text-amber-200/90 truncate text-right max-w-[55%]">
-                  {data.argv?.length ? JSON.stringify(data.argv) : 'bash'}
-                </code>
-              </div>
-              <pre className="p-6 text-sm font-mono text-gray-300 overflow-auto max-h-[min(75vh,720px)] leading-relaxed whitespace-pre-wrap">
-                {data.output.trim() ? data.output : '(no output)'}
-              </pre>
+      {activeTab === 'pretty' && data && <AccountPrettyPanel data={data} />}
+
+      {activeTab === 'raw' && data && (
+        <div className="bg-[#1e1e1e] rounded-2xl border border-gray-800 shadow-xl overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-2 bg-[#2d2d2d] border-b border-gray-800 gap-2">
+            <div className="flex gap-1.5 shrink-0">
+              <div className="w-3 h-3 rounded-full bg-[#ff5f56]" />
+              <div className="w-3 h-3 rounded-full bg-[#ffbd2e]" />
+              <div className="w-3 h-3 rounded-full bg-[#27c93f]" />
             </div>
-          )}
+            <span className="text-[10px] font-mono text-gray-500 uppercase tracking-widest shrink-0">
+              Terminal output
+            </span>
+            <code className="text-[10px] font-mono text-amber-200/90 truncate text-right max-w-[55%]">
+              {data.argv?.length ? JSON.stringify(data.argv) : 'bash'}
+            </code>
+          </div>
+          <pre className="p-6 text-sm font-mono text-gray-300 overflow-auto max-h-[min(75vh,720px)] leading-relaxed whitespace-pre-wrap">
+            {data.output.trim() ? data.output : '(no output)'}
+          </pre>
+        </div>
+      )}
 
-          <p className="text-[10px] font-mono text-gray-400 px-1 break-all">
-            exitCode={String(data.exitCode)} argv={JSON.stringify(data.argv)}
-          </p>
-        </>
+      {activeTab === 'raw' && !data && (
+        <p className="text-sm text-gray-500">No /status capture yet — fix the error above or press Refresh.</p>
+      )}
+
+      {activeTab === 'pretty' && !data && (
+        <p className="text-sm text-gray-500">No parsed snapshot — fix the error above or press Refresh.</p>
+      )}
+
+      {activeTab === 'login' && (
+        <div className="space-y-3">
+          {!terminalWsEnabled ? (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+              Interactive terminal is disabled on the server (<code className="text-xs bg-white/70 px-1 rounded">CLAUDE_TERMINAL_WS=0</code>). Remove it to allow WebSocket login.
+            </div>
+          ) : (
+            <>
+              <p className="text-xs text-gray-500 leading-relaxed">
+                Opens a live <code className="bg-gray-100 px-1 rounded">claude</code> session and sends <code className="bg-gray-100 px-1 rounded">/login</code> for you. Complete auth in the browser when prompted, then paste any code back here. Only for trusted internal networks — this is a full interactive shell as the API user.
+              </p>
+              <ClaudeTerminalView
+                compact
+                initialInput={LOGIN_INITIAL}
+                title="Claude — /login (PTY)"
+              />
+            </>
+          )}
+        </div>
+      )}
+
+      {data && (
+        <p className="text-[10px] font-mono text-gray-400 px-1 break-all">
+          exitCode={String(data.exitCode)} argv={JSON.stringify(data.argv)}
+        </p>
       )}
     </div>
   );

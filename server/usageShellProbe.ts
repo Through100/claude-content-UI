@@ -67,8 +67,8 @@ function usageInnerTimeoutSpec(): string {
 
 /** Inner `timeout` duration for `claude "/status"` (PTY probe). */
 export function accountStatusInnerTimeoutSpec(): string {
-  const raw = (process.env.CLAUDE_ACCOUNT_STATUS_TIMEOUT_SPEC ?? '2s').trim() || '2s';
-  return /^[0-9]+(?:\.[0-9]+)?\s*(?:s|m|h|ms)?$/i.test(raw) ? raw.replace(/\s+/g, '') : '2s';
+  const raw = (process.env.CLAUDE_ACCOUNT_STATUS_TIMEOUT_SPEC ?? '4s').trim() || '4s';
+  return /^[0-9]+(?:\.[0-9]+)?\s*(?:s|m|h|ms)?$/i.test(raw) ? raw.replace(/\s+/g, '') : '4s';
 }
 
 type SlashQuoted = '"/usage"' | '"/status"';

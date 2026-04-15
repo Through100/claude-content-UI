@@ -1,0 +1,107 @@
+import type { Server } from 'node:http';
+import { WebSocket, WebSocketServer } from 'ws';
+import { createPtySession, killSession, resizePty, writeToPty, type PtySession } from './claudePty';
+import { usageProbeCleanEnv } from './usageShellProbe';
+
+export type TerminalWsOpts = {
+  enabled: () => boolean;
+  claudeBin: () => string;
+  workdir: () => string;
+};
+
+const WS_PATH = '/api/terminal/ws';
+
+function bindClaudePtySocket(ws: WebSocket, opts: TerminalWsOpts): void {
+  let session: PtySession | null = null;
+
+  const safeSend = (obj: unknown) => {
+    if (ws.readyState === WebSocket.OPEN) {
+      try {
+        ws.send(JSON.stringify(obj));
+      } catch {
+        /* ignore */
+      }
+    }
+  };
+
+  ws.on('message', (raw: Buffer | ArrayBuffer | Buffer[]) => {
+    let msg: { type?: string; cols?: number; rows?: number; data?: string };
+    try {
+      msg = JSON.parse(String(raw)) as typeof msg;
+    } catch {
+      return;
+    }
+
+    if (msg.type === 'create') {
+      if (session) return;
+      try {
+        session = createPtySession({
+          claudeBin: opts.claudeBin(),
+          cwd: opts.workdir(),
+          env: usageProbeCleanEnv(),
+          cols: typeof msg.cols === 'number' ? msg.cols : undefined,
+          rows: typeof msg.rows === 'number' ? msg.rows : undefined,
+          onData: (chunk) => safeSend({ type: 'data', data: chunk }),
+          onExit: () => {
+            safeSend({ type: 'exit' });
+            try {
+              ws.close();
+            } catch {
+              /* ignore */
+            }
+          }
+        });
+        safeSend({ type: 'created' });
+      } catch (e) {
+        safeSend({ type: 'error', message: String(e) });
+        try {
+          ws.close();
+        } catch {
+          /* ignore */
+        }
+      }
+      return;
+    }
+
+    if (msg.type === 'input' && session && typeof msg.data === 'string') {
+      writeToPty(session, msg.data);
+      return;
+    }
+
+    if (msg.type === 'resize' && session && typeof msg.cols === 'number' && typeof msg.rows === 'number') {
+      resizePty(session, msg.cols, msg.rows);
+    }
+  });
+
+  const cleanup = () => {
+    if (session) {
+      killSession(session.id);
+      session = null;
+    }
+  };
+
+  ws.on('close', cleanup);
+  ws.on('error', cleanup);
+}
+
+/**
+ * Browser xterm.js ↔ WebSocket ↔ Python pty-proxy ↔ real PTY ↔ `claude`.
+ * Upgrade path: {@link WS_PATH}
+ */
+export function attachClaudeTerminalWebSocket(server: Server, opts: TerminalWsOpts): void {
+  const wss = new WebSocketServer({ noServer: true });
+
+  server.on('upgrade', (req, socket, head) => {
+    const url = (req.url ?? '').split('?')[0];
+    if (url !== WS_PATH && url !== `${WS_PATH}/`) {
+      return;
+    }
+    if (!opts.enabled()) {
+      socket.destroy();
+      return;
+    }
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      bindClaudePtySocket(ws, opts);
+    });
+  });
+}

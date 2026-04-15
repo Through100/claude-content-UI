@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
+import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
@@ -19,6 +20,7 @@ import { parseSeoOutput } from '../shared/parseSeoOutput';
 import { enrichUsagePanelWithLocalJsonWhenCliFails } from './usageLocalSnapshot';
 import { parseAccountStatusSnapshot } from './accountStatusParse';
 import { parseUsageQuotaSnapshot, usagePanelMainText } from './usageQuotaParse';
+import { attachClaudeTerminalWebSocket } from './terminalWs';
 import { runBashAccountStatus, runBashUsage } from './usageShellProbe';
 import { SEO_COMMANDS, type HistoryItem, type RunResponse, type SeoCommand } from '../src/types';
 
@@ -226,6 +228,8 @@ app.get('/api/health', (_req, res) => {
     workdir: workdir(),
     runTimeoutMs: runTimeoutMs(),
     usageTimeoutMs: usageTimeoutMs(),
+    /** When false, `/api/terminal/ws` upgrades are refused (set `CLAUDE_TERMINAL_WS=0`). */
+    terminalWebSocket: process.env.CLAUDE_TERMINAL_WS !== '0',
     time: new Date().toISOString()
   });
 });
@@ -528,9 +532,20 @@ app.get('*', (_req, res) => {
   res.sendFile(path.join(staticDir, 'index.html'));
 });
 
-app.listen(port, async () => {
+const server = http.createServer(app);
+
+attachClaudeTerminalWebSocket(server, {
+  enabled: () => process.env.CLAUDE_TERMINAL_WS !== '0',
+  claudeBin,
+  workdir
+});
+
+server.listen(port, async () => {
   await startupClaude();
   console.log(`[claude-seo-ui] API + static listening on http://0.0.0.0:${port}`);
+  if (process.env.CLAUDE_TERMINAL_WS !== '0') {
+    console.log('[claude-seo-ui] PTY WebSocket: ws://…/api/terminal/ws (xterm login terminal; set CLAUDE_TERMINAL_WS=0 to disable)');
+  }
   if (shouldLogClaudeRuns()) {
     console.log(
       '[claude-seo-ui] Each POST /api/run will print full Claude stdout/stderr above (set CLAUDE_LOG_RUNS=0 to disable).'
