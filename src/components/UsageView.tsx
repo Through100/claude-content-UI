@@ -25,7 +25,7 @@ function UsageCostPanel({ snap }: { snap: UsageCostSnapshot }) {
     { label: 'Total duration (API)', value: snap.totalDurationApi },
     { label: 'Total duration (wall)', value: snap.totalDurationWall },
     { label: 'Total code changes', value: snap.totalCodeChanges },
-    { label: 'Usage (tokens)', value: snap.usageSummary }
+    { label: 'Usage (session token counts)', value: snap.usageSummary }
   ];
 
   if (!snap.parseOk) {
