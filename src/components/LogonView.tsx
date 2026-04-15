@@ -41,9 +41,13 @@ export default function LogonView() {
         </div>
         <p className="text-sm text-gray-600 leading-relaxed max-w-3xl">
           Use the interactive terminal below to sign in or out of Claude Code in the same environment as SEO runs
-          (<code className="text-xs bg-gray-100 px-1 rounded">CLAUDE_WORKDIR</code>, API user). Account Info still shows a
-          one-shot <code className="text-xs bg-gray-100 px-1 rounded">/status</code> snapshot; this page is only for live
+          (<code className="text-xs bg-gray-100 px-1 rounded">CLAUDE_WORKDIR</code>). Account Info still shows a one-shot{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">/status</code> snapshot; this page is only for live{' '}
           <code className="text-xs bg-gray-100 px-1 rounded">/login</code> / <code className="text-xs bg-gray-100 px-1 rounded">/logout</code>.
+        </p>
+        <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 leading-relaxed max-w-3xl mt-4">
+          This interactive terminal runs as the direct Claude CLI session on the host (claude-seo) container. Anyone who can open this page can use
+          the Claude Code terminal with the associated account used for Logon.
         </p>
       </div>
 
@@ -55,24 +59,24 @@ export default function LogonView() {
         <div className="px-5 py-5 space-y-4 text-sm text-gray-700 leading-relaxed">
           <ol className="list-decimal list-inside space-y-3 marker:font-semibold marker:text-indigo-700">
             <li>
-              Click inside the terminal, then type <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded font-mono">/login</code> and press{' '}
-              <kbd className="text-xs font-mono bg-gray-200 px-1 rounded">Enter</kbd>. Follow the prompts (browser window or URL + paste code).
+              Click inside the terminal, type <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded font-mono">/login</code>, and press{' '}
+              <kbd className="text-xs font-mono bg-gray-200 px-1 rounded">Enter</kbd>. When Claude shows the <strong>browser login URL</strong> in the
+              terminal, select it and use <strong>right-click → Copy</strong> (browser menu) so you have the link on your PC if you need it in another
+              window.
             </li>
             <li>
-              To paste an OAuth or device code from your PC, use the green <strong>Paste from PC…</strong> button above the terminal if the normal
-              browser paste shortcut is blocked (common on plain HTTP).
+              To paste a URL, device code, or OAuth value from your PC: click <strong>Paste from PC…</strong>, paste into the box, then{' '}
+              <strong>Insert into terminal</strong>. <strong>Click inside the interactive PTY</strong> so the cursor is in the session, then press{' '}
+              <kbd className="text-xs font-mono bg-gray-200 px-1 rounded">Enter</kbd> when prompted to continue the login flow. Accept the{' '}
+              <strong>Notice</strong> prompt when Claude shows it.
             </li>
             <li>
-              When you are done with this session, type <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded font-mono">/logout</code> and press{' '}
-              <kbd className="text-xs font-mono bg-gray-200 px-1 rounded">Enter</kbd> to sign out of Claude Code in this PTY. You can run{' '}
-              <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded font-mono">/login</code> again later to authenticate as a different user if
-              your workflow allows it.
+              Once you are signed in, you can use all Claude Code features from this terminal. When you are finished, type{' '}
+              <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded font-mono">/logout</code> and press{' '}
+              <kbd className="text-xs font-mono bg-gray-200 px-1 rounded">Enter</kbd> to sign out; you can run <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded font-mono">/login</code>{' '}
+              again later if your workflow allows it.
             </li>
           </ol>
-          <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 leading-relaxed">
-            This shell runs as the API server user on the host. Use only on trusted internal networks; anyone who can open this page can use the
-            terminal while it is connected.
-          </p>
           <p className="text-xs text-gray-500">
             Right-click in the terminal for the normal browser menu (Copy / Paste). The server needs <code className="bg-gray-100 px-1 rounded">python3</code> and{' '}
             <code className="bg-gray-100 px-1 rounded">scripts/pty-proxy.py</code>. Set <code className="bg-gray-100 px-1 rounded">CLAUDE_TERMINAL_WS=0</code> to disable the WebSocket entirely.
