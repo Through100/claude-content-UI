@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { FileText, Terminal } from 'lucide-react';
 import { apiService } from '../services/api';
-import type { UsageInfo, UsageQuotaSection, UsageQuotaSnapshot } from '../types';
+import type { UsageCostSnapshot, UsageInfo, UsageQuotaSection, UsageQuotaSnapshot } from '../types';
 import {
   formatResetCountdown,
   normalizeCorruptedResetsAmUtcLine,
@@ -16,6 +16,44 @@ const EMPTY_QUOTA_SNAPSHOT: UsageQuotaSnapshot = {
     { id: 'extra_usage', title: 'Extra usage', percentUsed: null, detailLines: [], matched: false }
   ]
 };
+
+const EMPTY_COST_SNAPSHOT: UsageCostSnapshot = { parseOk: false };
+
+function UsageCostPanel({ snap }: { snap: UsageCostSnapshot }) {
+  const rows: { label: string; value?: string }[] = [
+    { label: 'Total cost', value: snap.totalCost },
+    { label: 'Total duration (API)', value: snap.totalDurationApi },
+    { label: 'Total duration (wall)', value: snap.totalDurationWall },
+    { label: 'Total code changes', value: snap.totalCodeChanges },
+    { label: 'Usage (tokens)', value: snap.usageSummary }
+  ];
+
+  if (!snap.parseOk) {
+    return (
+      <div className="rounded-2xl border border-dashed border-gray-300 p-5 bg-white shadow-sm">
+        <h3 className="text-sm font-semibold text-gray-900 tracking-tight">API session cost (/cost)</h3>
+        <p className="mt-4 text-sm text-gray-500">
+          Not found in this capture (expected on subscription billing, or when the CLI did not print the cost panel).
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-2xl border border-gray-200 p-5 bg-white shadow-sm">
+      <h3 className="text-sm font-semibold text-gray-900 tracking-tight">API session cost (/cost)</h3>
+      <p className="mt-1 text-xs text-gray-500">Per-session totals from the API account cost panel.</p>
+      <dl className="mt-4 space-y-3">
+        {rows.map(({ label, value }) => (
+          <div key={label} className="grid grid-cols-1 sm:grid-cols-[minmax(0,11rem)_1fr] gap-1 sm:gap-3 text-sm">
+            <dt className="text-gray-500 font-medium">{label}</dt>
+            <dd className="font-mono text-gray-800 tabular-nums break-words">{value && value.trim() ? value : '—'}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
 
 function UsageDetailLine({ line }: { line: string }) {
   const [now, setNow] = useState(() => new Date());
@@ -80,19 +118,28 @@ function UsageQuotaCard({ section }: { section: UsageQuotaSection }) {
 
 function UsagePrettyPanel({ data }: { data: UsageInfo }) {
   const quotaSnapshot = data.quotaSnapshot ?? EMPTY_QUOTA_SNAPSHOT;
+  const costSnapshot = data.costSnapshot ?? EMPTY_COST_SNAPSHOT;
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {!quotaSnapshot.parseOk && (
         <p className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 leading-relaxed">
           The Usage tab quotas could not be read reliably from this capture (for example when only the JSON fallback
-          block is present). Use the Raw tab for the full terminal output, or try Refresh once{' '}
+          block is present, or on API-key billing where <code className="text-xs bg-white/80 px-1 rounded">/usage</code>{' '}
+          does not show subscription-style rows). Use the Raw tab for the full terminal output, or try Refresh once{' '}
           <code className="text-xs bg-white/80 px-1 rounded">/usage</code> has finished drawing in the PTY.
         </p>
       )}
-      <div className="grid gap-4 md:grid-cols-3">
-        {quotaSnapshot.sections.map((s) => (
-          <UsageQuotaCard key={s.id} section={s} />
-        ))}
+      <div>
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-3">Plan usage (/usage)</h2>
+        <div className="grid gap-4 md:grid-cols-3">
+          {quotaSnapshot.sections.map((s) => (
+            <UsageQuotaCard key={s.id} section={s} />
+          ))}
+        </div>
+      </div>
+      <div>
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-3">API billing</h2>
+        <UsageCostPanel snap={costSnapshot} />
       </div>
     </div>
   );
@@ -139,12 +186,13 @@ export default function UsageView() {
     return (
       <div className="flex flex-col items-center justify-center py-20 px-6 bg-white rounded-2xl border border-gray-200 border-dashed max-w-lg mx-auto">
         <div className="w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mb-4" />
-        <p className="text-gray-700 font-medium">Running /usage…</p>
+        <p className="text-gray-700 font-medium">Running /usage and /cost…</p>
         <p className="text-sm font-mono text-indigo-600 mt-2">{loadElapsedSec}s elapsed</p>
         <p className="text-sm text-gray-500 text-center mt-4 leading-relaxed">
-          On Linux the server wraps <code className="text-xs bg-gray-100 px-1 rounded">script -qec &apos;timeout … claude &quot;/usage&quot;&apos; /dev/null</code> so
-          <code className="text-xs bg-gray-100 px-1 rounded"> claude</code> gets a PTY (avoids <code className="text-xs bg-gray-100 px-1 rounded">Unknown skill: usage</code> from piped I/O). Otherwise the same inner{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">timeout … claude &quot;/usage&quot;</code> runs without <code className="text-xs bg-gray-100 px-1 rounded">script</code>.
+          The server runs <code className="text-xs bg-gray-100 px-1 rounded">claude &quot;/usage&quot;</code> then{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">claude &quot;/cost&quot;</code> in sequence (each with the same Linux{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">script -qec … /dev/null</code> PTY wrapper when available). This can take up to about twice your{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">CLAUDE_USAGE_TIMEOUT_MS</code> budget.
         </p>
       </div>
     );
@@ -161,9 +209,10 @@ export default function UsageView() {
 
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <p className="text-sm text-gray-600 leading-relaxed">
-          Runs <code className="text-xs bg-gray-100 px-1 rounded">bash -c …</code> on the server (Linux: inside{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">script -qec … /dev/null</code> for a PTY when <code className="text-xs bg-gray-100 px-1 rounded">script</code> exists).{' '}
-          <span className="text-gray-700 font-medium">Pretty view</span> reads Current session / week / extra usage from the capture; <span className="text-gray-700 font-medium">Raw</span> is the full text.
+          Runs <code className="text-xs bg-gray-100 px-1 rounded">/usage</code> then <code className="text-xs bg-gray-100 px-1 rounded">/cost</code> on the server (Linux: each inside{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">script -qec … /dev/null</code> when <code className="text-xs bg-gray-100 px-1 rounded">script</code> exists).{' '}
+          <span className="text-gray-700 font-medium">Pretty view</span> shows subscription-style quotas from <code className="text-xs bg-gray-100 px-1 rounded">/usage</code> and API session totals from{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">/cost</code> when present. <span className="text-gray-700 font-medium">Raw</span> concatenates both probes.
         </p>
         <button
           type="button"
@@ -211,9 +260,9 @@ export default function UsageView() {
                   <div className="w-3 h-3 rounded-full bg-[#27c93f]" />
                 </div>
                 <span className="text-[10px] font-mono text-gray-500 uppercase tracking-widest shrink-0">
-                  Terminal output
+                  /usage + /cost
                 </span>
-                <code className="text-[10px] font-mono text-amber-200/90 truncate text-right max-w-[55%]">
+                <code className="text-[10px] font-mono text-amber-200/90 truncate text-right max-w-[55%]" title="Usage probe argv">
                   {data.argv?.length ? JSON.stringify(data.argv) : 'bash'}
                 </code>
               </div>
@@ -223,8 +272,13 @@ export default function UsageView() {
             </div>
           )}
 
-          <p className="text-[10px] font-mono text-gray-400 px-1 break-all">
-            exitCode={String(data.exitCode)} argv={JSON.stringify(data.argv)}
+          <p className="text-[10px] font-mono text-gray-400 px-1 break-all space-y-1">
+            <span className="block">
+              /usage exitCode={String(data.exitCode)} argv={JSON.stringify(data.argv)}
+            </span>
+            <span className="block">
+              /cost exitCode={String(data.costExitCode ?? 'n/a')} argv={JSON.stringify(data.costArgv ?? [])}
+            </span>
           </p>
         </>
       )}

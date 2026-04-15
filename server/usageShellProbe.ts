@@ -71,7 +71,7 @@ export function accountStatusInnerTimeoutSpec(): string {
   return /^[0-9]+(?:\.[0-9]+)?\s*(?:s|m|h|ms)?$/i.test(raw) ? raw.replace(/\s+/g, '') : '4s';
 }
 
-type SlashQuoted = '"/usage"' | '"/status"';
+type SlashQuoted = '"/usage"' | '"/status"' | '"/cost"';
 
 /**
  * Run `timeout … claude "/usage"` or `… "/status"` in bash, optionally under `script` for a PTY on Linux.
@@ -162,5 +162,22 @@ export async function runBashAccountStatus(opts: {
     timeoutMs: opts.timeoutMs,
     slashQuoted: '"/status"',
     innerTimeoutSpec: accountStatusInnerTimeoutSpec()
+  });
+}
+
+/**
+ * Same PTY/script tactic as {@link runBashUsage} for interactive `claude "/cost"` (API-key billing summary).
+ */
+export async function runBashCost(opts: {
+  claudeBin: string;
+  cwd: string;
+  timeoutMs: number;
+}): Promise<{ output: string; exitCode: number | null; argv: string[] }> {
+  return runBashClaudeSlashProbe({
+    claudeBin: opts.claudeBin,
+    cwd: opts.cwd,
+    timeoutMs: opts.timeoutMs,
+    slashQuoted: '"/cost"',
+    innerTimeoutSpec: usageInnerTimeoutSpec()
   });
 }

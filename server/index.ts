@@ -19,9 +19,10 @@ import { appendHistoryItem, groupHistory, loadHistory } from './historyStore';
 import { parseSeoOutput } from '../shared/parseSeoOutput';
 import { enrichUsagePanelWithLocalJsonWhenCliFails } from './usageLocalSnapshot';
 import { parseAccountStatusSnapshot } from './accountStatusParse';
+import { parseUsageCostSnapshot } from './usageCostParse';
 import { parseUsageQuotaSnapshot, usagePanelMainText } from './usageQuotaParse';
 import { attachClaudeTerminalWebSocket } from './terminalWs';
-import { runBashAccountStatus, runBashUsage } from './usageShellProbe';
+import { runBashAccountStatus, runBashCost, runBashUsage } from './usageShellProbe';
 import { SEO_COMMANDS, type HistoryItem, type RunResponse, type SeoCommand } from '../src/types';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -74,6 +75,36 @@ function usageTimeoutMs(): number {
     return DEFAULT_USAGE_TIMEOUT_MS;
   }
   return n;
+}
+
+const USAGE_RAW_SEPARATOR = '\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n';
+
+/** Run `claude "/usage"` then `claude "/cost"` (same PTY/script wrapper as each standalone probe). */
+async function runCombinedUsageProbes() {
+  const cwd = workdir();
+  const bin = claudeBin();
+  const t = usageTimeoutMs();
+
+  const usageResult = await runBashUsage({ claudeBin: bin, cwd, timeoutMs: t });
+  const mergedUsage = enrichUsagePanelWithLocalJsonWhenCliFails(usageResult.output, { treatEmptyAsFailure: true });
+  const quotaSnapshot = parseUsageQuotaSnapshot(usagePanelMainText(mergedUsage));
+
+  const costResult = await runBashCost({ claudeBin: bin, cwd, timeoutMs: t });
+  const costSnapshot = parseUsageCostSnapshot(costResult.output);
+
+  const output = `## claude "/usage"\n\n${mergedUsage.trim()}${USAGE_RAW_SEPARATOR}## claude "/cost"\n\n${costResult.output.trim()}`;
+
+  return {
+    line: '/usage + /cost',
+    execMode: 'bash_quoted_usage_cost' as const,
+    output,
+    exitCode: usageResult.exitCode,
+    argv: usageResult.argv,
+    quotaSnapshot,
+    costSnapshot,
+    costExitCode: costResult.exitCode,
+    costArgv: costResult.argv
+  };
 }
 
 /** Echo full Claude stdout/stderr to the API process terminal (see npm run dev:server). */
@@ -258,42 +289,16 @@ app.get('/api/history', async (_req, res) => {
 });
 
 app.get('/api/usage', async (_req, res) => {
-  const cwd = workdir();
-  const bin = claudeBin();
-  const t = usageTimeoutMs();
   try {
-    const { output, exitCode, argv } = await runBashUsage({ claudeBin: bin, cwd, timeoutMs: t });
-    const merged = enrichUsagePanelWithLocalJsonWhenCliFails(output, { treatEmptyAsFailure: true });
-    const quotaSnapshot = parseUsageQuotaSnapshot(usagePanelMainText(merged));
-    res.json({
-      line: '/usage',
-      execMode: 'bash_quoted_usage',
-      output: merged,
-      exitCode,
-      argv,
-      quotaSnapshot
-    });
+    res.json(await runCombinedUsageProbes());
   } catch (e) {
     res.status(500).json({ error: String(e) });
   }
 });
 
-app.post('/api/usage/exec', async (req, res) => {
-  const cwd = workdir();
-  const bin = claudeBin();
-  const t = usageTimeoutMs();
+app.post('/api/usage/exec', async (_req, res) => {
   try {
-    const { output, exitCode, argv } = await runBashUsage({ claudeBin: bin, cwd, timeoutMs: t });
-    const merged = enrichUsagePanelWithLocalJsonWhenCliFails(output, { treatEmptyAsFailure: true });
-    const quotaSnapshot = parseUsageQuotaSnapshot(usagePanelMainText(merged));
-    res.json({
-      line: '/usage',
-      execMode: 'bash_quoted_usage',
-      output: merged,
-      exitCode,
-      argv,
-      quotaSnapshot
-    });
+    res.json(await runCombinedUsageProbes());
   } catch (e) {
     res.status(500).json({ error: String(e) });
   }

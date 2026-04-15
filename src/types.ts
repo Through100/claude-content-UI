@@ -180,18 +180,38 @@ export interface UsageQuotaSnapshot {
   parseOk: boolean;
 }
 
+/** Parsed `/cost` panel (API-key accounts); per-session totals. */
+export interface UsageCostSnapshot {
+  parseOk: boolean;
+  totalCost?: string;
+  totalDurationApi?: string;
+  totalDurationWall?: string;
+  totalCodeChanges?: string;
+  /** e.g. "0 input, 0 output, 0 cache read, 0 cache write" */
+  usageSummary?: string;
+}
+
 /** API GET /api/usage and POST /api/usage/exec — merged stdout/stderr. */
 export interface UsageInfo {
-  /** Slash command that was run (always `/usage`). */
+  /** Probes run for this response (subscription-style `/usage` plus API-style `/cost`). */
   line: string;
-  /** Output from the server bash probe (`timeout … claude "/usage"`, often inside `script` for a PTY on Linux). */
-  execMode: 'bash_quoted_usage';
-  /** ANSI-stripped combined stdout/stderr. */
+  execMode: 'bash_quoted_usage' | 'bash_quoted_usage_cost';
+  /**
+   * Full capture for the Raw tab: `/usage` block, separator, then `/cost` block.
+   * Quota parsing still uses only the usage portion server-side.
+   */
   output: string;
+  /** Exit code from the `claude "/usage"` probe. */
   exitCode: number | null;
   argv: string[];
   /** Parsed quota rows from the Usage tab portion of `output` (before any appended local JSON snapshot). */
   quotaSnapshot?: UsageQuotaSnapshot;
+  /** Parsed `/cost` summary when the CLI returned the API billing panel. */
+  costSnapshot?: UsageCostSnapshot;
+  /** Exit code from the `claude "/cost"` probe. */
+  costExitCode?: number | null;
+  /** argv for the cost bash wrapper (same shape as `argv` for usage). */
+  costArgv?: string[];
 }
 
 /** Fields parsed from the Status tab of interactive `claude "/status"`. */
