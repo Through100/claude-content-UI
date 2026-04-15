@@ -122,25 +122,34 @@ export default function ClaudeTerminalView({
 
     term.onData(sendToPty);
 
-    /** Copy highlighted text to the system clipboard (like select-to-copy in some SSH clients). */
-    const copySelectionDisposable = term.onSelectionChange(() => {
-      if (destroyed) return;
-      if (!term.hasSelection()) return;
-      const text = term.getSelection();
-      if (!text) return;
-      void navigator.clipboard.writeText(text).catch(() => {
-        /* clipboard may require HTTPS or permission */
-      });
-    });
-
-    /** Right-click → paste (same path as typing). Shift+right-click keeps the browser menu. */
+    /**
+     * Right-click uses a real user gesture so the browser allows Clipboard API calls.
+     * - Selection active → copy to OS clipboard (then clear selection).
+     * - No selection → paste from OS clipboard into the PTY.
+     * Shift+right-click keeps the native browser menu (e.g. Inspect).
+     */
     const onContextMenu = async (ev: MouseEvent) => {
       if (ev.shiftKey) return;
       ev.preventDefault();
       term.focus();
+
+      if (term.hasSelection()) {
+        const selected = term.getSelection();
+        if (!selected) return;
+        try {
+          await navigator.clipboard.writeText(selected);
+          term.clearSelection();
+        } catch {
+          term.writeln(
+            '\r\n\x1b[33m[Copy failed — use HTTPS/localhost, or allow clipboard permission. Shift+right-click for the browser menu.]\x1b[0m'
+          );
+        }
+        return;
+      }
+
       try {
-        const text = await navigator.clipboard.readText();
-        if (text) term.paste(text);
+        const clip = await navigator.clipboard.readText();
+        if (clip) term.paste(clip);
       } catch {
         term.writeln(
           '\r\n\x1b[33m[Paste failed — try Ctrl+Shift+V, or allow clipboard (HTTPS). Shift+right-click opens the browser menu.]\x1b[0m'
@@ -160,7 +169,6 @@ export default function ClaudeTerminalView({
 
     return () => {
       destroyed = true;
-      copySelectionDisposable.dispose();
       term.element?.removeEventListener('contextmenu', onContextMenu);
       ro.disconnect();
       ws.onopen = null;
@@ -209,7 +217,12 @@ export default function ClaudeTerminalView({
         )}
       </div>
 
-      <div ref={containerRef} className="flex-1 min-h-0 px-1 py-1" style={{ overflow: 'hidden' }} />
+      <div
+        ref={containerRef}
+        className="flex-1 min-h-0 px-1 py-1"
+        style={{ overflow: 'hidden' }}
+        title="Right-click: copy when text is selected, otherwise paste from your PC. Shift+right-click: browser menu."
+      />
     </div>
   );
 }
