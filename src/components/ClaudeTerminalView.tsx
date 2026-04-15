@@ -9,7 +9,7 @@
  * PTY master.  This makes claude's isatty(1) return true, so the interactive REPL
  * activates with proper /login, /usage, /help, etc.
  */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
@@ -28,6 +28,24 @@ export type ClaudeTerminalViewProps = {
   compact?: boolean;
 };
 
+/** Best-effort copy without Clipboard API (helps on some HTTP / locked-down setups). */
+function copyTextExecCommand(text: string): boolean {
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 export default function ClaudeTerminalView({
   initialInput,
   title = 'Claude Code — PTY Terminal',
@@ -36,6 +54,9 @@ export default function ClaudeTerminalView({
   const containerRef = useRef<HTMLDivElement>(null);
   const [exited, setExited] = useState(false);
   const [restartKey, setRestartKey] = useState(0);
+  const [pasteModalOpen, setPasteModalOpen] = useState(false);
+  const pasteFieldRef = useRef<HTMLTextAreaElement>(null);
+  const insertIntoPtyRef = useRef<(text: string) => void>(() => {});
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -62,6 +83,16 @@ export default function ClaudeTerminalView({
     const ws = new WebSocket(wsUrl());
     let sessionCreated = false;
     let destroyed = false;
+
+    const sendRawToPty = (data: string) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'input', data }));
+      }
+    };
+
+    insertIntoPtyRef.current = (data: string) => {
+      sendRawToPty(data);
+    };
 
     ws.onopen = () => {
       const { cols, rows } = term;
@@ -114,13 +145,7 @@ export default function ClaudeTerminalView({
       term.writeln('\r\n\x1b[31m[WebSocket error — is the API running and is PTY enabled?]\x1b[0m');
     };
 
-    const sendToPty = (data: string) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'input', data }));
-      }
-    };
-
-    term.onData(sendToPty);
+    term.onData(sendRawToPty);
 
     const host = containerRef.current as HTMLElement;
     let swallowNextPasteFromChord = false;
@@ -131,6 +156,19 @@ export default function ClaudeTerminalView({
       term.textarea?.focus();
     };
 
+    const openPasteModal = () => {
+      setPasteModalOpen(true);
+    };
+
+    const tryClipboardPaste = () => {
+      void navigator.clipboard.readText().then((t) => {
+        if (t && !destroyed) term.paste(t);
+        else if (!destroyed) openPasteModal();
+      }, () => {
+        if (!destroyed) openPasteModal();
+      });
+    };
+
     /** Clicks often land on the renderer canvas; xterm needs the hidden textarea focused for native Paste / keys. */
     const onPointerDown = () => {
       focusTerminal();
@@ -138,7 +176,7 @@ export default function ClaudeTerminalView({
     host.addEventListener('pointerdown', onPointerDown, true);
 
     /**
-     * Browser "Paste" (menu or Ctrl/Cmd+V) delivers a ClipboardEvent with text — no async permission edge cases.
+     * Browser "Paste" (menu or Ctrl/Cmd+V) delivers a ClipboardEvent with text.
      * Capture so we run before children and can send one paste to the PTY.
      */
     const onDocumentPasteCapture = (ev: ClipboardEvent) => {
@@ -160,14 +198,11 @@ export default function ClaudeTerminalView({
     const pasteChordActive = (ev: KeyboardEvent) => {
       const v = ev.key === 'v' || ev.key === 'V';
       if (!v) return false;
-      // Windows/Linux terminal paste; macOS often uses Cmd+Shift+V here too
       if (ev.shiftKey && (ev.ctrlKey || ev.metaKey) && !ev.altKey) return true;
-      // macOS: Cmd+V paste into PTY (Ctrl+V stays as literal for shells)
       if (ev.metaKey && !ev.ctrlKey && !ev.shiftKey && !ev.altKey) return true;
       return false;
     };
 
-    /** Ctrl+Shift+V / Cmd+Shift+V / Cmd+V when focus is already in the terminal host. */
     const onDocumentKeyDownCapture = (ev: KeyboardEvent) => {
       if (destroyed) return;
       if (!pasteChordActive(ev)) return;
@@ -180,33 +215,43 @@ export default function ClaudeTerminalView({
         swallowNextPasteFromChord = false;
         chordPasteTimer = undefined;
       }, 200);
-      void navigator.clipboard.readText().then((t) => {
-        if (t && !destroyed) term.paste(t);
-      });
+      void navigator.clipboard.readText().then(
+        (t) => {
+          if (t && !destroyed) term.paste(t);
+          else if (!destroyed) openPasteModal();
+        },
+        () => {
+          if (!destroyed) openPasteModal();
+        }
+      );
     };
     document.addEventListener('keydown', onDocumentKeyDownCapture, true);
 
     /**
-     * Right-click uses a real user gesture so the browser allows Clipboard API calls.
-     * - Selection active → copy to OS clipboard (then clear selection).
-     * - No selection → paste from OS clipboard into the PTY.
-     * Shift+right-click keeps the native browser menu (e.g. Inspect).
+     * Plain right-click = paste only (avoids mistaking a URL/line selection for "copy").
+     * Ctrl+right-click = copy selection (Clipboard API, then execCommand fallback).
+     * Shift+right-click = native browser menu.
      */
     const onContextMenu = async (ev: MouseEvent) => {
       if (ev.shiftKey) return;
       ev.preventDefault();
       focusTerminal();
 
-      if (term.hasSelection()) {
+      if (ev.ctrlKey) {
+        if (!term.hasSelection()) return;
         const selected = term.getSelection();
         if (!selected) return;
         try {
           await navigator.clipboard.writeText(selected);
           term.clearSelection();
         } catch {
-          term.writeln(
-            '\r\n\x1b[33m[Copy failed — use HTTPS/localhost, or allow clipboard permission. Shift+right-click for the browser menu.]\x1b[0m'
-          );
+          if (copyTextExecCommand(selected)) {
+            term.clearSelection();
+          } else {
+            term.writeln(
+              '\r\n\x1b[33m[Copy failed — use HTTPS, or "Paste from PC…" works for paste; copy via Ctrl+right-click after selecting, or Shift+right-click → Copy.]\x1b[0m'
+            );
+          }
         }
         return;
       }
@@ -214,10 +259,9 @@ export default function ClaudeTerminalView({
       try {
         const clip = await navigator.clipboard.readText();
         if (clip) term.paste(clip);
+        else openPasteModal();
       } catch {
-        term.writeln(
-          '\r\n\x1b[33m[Clipboard read blocked — click inside the terminal, then Shift+right-click → Paste, or Ctrl+Shift+V (Cmd+Shift+V / Cmd+V on Mac).]\x1b[0m'
-        );
+        openPasteModal();
       }
     };
     term.element?.addEventListener('contextmenu', onContextMenu);
@@ -233,6 +277,7 @@ export default function ClaudeTerminalView({
 
     return () => {
       destroyed = true;
+      insertIntoPtyRef.current = () => {};
       if (chordPasteTimer !== undefined) window.clearTimeout(chordPasteTimer);
       host.removeEventListener('pointerdown', onPointerDown, true);
       document.removeEventListener('paste', onDocumentPasteCapture, true);
@@ -251,24 +296,55 @@ export default function ClaudeTerminalView({
     };
   }, [restartKey, initialInput]);
 
+  const insertPasteFromModal = useCallback(() => {
+    const raw = pasteFieldRef.current?.value ?? '';
+    insertIntoPtyRef.current(raw);
+    setPasteModalOpen(false);
+  }, []);
+
+  useEffect(() => {
+    if (!pasteModalOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPasteModalOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    queueMicrotask(() => {
+      const el = pasteFieldRef.current;
+      if (el) {
+        el.value = '';
+        el.focus();
+      }
+    });
+    return () => document.removeEventListener('keydown', onKey);
+  }, [pasteModalOpen]);
+
   return (
     <div
-      className="flex flex-col rounded-2xl overflow-hidden border border-gray-800 shadow-2xl bg-gray-950"
+      className="flex flex-col rounded-2xl overflow-hidden border border-gray-800 shadow-2xl bg-gray-950 relative"
       style={
         compact
           ? { height: 'min(70vh, 560px)', minHeight: '360px' }
           : { height: 'calc(100vh - 9rem)' }
       }
     >
-      <div className="flex items-center gap-3 px-4 py-2.5 bg-gray-900 border-b border-gray-800 shrink-0">
-        <div className="flex gap-1.5">
+      <div className="flex items-center gap-2 px-3 py-2.5 bg-gray-900 border-b border-gray-800 shrink-0 flex-wrap">
+        <div className="flex gap-1.5 shrink-0">
           <span className="w-3 h-3 rounded-full bg-red-500 opacity-80" />
           <span className="w-3 h-3 rounded-full bg-yellow-400 opacity-80" />
           <span className="w-3 h-3 rounded-full bg-green-500 opacity-80" />
         </div>
-        <span className="flex-1 text-center text-xs font-medium text-gray-500 select-none truncate px-2">
+        <span className="flex-1 text-center text-xs font-medium text-gray-500 select-none truncate px-2 min-w-[8rem]">
           {title}
         </span>
+        {!exited && (
+          <button
+            type="button"
+            onClick={() => setPasteModalOpen(true)}
+            className="text-[11px] font-medium px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-500/25 shrink-0"
+          >
+            Paste from PC…
+          </button>
+        )}
         {exited ? (
           <button
             type="button"
@@ -281,7 +357,7 @@ export default function ClaudeTerminalView({
             Restart
           </button>
         ) : (
-          <span className="text-[11px] font-mono text-gray-600 shrink-0">linked to tty ✓</span>
+          <span className="text-[11px] font-mono text-gray-600 shrink-0 hidden sm:inline">linked to tty ✓</span>
         )}
       </div>
 
@@ -289,8 +365,52 @@ export default function ClaudeTerminalView({
         ref={containerRef}
         className="flex-1 min-h-0 px-1 py-1"
         style={{ overflow: 'hidden' }}
-        title="Click inside first. Paste: Ctrl+Shift+V (Windows/Linux), Cmd+V or Cmd+Shift+V (Mac), or Shift+right-click → Paste. Right-click without selection: paste; with selection: copy."
+        title="Right-click = paste. Ctrl+right-click = copy selection. Paste from PC… works on HTTP (paste in the box, then Insert). HTTPS: Ctrl+Shift+V / Cmd+V."
       />
+
+      {pasteModalOpen && (
+        <div
+          className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-3"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Paste into terminal"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setPasteModalOpen(false);
+          }}
+        >
+          <div
+            className="w-full max-w-lg rounded-xl border border-gray-600 bg-gray-900 p-4 shadow-2xl"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <p className="text-xs text-gray-400 mb-2">
+              Paste from your PC with <kbd className="text-gray-300">Ctrl+V</kbd> /{' '}
+              <kbd className="text-gray-300">Cmd+V</kbd> here (works without HTTPS clipboard access). Then Insert.
+            </p>
+            <textarea
+              ref={pasteFieldRef}
+              className="w-full min-h-[120px] rounded-lg border border-gray-700 bg-gray-950 text-gray-100 text-sm font-mono p-2 mb-3 resize-y"
+              spellCheck={false}
+              autoComplete="off"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                className="text-xs px-3 py-1.5 rounded-lg text-gray-400 hover:bg-gray-800"
+                onClick={() => setPasteModalOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="text-xs px-3 py-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-500 font-medium"
+                onClick={insertPasteFromModal}
+              >
+                Insert into terminal
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
