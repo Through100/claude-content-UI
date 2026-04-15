@@ -1,8 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { FileText, Keyboard, Terminal } from 'lucide-react';
+import { FileText, Terminal } from 'lucide-react';
 import { apiService } from '../services/api';
 import type { AccountStatusInfo, AccountStatusSnapshot } from '../types';
-import ClaudeTerminalView from './ClaudeTerminalView';
 
 const EMPTY_SNAPSHOT: AccountStatusSnapshot = { parseOk: false };
 
@@ -50,33 +49,17 @@ export default function AccountView() {
   const [isRunning, setIsRunning] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [loadElapsedSec, setLoadElapsedSec] = useState(0);
-  const [activeTab, setActiveTab] = useState<'pretty' | 'raw' | 'login'>('pretty');
-  const [terminalWsEnabled, setTerminalWsEnabled] = useState(true);
+  const [activeTab, setActiveTab] = useState<'pretty' | 'raw'>('pretty');
 
   const refresh = useCallback(async () => {
     setFetchError(null);
     setIsRunning(true);
     try {
-      const [info, health] = await Promise.all([apiService.getAccountStatus(), apiService.getSystemStatus()]);
+      const info = await apiService.getAccountStatus();
       setData(info);
-      setTerminalWsEnabled(
-        typeof (health as { terminalWebSocket?: boolean }).terminalWebSocket === 'boolean'
-          ? (health as { terminalWebSocket: boolean }).terminalWebSocket
-          : true
-      );
     } catch (error) {
       console.error('Account GET failed:', error);
       setFetchError(error instanceof Error ? error.message : String(error));
-      try {
-        const health = await apiService.getSystemStatus();
-        setTerminalWsEnabled(
-          typeof (health as { terminalWebSocket?: boolean }).terminalWebSocket === 'boolean'
-            ? (health as { terminalWebSocket: boolean }).terminalWebSocket
-            : true
-        );
-      } catch {
-        setTerminalWsEnabled(false);
-      }
     } finally {
       setIsLoading(false);
       setIsRunning(false);
@@ -122,11 +105,10 @@ export default function AccountView() {
 
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <p className="text-sm text-gray-600 leading-relaxed">
-          <span className="text-gray-700 font-medium">Pretty</span> / <span className="text-gray-700 font-medium">Raw</span>{' '}
-          use the same bash + <code className="text-xs bg-gray-100 px-1 rounded">script</code> probe as Usage (inner timeout default <strong>4s</strong>).{' '}
-          <span className="text-gray-700 font-medium">Interactive terminal</span> opens a real PTY to <code className="text-xs bg-gray-100 px-1 rounded">claude</code> in{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">CLAUDE_WORKDIR</code> (type <code className="text-xs bg-gray-100 px-1 rounded">/login</code> yourself). Requires{' '}
-          <code className="text-xs bg-gray-100 px-1 rounded">python3</code> and <code className="text-xs bg-gray-100 px-1 rounded">scripts/pty-proxy.py</code> on the server).
+          <span className="text-gray-700 font-medium">Pretty</span> / <span className="text-gray-700 font-medium">Raw</span> use the same bash +{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">script</code> probe as Usage (inner timeout default <strong>4s</strong>). For live{' '}
+          <code className="text-xs bg-gray-100 px-1 rounded">/login</code> or <code className="text-xs bg-gray-100 px-1 rounded">/logout</code>, open the{' '}
+          <span className="text-gray-700 font-medium">Logon</span> page in the sidebar.
         </p>
         <button
           type="button"
@@ -158,16 +140,6 @@ export default function AccountView() {
         >
           <Terminal size={16} />
           Raw output
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('login')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
-            activeTab === 'login' ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-          }`}
-        >
-          <Keyboard size={16} />
-          Interactive terminal
         </button>
       </div>
 
@@ -202,24 +174,7 @@ export default function AccountView() {
         <p className="text-sm text-gray-500">No parsed snapshot — fix the error above or press Refresh.</p>
       )}
 
-      {activeTab === 'login' && (
-        <div className="space-y-3">
-          {!terminalWsEnabled ? (
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-              Interactive terminal is disabled on the server (<code className="text-xs bg-white/70 px-1 rounded">CLAUDE_TERMINAL_WS=0</code>). Remove it to allow the WebSocket PTY.
-            </div>
-          ) : (
-            <>
-              <p className="text-xs text-gray-500 leading-relaxed">
-                Starts <code className="bg-gray-100 px-1 rounded">claude</code> in a real PTY with no extra commands — type <code className="bg-gray-100 px-1 rounded">/login</code> (or anything else) yourself. Complete browser auth when prompted, then paste codes here. Trusted internal networks only — full shell as the API user.
-              </p>
-              <ClaudeTerminalView compact title="Claude — interactive (PTY)" />
-            </>
-          )}
-        </div>
-      )}
-
-      {data && activeTab !== 'login' && (
+      {data && (
         <p className="text-[10px] font-mono text-gray-400 px-1 break-all">
           Last /status probe: exitCode={String(data.exitCode)} argv={JSON.stringify(data.argv)}
         </p>

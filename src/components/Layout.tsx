@@ -1,10 +1,10 @@
 import React from 'react';
-import { LayoutDashboard, Terminal, History, BarChart3, UserCircle, ShieldCheck } from 'lucide-react';
+import { LayoutDashboard, Terminal, History, BarChart3, UserCircle, ShieldCheck, LogIn } from 'lucide-react';
 
 interface LayoutProps {
   children: React.ReactNode;
-  activeView: 'dashboard' | 'history' | 'usage' | 'account';
-  onViewChange: (view: 'dashboard' | 'history' | 'usage' | 'account') => void;
+  activeView: 'dashboard' | 'history' | 'usage' | 'account' | 'logon';
+  onViewChange: (view: 'dashboard' | 'history' | 'usage' | 'account' | 'logon') => void;
 }
 
 export default function Layout({ children, activeView, onViewChange }: LayoutProps) {
@@ -37,6 +37,12 @@ export default function Layout({ children, activeView, onViewChange }: LayoutPro
             label="Usage Info" 
             active={activeView === 'usage'} 
             onClick={() => onViewChange('usage')}
+          />
+          <NavItem
+            icon={<LogIn size={20} />}
+            label="Logon"
+            active={activeView === 'logon'}
+            onClick={() => onViewChange('logon')}
           />
           <NavItem
             icon={<UserCircle size={20} />}
@@ -72,7 +78,9 @@ export default function Layout({ children, activeView, onViewChange }: LayoutPro
                   ? 'History'
                   : activeView === 'usage'
                     ? 'Usage Info'
-                    : 'Account Info'}
+                    : activeView === 'logon'
+                      ? 'Logon'
+                      : 'Account Info'}
             </span>
           </div>
           
