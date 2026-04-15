@@ -15,6 +15,7 @@
 
 import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -22,6 +23,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROXY_SCRIPT = path.resolve(__dirname, '..', 'scripts', 'pty-proxy.py');
 
 const PTY_SESSION_IDLE_MS = 10 * 60 * 1000; // 10 minutes
+
+/** execvp does not expand `~`; normalize so pty-proxy receives a real path when .env uses ~/. */
+function resolveClaudeBinForPty(bin: string): string {
+  const t = bin.trim();
+  if (t.startsWith('~/')) return path.join(os.homedir(), t.slice(2));
+  if (t === '~') return os.homedir();
+  return t;
+}
 
 export interface PtySession {
   id: string;
@@ -60,7 +69,7 @@ export function createPtySession(opts: {
 
   const child = spawn(
     'python3',
-    [PROXY_SCRIPT, opts.claudeBin],
+    [PROXY_SCRIPT, resolveClaudeBinForPty(opts.claudeBin)],
     {
       cwd: opts.cwd,
       env: { ...opts.env, PTY_COLS: String(cols), PTY_ROWS: String(rows) },

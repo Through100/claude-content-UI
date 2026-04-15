@@ -40,7 +40,11 @@ def set_winsize(fd: int, rows: int, cols: int) -> None:
 def main() -> None:
     args = sys.argv[1:]
     if not args:
-        sys.exit("Usage: pty-proxy.py <command> [args...]")
+        sys.exit(
+            "Usage: pty-proxy.py <command> [args...]\n"
+            "  Example: python3 pty-proxy.py /home/you/.local/bin/claude\n"
+            "  Tip: use an absolute path, or ~/... (expanded here); bare 'claude' uses PATH."
+        )
 
     rows = int(os.environ.get("PTY_ROWS", "50"))
     cols = int(os.environ.get("PTY_COLS", "220"))
@@ -62,9 +66,23 @@ def main() -> None:
         os.dup2(slave_fd, 2)
         if slave_fd > 2:
             os.close(slave_fd)
-        # Pass environment through unchanged
-        os.execvp(args[0], args)
-        os._exit(127)
+        # execvp does NOT expand "~" — a literal ~/.nvm/.../claude fails. Expand like a shell.
+        prog = os.path.expanduser(args[0])
+        argv = [prog] + list(args[1:])
+        # Many hosts (Docker, CI, mis-allocated SSH) set TERM=dumb or CI=1; Claude may exit instantly.
+        if not os.environ.get("TERM") or os.environ.get("TERM", "").strip().lower() in ("", "dumb"):
+            os.environ["TERM"] = "xterm-256color"
+        if os.environ.get("PTY_KEEP_CI") != "1":
+            os.environ.pop("CI", None)
+        try:
+            os.execvp(prog, argv)
+        except OSError as e:
+            msg = f"pty-proxy: could not run {prog!r}: {e}\r\n"
+            try:
+                os.write(2, msg.encode("utf-8", errors="replace"))
+            except OSError:
+                pass
+            os._exit(127)
 
     # ── parent ───────────────────────────────────────────────────────────────
     os.close(slave_fd)
