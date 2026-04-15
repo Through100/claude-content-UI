@@ -228,41 +228,30 @@ export default function ClaudeTerminalView({
     document.addEventListener('keydown', onDocumentKeyDownCapture, true);
 
     /**
-     * Plain right-click = paste only (avoids mistaking a URL/line selection for "copy").
-     * Ctrl+right-click = copy selection (Clipboard API, then execCommand fallback).
-     * Shift+right-click = native browser menu.
+     * Default right-click shows the native browser menu (Copy / Paste / Inspect).
+     * Ctrl+right-click = copy terminal selection (Clipboard API, then execCommand fallback).
      */
-    const onContextMenu = async (ev: MouseEvent) => {
-      if (ev.shiftKey) return;
+    const onContextMenu = (ev: MouseEvent) => {
+      if (!ev.ctrlKey) return;
       ev.preventDefault();
       focusTerminal();
-
-      if (ev.ctrlKey) {
-        if (!term.hasSelection()) return;
-        const selected = term.getSelection();
-        if (!selected) return;
-        try {
-          await navigator.clipboard.writeText(selected);
+      if (!term.hasSelection()) return;
+      const selected = term.getSelection();
+      if (!selected) return;
+      void navigator.clipboard.writeText(selected).then(
+        () => {
           term.clearSelection();
-        } catch {
+        },
+        () => {
           if (copyTextExecCommand(selected)) {
             term.clearSelection();
           } else {
             term.writeln(
-              '\r\n\x1b[33m[Copy failed — use HTTPS, or "Paste from PC…" works for paste; copy via Ctrl+right-click after selecting, or Shift+right-click → Copy.]\x1b[0m'
+              '\r\n\x1b[33m[Copy failed — try right-click → Copy in the browser menu, use HTTPS, or "Paste from PC…" for pasting.]\x1b[0m'
             );
           }
         }
-        return;
-      }
-
-      try {
-        const clip = await navigator.clipboard.readText();
-        if (clip) term.paste(clip);
-        else openPasteModal();
-      } catch {
-        openPasteModal();
-      }
+      );
     };
     term.element?.addEventListener('contextmenu', onContextMenu);
 
@@ -365,7 +354,7 @@ export default function ClaudeTerminalView({
         ref={containerRef}
         className="flex-1 min-h-0 px-1 py-1"
         style={{ overflow: 'hidden' }}
-        title="Right-click = paste. Ctrl+right-click = copy selection. Paste from PC… works on HTTP (paste in the box, then Insert). HTTPS: Ctrl+Shift+V / Cmd+V."
+        title="Right-click: browser menu (Copy / Paste). Ctrl+right-click: copy selection from terminal. Paste from PC… for HTTP or blocked clipboard. Ctrl+Shift+V / Cmd+V when HTTPS."
       />
 
       {pasteModalOpen && (
