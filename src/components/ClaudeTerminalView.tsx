@@ -122,6 +122,17 @@ export default function ClaudeTerminalView({
 
     term.onData(sendToPty);
 
+    /** Copy highlighted text to the system clipboard (like select-to-copy in some SSH clients). */
+    const copySelectionDisposable = term.onSelectionChange(() => {
+      if (destroyed) return;
+      if (!term.hasSelection()) return;
+      const text = term.getSelection();
+      if (!text) return;
+      void navigator.clipboard.writeText(text).catch(() => {
+        /* clipboard may require HTTPS or permission */
+      });
+    });
+
     /** Right-click → paste (same path as typing). Shift+right-click keeps the browser menu. */
     const onContextMenu = async (ev: MouseEvent) => {
       if (ev.shiftKey) return;
@@ -149,6 +160,7 @@ export default function ClaudeTerminalView({
 
     return () => {
       destroyed = true;
+      copySelectionDisposable.dispose();
       term.element?.removeEventListener('contextmenu', onContextMenu);
       ro.disconnect();
       ws.onopen = null;
