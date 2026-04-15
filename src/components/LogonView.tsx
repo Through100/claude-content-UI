@@ -7,7 +7,12 @@ import ClaudeTerminalView from './ClaudeTerminalView';
  * Dedicated page for Claude Code browser / OAuth login via the real PTY terminal.
  * Kept separate from Account Info (/status snapshot) so operators have clear guidance.
  */
-export default function LogonView() {
+export type LogonViewProps = {
+  /** Run when the Logon page mounts (re-read /status snapshot for the shell header). */
+  onVisible?: () => void;
+};
+
+export default function LogonView({ onVisible }: LogonViewProps) {
   const [terminalWsEnabled, setTerminalWsEnabled] = useState(true);
   const [healthError, setHealthError] = useState<string | null>(null);
 
@@ -29,6 +34,10 @@ export default function LogonView() {
   useEffect(() => {
     void checkHealth();
   }, [checkHealth]);
+
+  useEffect(() => {
+    onVisible?.();
+  }, [onVisible]);
 
   return (
     <div className="space-y-8 pb-16 max-w-4xl">

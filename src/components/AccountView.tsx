@@ -43,7 +43,12 @@ function AccountPrettyPanel({ data }: { data: AccountStatusInfo }) {
   );
 }
 
-export default function AccountView() {
+export type AccountViewProps = {
+  /** Fires after a successful GET /api/account so the shell header can refresh /status-derived email. */
+  onAfterRefresh?: () => void;
+};
+
+export default function AccountView({ onAfterRefresh }: AccountViewProps) {
   const [data, setData] = useState<AccountStatusInfo | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRunning, setIsRunning] = useState(false);
@@ -57,6 +62,7 @@ export default function AccountView() {
     try {
       const info = await apiService.getAccountStatus();
       setData(info);
+      onAfterRefresh?.();
     } catch (error) {
       console.error('Account GET failed:', error);
       setFetchError(error instanceof Error ? error.message : String(error));
@@ -64,7 +70,7 @@ export default function AccountView() {
       setIsLoading(false);
       setIsRunning(false);
     }
-  }, []);
+  }, [onAfterRefresh]);
 
   useEffect(() => {
     void refresh();

@@ -1,5 +1,5 @@
-import React, { useState, useReducer, useEffect } from 'react';
-import Layout from './components/Layout';
+import React, { useState, useReducer, useEffect, useCallback } from 'react';
+import Layout, { type HeaderSessionSnapshot } from './components/Layout';
 import SeoCommandForm from './components/SeoCommandForm';
 import ResultsView from './components/ResultsView';
 import HistoryView from './components/HistoryView';
@@ -11,8 +11,51 @@ import { RunResponse } from './types';
 import { AlertCircle, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
+const HEADER_SESSION_REFRESH_MS = 4 * 60 * 1000;
+
 export default function App() {
   const [activeView, setActiveView] = useState<'dashboard' | 'history' | 'usage' | 'account' | 'logon'>('dashboard');
+  const [headerSession, setHeaderSession] = useState<HeaderSessionSnapshot>({
+    apiReachable: null,
+    claudeEmail: null,
+    accountLoading: true
+  });
+
+  const refreshHeaderSession = useCallback(async () => {
+    setHeaderSession((prev) => ({ ...prev, accountLoading: true }));
+    let apiOk = false;
+    try {
+      await apiService.getSystemStatus();
+      apiOk = true;
+    } catch {
+      apiOk = false;
+    }
+    let email: string | null = null;
+    try {
+      const acc = await apiService.getAccountStatus();
+      const raw = acc.statusSnapshot?.email?.trim() ?? '';
+      if (raw.includes('@')) email = raw;
+    } catch {
+      /* leave null — e.g. API down or /status parse failed */
+    }
+    setHeaderSession({ apiReachable: apiOk, claudeEmail: email, accountLoading: false });
+  }, []);
+
+  useEffect(() => {
+    void refreshHeaderSession();
+  }, [refreshHeaderSession]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => void refreshHeaderSession(), HEADER_SESSION_REFRESH_MS);
+    const onVis = () => {
+      if (document.visibilityState === 'visible') void refreshHeaderSession();
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+  }, [refreshHeaderSession]);
   const [isLoading, setIsLoading] = useState(false);
   const [runStartedAt, setRunStartedAt] = useState<number | null>(null);
   const [, tickLoading] = useReducer((n: number) => n + 1, 0);
@@ -51,7 +94,7 @@ export default function App() {
   };
 
   return (
-    <Layout activeView={activeView} onViewChange={setActiveView}>
+    <Layout activeView={activeView} onViewChange={setActiveView} headerSession={headerSession}>
       <AnimatePresence mode="wait">
         {activeView === 'dashboard' ? (
           <motion.div
@@ -141,7 +184,7 @@ export default function App() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
           >
-            <LogonView />
+            <LogonView onVisible={refreshHeaderSession} />
           </motion.div>
         ) : (
           <motion.div
@@ -150,7 +193,7 @@ export default function App() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
           >
-            <AccountView />
+            <AccountView onAfterRefresh={refreshHeaderSession} />
           </motion.div>
         )}
       </AnimatePresence>

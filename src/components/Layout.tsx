@@ -1,13 +1,23 @@
 import React from 'react';
 import { LayoutDashboard, Terminal, History, BarChart3, UserCircle, ShieldCheck, LogIn } from 'lucide-react';
 
+/** Live-ish snapshot from GET /api/health + GET /api/account (/status parse). */
+export type HeaderSessionSnapshot = {
+  /** null until first health check completes */
+  apiReachable: boolean | null;
+  /** Parsed Status email when present (implies signed in for header UX). */
+  claudeEmail: string | null;
+  accountLoading: boolean;
+};
+
 interface LayoutProps {
   children: React.ReactNode;
   activeView: 'dashboard' | 'history' | 'usage' | 'account' | 'logon';
   onViewChange: (view: 'dashboard' | 'history' | 'usage' | 'account' | 'logon') => void;
+  headerSession: HeaderSessionSnapshot;
 }
 
-export default function Layout({ children, activeView, onViewChange }: LayoutProps) {
+export default function Layout({ children, activeView, onViewChange, headerSession }: LayoutProps) {
   return (
     <div className="min-h-screen bg-[#F9FAFB] flex font-sans text-gray-900">
       {/* Sidebar */}
@@ -67,11 +77,11 @@ export default function Layout({ children, activeView, onViewChange }: LayoutPro
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col min-w-0 overflow-auto">
-        <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-8 sticky top-0 z-10">
-          <div className="flex items-center gap-4">
-            <span className="text-sm font-medium text-gray-500">Internal Tool</span>
-            <span className="text-gray-300">/</span>
-            <span className="text-sm font-semibold text-gray-900 uppercase tracking-wider">
+        <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 sm:px-8 sticky top-0 z-10 gap-3">
+          <div className="flex items-center gap-4 min-w-0">
+            <span className="text-sm font-medium text-gray-700 shrink-0">Claude SEO</span>
+            <span className="text-gray-300 shrink-0">/</span>
+            <span className="text-sm font-semibold text-gray-900 uppercase tracking-wider truncate">
               {activeView === 'dashboard'
                 ? 'Dashboard'
                 : activeView === 'history'
@@ -83,22 +93,59 @@ export default function Layout({ children, activeView, onViewChange }: LayoutPro
                       : 'Account Info'}
             </span>
           </div>
-          
-          <div className="flex items-center gap-6">
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-              <span className="text-xs font-medium text-gray-600">Backend Online</span>
-            </div>
-            <div className="w-8 h-8 bg-gray-100 rounded-full border border-gray-200 flex items-center justify-center">
-              <span className="text-xs font-bold text-gray-600">KL</span>
-            </div>
-          </div>
+
+          <HeaderSessionPill snapshot={headerSession} />
         </header>
 
         <div className="p-8 max-w-7xl mx-auto w-full">
           {children}
         </div>
       </main>
+    </div>
+  );
+}
+
+function HeaderSessionPill({ snapshot }: { snapshot: HeaderSessionSnapshot }) {
+  const { apiReachable, claudeEmail, accountLoading } = snapshot;
+  const apiDown = apiReachable === false;
+  const signedIn = Boolean(claudeEmail) && apiReachable !== false;
+
+  const dotClass = apiDown
+    ? 'bg-red-500'
+    : accountLoading && apiReachable === null
+      ? 'bg-gray-400 animate-pulse'
+      : signedIn
+        ? 'bg-emerald-500'
+        : apiReachable
+          ? 'bg-amber-400'
+          : 'bg-gray-400 animate-pulse';
+
+  const statusLabel = apiDown
+    ? 'API offline'
+    : accountLoading && claudeEmail === null && apiReachable === null
+      ? 'Checking…'
+      : signedIn
+        ? 'Online'
+        : apiReachable
+          ? 'Not signed in'
+          : 'Checking…';
+
+  return (
+    <div className="flex items-center gap-3 sm:gap-4 shrink-0">
+      <div className="flex items-center gap-2 min-w-0" title={claudeEmail ?? 'From last /status snapshot (Account page or periodic refresh)'}>
+        <div className={`w-2 h-2 rounded-full shrink-0 ${dotClass}`} />
+        <span className="text-xs font-medium text-gray-600 whitespace-nowrap">{statusLabel}</span>
+      </div>
+      <div
+        className="h-8 min-w-8 max-w-[min(12rem,40vw)] px-2 rounded-full border border-gray-200 bg-gray-50 flex items-center justify-center"
+        title={claudeEmail ?? undefined}
+      >
+        {claudeEmail ? (
+          <span className="text-[11px] font-mono text-gray-700 truncate">{claudeEmail}</span>
+        ) : (
+          <span className="text-[11px] font-bold text-gray-400">{accountLoading ? '…' : '—'}</span>
+        )}
+      </div>
     </div>
   );
 }
