@@ -23,7 +23,8 @@ import {
 } from '../types';
 import { AuditMarkdownSections, hasVisibleAuditNarrative } from './AuditMarkdown';
 import { motion, AnimatePresence } from 'motion/react';
-import { GENERIC_FINDING_RECOMMENDATION } from '../../shared/parseSeoOutput';
+import { GENERIC_FINDING_RECOMMENDATION, parseSeoOutput } from '../../shared/parseSeoOutput';
+import { stripAnsi } from '../../shared/stripAnsi';
 import { inferClaudeActivity } from '../../shared/inferClaudeActivity';
 import { downloadElementAsPdf } from '../utils/downloadReportPdf';
 import { usePtyBridge } from '../context/PtyBridgeContext';
@@ -278,14 +279,20 @@ export default function ResultsView({ result, isLoading, loadingStartedAt, liveT
 
   if (!result) {
     return (
-      <div className="bg-white rounded-2xl border border-dashed border-gray-300 p-12 flex flex-col items-center justify-center text-center">
-        <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mb-4">
-          <FileText className="text-gray-400" size={32} />
+      <div className="space-y-8">
+        <div className="bg-white rounded-2xl border border-dashed border-gray-300 p-12 flex flex-col items-center justify-center text-center">
+          <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mb-4">
+            <FileText className="text-gray-400" size={32} />
+          </div>
+          <h3 className="text-lg font-medium text-gray-900">No headless run yet</h3>
+          <p className="text-sm text-gray-500 max-w-md mx-auto mt-2">
+            Run a command above for <code className="text-xs bg-gray-100 px-1 rounded">claude -p</code> output, or use
+            the live PTY stream below (same session as Logon).
+          </p>
         </div>
-        <h3 className="text-lg font-medium text-gray-900">No Results Yet</h3>
-        <p className="text-sm text-gray-500 max-w-xs mx-auto mt-2">
-          Run a command above to see the parsed report (when available) and terminal output.
-        </p>
+        <LivePtyRawMirror />
+        <LivePtyPrettySection />
+        <PtyReplyPanel />
       </div>
     );
   }
@@ -337,19 +344,20 @@ export default function ResultsView({ result, isLoading, loadingStartedAt, liveT
       <AnimatePresence mode="wait">
         {activeTab === 'pretty' ? (
           <motion.div
-            ref={prettyReportRef}
             key="pretty"
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             className="space-y-6"
           >
-            <PrettyReport
-              report={result.parsedReport ?? EMPTY_PARSED_REPORT}
-              stats={result.stats}
-              rawOutput={result.rawOutput}
-            />
-            <PtyReplyPanel />
+            <div ref={prettyReportRef} className="space-y-6">
+              <PrettyReport
+                report={result.parsedReport ?? EMPTY_PARSED_REPORT}
+                stats={result.stats}
+                rawOutput={result.rawOutput}
+              />
+            </div>
+            <LivePtyPrettySection />
           </motion.div>
         ) : (
           <motion.div
@@ -357,25 +365,101 @@ export default function ResultsView({ result, isLoading, loadingStartedAt, liveT
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            className="bg-[#1e1e1e] rounded-2xl border border-gray-800 shadow-xl overflow-hidden"
+            className="space-y-6"
           >
-            <div className="flex items-center justify-between px-4 py-2 bg-[#2d2d2d] border-b border-gray-800">
-              <div className="flex gap-1.5">
-                <div className="w-3 h-3 rounded-full bg-[#ff5f56]"></div>
-                <div className="w-3 h-3 rounded-full bg-[#ffbd2e]"></div>
-                <div className="w-3 h-3 rounded-full bg-[#27c93f]"></div>
+            <LivePtyRawMirror />
+            <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-2.5 bg-gray-100 border-b border-gray-200">
+                <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest">
+                  Last headless run (claude -p)
+                </span>
               </div>
-              <span className="text-[10px] font-mono text-gray-500 uppercase tracking-widest">Terminal Output</span>
-              <div className="w-12"></div>
+              <div className="bg-[#1e1e1e]">
+                <pre className="p-6 text-sm font-mono text-gray-300 overflow-auto max-h-[320px] leading-relaxed whitespace-pre-wrap break-words">
+                  {result.rawOutput?.trim()
+                    ? result.rawOutput
+                    : `(no terminal output captured)\n\n${result.error ? `Summary: ${result.error}` : ''}`}
+                </pre>
+              </div>
             </div>
-            <pre className="p-6 text-sm font-mono text-gray-300 overflow-auto max-h-[500px] leading-relaxed">
-              {result.rawOutput?.trim()
-                ? result.rawOutput
-                : `(no terminal output captured)\n\n${result.error ? `Summary: ${result.error}` : ''}`}
-            </pre>
           </motion.div>
         )}
       </AnimatePresence>
+
+      <PtyReplyPanel />
+    </div>
+  );
+}
+
+const PLACEHOLDER_LIVE_STATS: RunStats = {
+  durationMs: 0,
+  startedAt: '',
+  finishedAt: ''
+};
+
+function LivePtyRawMirror() {
+  const { liveTranscript, clearLiveTranscript } = usePtyBridge();
+  const preRef = useRef<HTMLPreElement>(null);
+  const display = useMemo(() => stripAnsi(liveTranscript), [liveTranscript]);
+
+  useEffect(() => {
+    const el = preRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [display]);
+
+  return (
+    <div className="rounded-2xl border border-gray-800 bg-[#0c0c0c] shadow-inner overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-2 bg-[#1a1a1a] border-b border-gray-800 gap-2 flex-wrap">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="flex gap-1.5 shrink-0">
+            <div className="w-3 h-3 rounded-full bg-[#ff5f56]" />
+            <div className="w-3 h-3 rounded-full bg-[#ffbd2e]" />
+            <div className="w-3 h-3 rounded-full bg-[#27c93f]" />
+          </div>
+          <span className="text-[10px] font-mono text-gray-400 uppercase tracking-widest truncate">
+            Interactive PTY (live mirror)
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={() => clearLiveTranscript()}
+          className="text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 shrink-0"
+        >
+          Clear buffer
+        </button>
+      </div>
+      <p className="text-[11px] text-gray-500 px-4 py-2 bg-[#111] border-b border-gray-800 leading-relaxed">
+        Same WebSocket stream as Logon (ANSI stripped here). Open <strong>Logon</strong> for full terminal rendering.
+      </p>
+      <pre
+        ref={preRef}
+        className="p-4 md:p-6 text-xs md:text-sm font-mono text-gray-200 overflow-auto max-h-[min(55vh,560px)] min-h-[160px] leading-relaxed whitespace-pre-wrap break-words"
+      >
+        {display.trim()
+          ? display
+          : '(Waiting for PTY output — use Logon, or send a reply below.)'}
+      </pre>
+    </div>
+  );
+}
+
+function LivePtyPrettySection() {
+  const { liveTranscript } = usePtyBridge();
+  const stripped = useMemo(() => stripAnsi(liveTranscript), [liveTranscript]);
+  const liveParsed = useMemo(() => parseSeoOutput(stripped), [stripped]);
+  if (!stripped.trim()) return null;
+
+  return (
+    <div className="space-y-4 pt-4 border-t border-gray-200">
+      <div className="flex items-center gap-2">
+        <Terminal size={16} className="text-indigo-600 shrink-0" aria-hidden />
+        <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wider">Live PTY — parsed preview</h3>
+      </div>
+      <p className="text-xs text-gray-500 leading-relaxed">
+        Updates as new text arrives from the interactive session (same parser as the headless run above).
+      </p>
+      <PrettyReport report={liveParsed} stats={PLACEHOLDER_LIVE_STATS} rawOutput={stripped} />
     </div>
   );
 }
@@ -397,7 +481,7 @@ function PtyReplyPanel() {
       return;
     }
     sendToPty(appendEnter ? `${t}\r` : t);
-    setHint('Sent to the interactive PTY. Open Logon to watch the live terminal.');
+    setHint('Sent to the interactive PTY. Open the Raw output tab for the live mirror, or Logon for full xterm.');
     setText('');
   };
 
@@ -408,8 +492,9 @@ function PtyReplyPanel() {
         Reply via interactive PTY
       </h4>
       <p className="text-xs text-indigo-900/85 leading-relaxed">
-        This sends keystrokes to the <strong>same</strong> persistent session as the Logon terminal—not to the
-        completed headless run above. Use <strong>Logon</strong> to see output scroll in real time.
+        Sends keystrokes to the <strong>same</strong> persistent PTY as Logon (not to the finished{' '}
+        <code className="bg-white/70 px-1 rounded text-[11px]">claude -p</code> run). Use the <strong>Raw output</strong>{' '}
+        tab for a live text mirror, or <strong>Logon</strong> for full-color xterm.
       </p>
       <textarea
         value={text}

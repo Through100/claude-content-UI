@@ -107,9 +107,9 @@ export default function LogonView({ onVisible }: LogonViewProps) {
       ) : (
         <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 px-4 py-3 text-sm text-indigo-950 leading-relaxed">
           <strong>Interactive terminal</strong> is shown <strong>below</strong> this page. It uses one persistent session
-          for the whole app (including Dashboard), so you can answer Claude from the <strong>Pretty Report</strong> panel
-          after a headless run. Use <strong>Paste from PC…</strong> on the terminal chrome when the browser blocks
-          clipboard paste.
+          for the whole app — the Dashboard <strong>Raw output</strong> tab mirrors this stream (plain text), and the{' '}
+          <strong>Pretty Report</strong> tab re-parses live PTY output. Use <strong>Paste from PC…</strong> on the
+          terminal chrome when the browser blocks clipboard paste.
         </div>
       )}
     </div>

@@ -135,6 +135,7 @@ export default function ClaudeTerminalView({
 
       if (msg.type === 'created') {
         sessionCreated = true;
+        ptyBridgeRef.current.clearLiveTranscript();
         ptyBridgeRef.current.setSessionConnected(true);
         if (initialInput && ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: 'input', data: initialInput }));
@@ -148,6 +149,7 @@ export default function ClaudeTerminalView({
           if (!destroyed) onWelcomeRef.current?.(name);
         });
         term.write(d);
+        ptyBridgeRef.current.appendTerminalOutput(d);
         return;
       }
 
