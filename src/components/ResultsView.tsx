@@ -1,5 +1,17 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { FileText, Terminal, Copy, Download, ChevronRight, AlertTriangle, CheckCircle, Info, ExternalLink, FileDown } from 'lucide-react';
+import {
+  FileText,
+  Terminal,
+  Copy,
+  Download,
+  ChevronRight,
+  AlertTriangle,
+  CheckCircle,
+  Info,
+  ExternalLink,
+  FileDown,
+  Send
+} from 'lucide-react';
 import {
   Finding,
   IssuesBySeverity,
@@ -14,6 +26,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { GENERIC_FINDING_RECOMMENDATION } from '../../shared/parseSeoOutput';
 import { inferClaudeActivity } from '../../shared/inferClaudeActivity';
 import { downloadElementAsPdf } from '../utils/downloadReportPdf';
+import { usePtyBridge } from '../context/PtyBridgeContext';
 
 interface ResultsViewProps {
   result: RunResponse | null;
@@ -336,6 +349,7 @@ export default function ResultsView({ result, isLoading, loadingStartedAt, liveT
               stats={result.stats}
               rawOutput={result.rawOutput}
             />
+            <PtyReplyPanel />
           </motion.div>
         ) : (
           <motion.div
@@ -362,6 +376,79 @@ export default function ResultsView({ result, isLoading, loadingStartedAt, liveT
           </motion.div>
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+function PtyReplyPanel() {
+  const { sendToPty, ptySessionReady } = usePtyBridge();
+  const [text, setText] = useState('');
+  const [appendEnter, setAppendEnter] = useState(true);
+  const [hint, setHint] = useState<string | null>(null);
+
+  const handleSend = () => {
+    const t = text.trim();
+    if (!t) {
+      setHint('Type a reply first (e.g. answers to Claude’s questions).');
+      return;
+    }
+    if (!ptySessionReady) {
+      setHint('PTY is not ready yet. Wait for the session to connect, or open Logon and check the terminal.');
+      return;
+    }
+    sendToPty(appendEnter ? `${t}\r` : t);
+    setHint('Sent to the interactive PTY. Open Logon to watch the live terminal.');
+    setText('');
+  };
+
+  return (
+    <div className="rounded-2xl border border-indigo-200 bg-indigo-50/50 p-5 space-y-3">
+      <h4 className="text-sm font-bold text-indigo-950 flex items-center gap-2">
+        <Send size={16} className="text-indigo-600 shrink-0" aria-hidden />
+        Reply via interactive PTY
+      </h4>
+      <p className="text-xs text-indigo-900/85 leading-relaxed">
+        This sends keystrokes to the <strong>same</strong> persistent session as the Logon terminal—not to the
+        completed headless run above. Use <strong>Logon</strong> to see output scroll in real time.
+      </p>
+      <textarea
+        value={text}
+        onChange={(e) => {
+          setText(e.target.value);
+          if (hint) setHint(null);
+        }}
+        rows={4}
+        spellCheck={false}
+        placeholder="e.g. Answers: 1) Beginners 2) How-to guide 3) ~2000 words 4) Markdown"
+        className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none resize-y font-mono"
+      />
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <label className="flex items-center gap-2 text-xs font-medium text-indigo-900 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={appendEnter}
+            onChange={(e) => setAppendEnter(e.target.checked)}
+            className="rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500"
+          />
+          Append Enter (↵) after text
+        </label>
+        <button
+          type="button"
+          onClick={handleSend}
+          disabled={!ptySessionReady}
+          className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
+        >
+          <Send size={16} aria-hidden />
+          Send to PTY
+        </button>
+      </div>
+      {!ptySessionReady ? (
+        <p className="text-xs text-amber-900 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+          Waiting for the PTY WebSocket session (starts automatically when the app loads). If this persists, open{' '}
+          <strong>Logon</strong> and confirm the terminal is not showing an error.
+        </p>
+      ) : null}
+      {hint ? <p className="text-xs text-indigo-800 font-medium">{hint}</p> : null}
     </div>
   );
 }

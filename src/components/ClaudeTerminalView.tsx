@@ -14,6 +14,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { PtyWelcomeNameScanner } from '../../shared/ptyWelcomeDetect';
+import { usePtyBridge } from '../context/PtyBridgeContext';
 
 function wsUrl(): string {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -68,6 +69,9 @@ export default function ClaudeTerminalView({
   const [pasteModalOpen, setPasteModalOpen] = useState(false);
   const pasteFieldRef = useRef<HTMLTextAreaElement>(null);
   const insertIntoPtyRef = useRef<(text: string) => void>(() => {});
+  const ptyBridge = usePtyBridge();
+  const ptyBridgeRef = useRef(ptyBridge);
+  ptyBridgeRef.current = ptyBridge;
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -112,6 +116,8 @@ export default function ClaudeTerminalView({
     insertIntoPtyRef.current = (data: string) => {
       sendRawToPty(data);
     };
+    ptyBridgeRef.current.registerTransport(sendRawToPty);
+    ptyBridgeRef.current.setSessionConnected(false);
 
     ws.onopen = () => {
       const { cols, rows } = term;
@@ -129,6 +135,7 @@ export default function ClaudeTerminalView({
 
       if (msg.type === 'created') {
         sessionCreated = true;
+        ptyBridgeRef.current.setSessionConnected(true);
         if (initialInput && ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: 'input', data: initialInput }));
         }
@@ -145,12 +152,14 @@ export default function ClaudeTerminalView({
       }
 
       if (msg.type === 'error' && typeof msg.message === 'string') {
+        ptyBridgeRef.current.setSessionConnected(false);
         term.writeln(`\r\n\x1b[31m[Server: ${msg.message}]\x1b[0m`);
         setExited(true);
         return;
       }
 
       if (msg.type === 'exit') {
+        ptyBridgeRef.current.setSessionConnected(false);
         endPtyHeader();
         term.writeln('\r\n\x1b[33m[Claude process exited — click Restart to reconnect]\x1b[0m');
         setExited(true);
@@ -159,6 +168,7 @@ export default function ClaudeTerminalView({
 
     ws.onclose = () => {
       if (destroyed) return;
+      ptyBridgeRef.current.setSessionConnected(false);
       if (sessionCreated) {
         endPtyHeader();
         term.writeln('\r\n\x1b[31m[Connection closed]\x1b[0m');
@@ -167,6 +177,7 @@ export default function ClaudeTerminalView({
 
     ws.onerror = () => {
       if (destroyed) return;
+      ptyBridgeRef.current.setSessionConnected(false);
       term.writeln('\r\n\x1b[31m[WebSocket error — is the API running and is PTY enabled?]\x1b[0m');
     };
 
@@ -291,6 +302,8 @@ export default function ClaudeTerminalView({
 
     return () => {
       destroyed = true;
+      ptyBridgeRef.current.setSessionConnected(false);
+      ptyBridgeRef.current.registerTransport(() => {});
       if (sessionCreated || welcomeScanner.didEmit) {
         endPtyHeader();
       } else {

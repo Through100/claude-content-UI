@@ -1,5 +1,6 @@
 import React from 'react';
 import { LayoutDashboard, Terminal, History, BarChart3, UserCircle, ShieldCheck, LogIn } from 'lucide-react';
+import ClaudeTerminalView from './ClaudeTerminalView';
 
 /** Live-ish snapshot from GET /api/health + GET /api/account (/status parse). */
 export type HeaderSessionSnapshot = {
@@ -17,9 +18,21 @@ interface LayoutProps {
   activeView: 'dashboard' | 'history' | 'usage' | 'account' | 'logon';
   onViewChange: (view: 'dashboard' | 'history' | 'usage' | 'account' | 'logon') => void;
   headerSession: HeaderSessionSnapshot;
+  /** When false, skip mounting the PTY WebSocket terminal (server disabled WS). */
+  terminalWsEnabled: boolean;
+  onPtyWelcomeBackDetected?: (name: string) => void;
+  onPtySessionEnd?: () => void;
 }
 
-export default function Layout({ children, activeView, onViewChange, headerSession }: LayoutProps) {
+export default function Layout({
+  children,
+  activeView,
+  onViewChange,
+  headerSession,
+  terminalWsEnabled,
+  onPtyWelcomeBackDetected,
+  onPtySessionEnd
+}: LayoutProps) {
   return (
     <div className="min-h-screen bg-[#F9FAFB] flex font-sans text-gray-900">
       {/* Sidebar */}
@@ -102,6 +115,23 @@ export default function Layout({ children, activeView, onViewChange, headerSessi
 
         <div className="p-8 max-w-7xl mx-auto w-full">
           {children}
+          {terminalWsEnabled ? (
+            <div
+              className={
+                activeView === 'logon'
+                  ? 'mt-10 max-w-4xl'
+                  : 'fixed left-[-9999px] top-0 z-[-1] h-[min(70vh,560px)] w-[min(100vw,720px)] opacity-0 pointer-events-none overflow-hidden'
+              }
+              aria-hidden={activeView !== 'logon'}
+            >
+              <ClaudeTerminalView
+                compact
+                title="Claude — interactive (PTY)"
+                onWelcomeBackDetected={onPtyWelcomeBackDetected}
+                onPtySessionEnd={onPtySessionEnd}
+              />
+            </div>
+          ) : null}
         </div>
       </main>
     </div>

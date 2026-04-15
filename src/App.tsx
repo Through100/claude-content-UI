@@ -21,15 +21,22 @@ export default function App() {
     accountLoading: true,
     ptyWelcomeName: null
   });
+  const [terminalWsEnabled, setTerminalWsEnabled] = useState(true);
 
   const refreshHeaderSession = useCallback(async () => {
     setHeaderSession((prev) => ({ ...prev, accountLoading: true }));
     let apiOk = false;
     try {
-      await apiService.getSystemStatus();
+      const health = await apiService.getSystemStatus();
       apiOk = true;
+      if (typeof (health as { terminalWebSocket?: boolean }).terminalWebSocket === 'boolean') {
+        setTerminalWsEnabled((health as { terminalWebSocket: boolean }).terminalWebSocket);
+      } else {
+        setTerminalWsEnabled(true);
+      }
     } catch {
       apiOk = false;
+      setTerminalWsEnabled(false);
     }
     let email: string | null = null;
     try {
@@ -110,7 +117,14 @@ export default function App() {
   };
 
   return (
-    <Layout activeView={activeView} onViewChange={setActiveView} headerSession={headerSession}>
+    <Layout
+      activeView={activeView}
+      onViewChange={setActiveView}
+      headerSession={headerSession}
+      terminalWsEnabled={terminalWsEnabled}
+      onPtyWelcomeBackDetected={onPtyWelcomeName}
+      onPtySessionEnd={onPtySessionEnd}
+    >
       <AnimatePresence mode="wait">
         {activeView === 'dashboard' ? (
           <motion.div
@@ -200,11 +214,7 @@ export default function App() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
           >
-            <LogonView
-              onVisible={refreshHeaderSession}
-              onPtyWelcomeName={onPtyWelcomeName}
-              onPtySessionEnd={onPtySessionEnd}
-            />
+            <LogonView onVisible={refreshHeaderSession} />
           </motion.div>
         ) : (
           <motion.div

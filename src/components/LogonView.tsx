@@ -1,20 +1,18 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { KeyRound, Terminal } from 'lucide-react';
 import { apiService } from '../services/api';
-import ClaudeTerminalView from './ClaudeTerminalView';
 
 /**
  * Dedicated page for Claude Code browser / OAuth login via the real PTY terminal.
  * Kept separate from Account Info (/status snapshot) so operators have clear guidance.
+ * The xterm PTY is mounted once in Layout (below this content) so it stays alive across views.
  */
 export type LogonViewProps = {
   /** Run when the Logon page mounts (re-read /status snapshot for the shell header). */
   onVisible?: () => void;
-  onPtyWelcomeName?: (name: string) => void;
-  onPtySessionEnd?: () => void;
 };
 
-export default function LogonView({ onVisible, onPtyWelcomeName, onPtySessionEnd }: LogonViewProps) {
+export default function LogonView({ onVisible }: LogonViewProps) {
   const [terminalWsEnabled, setTerminalWsEnabled] = useState(true);
   const [healthError, setHealthError] = useState<string | null>(null);
 
@@ -107,12 +105,12 @@ export default function LogonView({ onVisible, onPtyWelcomeName, onPtySessionEnd
           to allow the WebSocket PTY.
         </div>
       ) : (
-        <ClaudeTerminalView
-          compact
-          title="Claude — interactive (PTY)"
-          onWelcomeBackDetected={onPtyWelcomeName}
-          onPtySessionEnd={onPtySessionEnd}
-        />
+        <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 px-4 py-3 text-sm text-indigo-950 leading-relaxed">
+          <strong>Interactive terminal</strong> is shown <strong>below</strong> this page. It uses one persistent session
+          for the whole app (including Dashboard), so you can answer Claude from the <strong>Pretty Report</strong> panel
+          after a headless run. Use <strong>Paste from PC…</strong> on the terminal chrome when the browser blocks
+          clipboard paste.
+        </div>
       )}
     </div>
   );
