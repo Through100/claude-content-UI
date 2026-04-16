@@ -24,7 +24,7 @@ import {
 import { AuditMarkdownSections, hasVisibleAuditNarrative } from './AuditMarkdown';
 import { motion, AnimatePresence } from 'motion/react';
 import { GENERIC_FINDING_RECOMMENDATION, parseSeoOutput } from '../../shared/parseSeoOutput';
-import { stripAnsi } from '../../shared/stripAnsi';
+import { prepareLivePtyMirrorText } from '../../shared/prepareLivePtyMirrorText';
 import { inferClaudeActivity } from '../../shared/inferClaudeActivity';
 import { downloadElementAsPdf } from '../utils/downloadReportPdf';
 import { usePtyBridge } from '../context/PtyBridgeContext';
@@ -400,7 +400,7 @@ const PLACEHOLDER_LIVE_STATS: RunStats = {
 function LivePtyRawMirror() {
   const { liveTranscript, clearLiveTranscript } = usePtyBridge();
   const preRef = useRef<HTMLPreElement>(null);
-  const display = useMemo(() => stripAnsi(liveTranscript), [liveTranscript]);
+  const display = useMemo(() => prepareLivePtyMirrorText(liveTranscript), [liveTranscript]);
 
   useEffect(() => {
     const el = preRef.current;
@@ -430,7 +430,7 @@ function LivePtyRawMirror() {
         </button>
       </div>
       <p className="text-[11px] text-gray-500 px-4 py-2 bg-[#111] border-b border-gray-800 leading-relaxed">
-        Same WebSocket stream as Logon (ANSI stripped here). Open <strong>Logon</strong> for full terminal rendering.
+        Latest turn + noise-reduced (TUI frames / spinners removed). Logon shows the full session with colors.
       </p>
       <pre
         ref={preRef}
@@ -446,26 +446,39 @@ function LivePtyRawMirror() {
 
 function LivePtyPrettySection() {
   const { liveTranscript } = usePtyBridge();
-  const stripped = useMemo(() => stripAnsi(liveTranscript), [liveTranscript]);
-  const liveParsed = useMemo(() => parseSeoOutput(stripped), [stripped]);
-  if (!stripped.trim()) return null;
+  const forLiveView = useMemo(() => prepareLivePtyMirrorText(liveTranscript), [liveTranscript]);
+  const liveParsed = useMemo(() => parseSeoOutput(forLiveView), [forLiveView]);
+  const scorecard = hasParsedScorecard(liveParsed);
+
+  if (!forLiveView.trim()) return null;
 
   return (
     <div className="space-y-4 pt-4 border-t border-gray-200">
       <div className="flex items-center gap-2">
         <Terminal size={16} className="text-indigo-600 shrink-0" aria-hidden />
-        <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wider">Live PTY — parsed preview</h3>
+        <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wider">Live PTY — latest</h3>
       </div>
       <p className="text-xs text-gray-500 leading-relaxed">
-        Updates as new text arrives from the interactive session (same parser as the headless run above).
+        Shows the latest assistant turn after your last non-empty <code className="text-[11px] bg-gray-100 px-1 rounded">❯</code>{' '}
+        prompt. Scorecard layout only when the output matches an audit; otherwise plain text (no fake “audit”
+        narrative).
       </p>
-      <PrettyReport report={liveParsed} stats={PLACEHOLDER_LIVE_STATS} rawOutput={stripped} />
+      {scorecard ? (
+        <PrettyReport report={liveParsed} stats={PLACEHOLDER_LIVE_STATS} rawOutput={forLiveView} />
+      ) : (
+        <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+          <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Assistant output</p>
+          <pre className="text-sm text-gray-800 whitespace-pre-wrap break-words font-mono leading-relaxed max-h-[min(60vh,640px)] overflow-auto">
+            {forLiveView}
+          </pre>
+        </div>
+      )}
     </div>
   );
 }
 
 function PtyReplyPanel() {
-  const { sendToPty, ptySessionReady } = usePtyBridge();
+  const { sendToPty, ptySessionReady, clearLiveTranscript } = usePtyBridge();
   const [text, setText] = useState('');
   const [appendEnter, setAppendEnter] = useState(true);
   const [hint, setHint] = useState<string | null>(null);
@@ -480,8 +493,11 @@ function PtyReplyPanel() {
       setHint('PTY is not ready yet. Wait for the session to connect, or open Logon and check the terminal.');
       return;
     }
+    clearLiveTranscript();
     sendToPty(appendEnter ? `${t}\r` : t);
-    setHint('Sent to the interactive PTY. Open the Raw output tab for the live mirror, or Logon for full xterm.');
+    setHint(
+      'Mirror cleared; only new PTY output will show here. Raw tab for text, Logon for full xterm.'
+    );
     setText('');
   };
 
