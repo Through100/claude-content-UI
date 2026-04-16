@@ -95,6 +95,7 @@ export default function App() {
 
   const onRunnerSessionChange = useCallback((commandKey: string, target: string) => {
     setChatThreadKey(formatChatThreadKey(commandKey, target));
+    setResult(null);
   }, []);
 
   useEffect(() => {
