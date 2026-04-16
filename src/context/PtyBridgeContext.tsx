@@ -6,6 +6,8 @@ import React, {
   useRef,
   useState
 } from 'react';
+import type { Terminal } from '@xterm/xterm';
+import { serializeXtermBufferPlain } from '../../shared/serializeXtermBuffer';
 
 const MAX_LIVE_TRANSCRIPT = 600_000;
 
@@ -14,12 +16,23 @@ export type PtyBridgeContextValue = {
   ptySessionReady: boolean;
   registerTransport: (fn: (text: string) => void) => void;
   setSessionConnected: (connected: boolean) => void;
-  /** Plain mirror of PTY output (for Dashboard Raw / Pretty). */
+  /**
+   * Plain text snapshot of the Logon xterm buffer (Dashboard Raw / Pretty live).
+   * Same PTY session as Logon; line breaks match xterm layout, not raw byte chunks.
+   */
+  ptyDisplayPlain: string;
+  /** Same as `ptyDisplayPlain` (legacy name). */
   liveTranscript: string;
-  /** Append PTY output chunk (batched with requestAnimationFrame). */
+  /** Append raw PTY bytes (internal scrollback / future export). */
   appendTerminalOutput: (chunk: string) => void;
-  /** Clear mirror (new PTY session or manual reset). */
+  /** Register the interactive Logon `Terminal` (null on dispose). */
+  registerPtyTerminal: (term: Terminal | null) => void;
+  /** Re-read the registered xterm buffer into `ptyDisplayPlain` (call after `term.write`). */
+  refreshPtyScreenSnapshot: () => void;
+  /** Show only xterm lines appended after this call (same session; does not clear the real PTY). */
   clearLiveTranscript: () => void;
+  /** Force an immediate snapshot read (e.g. session end). */
+  flushLiveTranscriptNow: () => void;
 };
 
 const PtyBridgeContext = createContext<PtyBridgeContextValue | null>(null);
@@ -29,33 +42,77 @@ const noopTransport = () => {};
 export function PtyBridgeProvider({ children }: { children: React.ReactNode }) {
   const transportRef = useRef<(text: string) => void>(noopTransport);
   const [ptySessionReady, setPtySessionReady] = useState(false);
-  const [liveTranscript, setLiveTranscript] = useState('');
+  const [ptyDisplayPlain, setPtyDisplayPlain] = useState('');
   const transcriptBuf = useRef('');
-  const rafFlushRef = useRef<number | null>(null);
+  const terminalRef = useRef<Terminal | null>(null);
+  const serializeStartLineRef = useRef(0);
+  const snapshotRafRef = useRef<number | null>(null);
 
-  const flushTranscript = useCallback(() => {
-    rafFlushRef.current = null;
-    setLiveTranscript(transcriptBuf.current);
+  const refreshPtyScreenSnapshot = useCallback(() => {
+    if (snapshotRafRef.current != null) {
+      return;
+    }
+    snapshotRafRef.current = requestAnimationFrame(() => {
+      snapshotRafRef.current = null;
+      const t = terminalRef.current;
+      if (!t) {
+        setPtyDisplayPlain('');
+        return;
+      }
+      const n = t.buffer.active.length;
+      if (serializeStartLineRef.current > n) {
+        serializeStartLineRef.current = 0;
+      }
+      const plain = serializeXtermBufferPlain(t, serializeStartLineRef.current);
+      setPtyDisplayPlain(plain);
+    });
   }, []);
 
-  const appendTerminalOutput = useCallback(
-    (chunk: string) => {
-      if (!chunk) return;
-      transcriptBuf.current = (transcriptBuf.current + chunk).slice(-MAX_LIVE_TRANSCRIPT);
-      if (rafFlushRef.current == null) {
-        rafFlushRef.current = requestAnimationFrame(flushTranscript);
+  const registerPtyTerminal = useCallback(
+    (term: Terminal | null) => {
+      terminalRef.current = term;
+      if (!term) {
+        serializeStartLineRef.current = 0;
+        if (snapshotRafRef.current != null) {
+          cancelAnimationFrame(snapshotRafRef.current);
+          snapshotRafRef.current = null;
+        }
+        setPtyDisplayPlain('');
+      } else {
+        refreshPtyScreenSnapshot();
       }
     },
-    [flushTranscript]
+    [refreshPtyScreenSnapshot]
   );
 
+  const appendTerminalOutput = useCallback((chunk: string) => {
+    if (!chunk) return;
+    transcriptBuf.current = (transcriptBuf.current + chunk).slice(-MAX_LIVE_TRANSCRIPT);
+  }, []);
+
   const clearLiveTranscript = useCallback(() => {
-    if (rafFlushRef.current != null) {
-      cancelAnimationFrame(rafFlushRef.current);
-      rafFlushRef.current = null;
-    }
     transcriptBuf.current = '';
-    setLiveTranscript('');
+    const t = terminalRef.current;
+    serializeStartLineRef.current = t ? t.buffer.active.length : 0;
+    setPtyDisplayPlain('');
+    refreshPtyScreenSnapshot();
+  }, [refreshPtyScreenSnapshot]);
+
+  const flushLiveTranscriptNow = useCallback(() => {
+    if (snapshotRafRef.current != null) {
+      cancelAnimationFrame(snapshotRafRef.current);
+      snapshotRafRef.current = null;
+    }
+    const t = terminalRef.current;
+    if (!t) {
+      setPtyDisplayPlain('');
+      return;
+    }
+    const n = t.buffer.active.length;
+    if (serializeStartLineRef.current > n) {
+      serializeStartLineRef.current = 0;
+    }
+    setPtyDisplayPlain(serializeXtermBufferPlain(t, serializeStartLineRef.current));
   }, []);
 
   const registerTransport = useCallback((fn: (text: string) => void) => {
@@ -76,18 +133,25 @@ export function PtyBridgeProvider({ children }: { children: React.ReactNode }) {
       ptySessionReady,
       registerTransport,
       setSessionConnected,
-      liveTranscript,
+      ptyDisplayPlain,
+      liveTranscript: ptyDisplayPlain,
       appendTerminalOutput,
-      clearLiveTranscript
+      registerPtyTerminal,
+      refreshPtyScreenSnapshot,
+      clearLiveTranscript,
+      flushLiveTranscriptNow
     }),
     [
       sendToPty,
       ptySessionReady,
       registerTransport,
       setSessionConnected,
-      liveTranscript,
+      ptyDisplayPlain,
       appendTerminalOutput,
-      clearLiveTranscript
+      registerPtyTerminal,
+      refreshPtyScreenSnapshot,
+      clearLiveTranscript,
+      flushLiveTranscriptNow
     ]
   );
 

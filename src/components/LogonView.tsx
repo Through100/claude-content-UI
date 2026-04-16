@@ -107,8 +107,8 @@ export default function LogonView({ onVisible }: LogonViewProps) {
       ) : (
         <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 px-4 py-3 text-sm text-indigo-950 leading-relaxed">
           <strong>Interactive terminal</strong> is shown <strong>below</strong> this page. It uses one persistent session
-          for the whole app — the Dashboard <strong>Raw output</strong> tab mirrors this stream (plain text), and the{' '}
-          <strong>Pretty Report</strong> tab re-parses live PTY output. Use <strong>Paste from PC…</strong> on the
+          for the whole app — the Dashboard <strong>Raw output</strong> tab reads the same xterm buffer (plain text), and
+          the <strong>Pretty Report</strong> tab parses that same live text. Use <strong>Paste from PC…</strong> on the
           terminal chrome when the browser blocks clipboard paste.
         </div>
       )}

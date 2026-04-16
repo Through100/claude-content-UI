@@ -94,6 +94,7 @@ export default function ClaudeTerminalView({
     term.loadAddon(fitAddon);
     term.open(containerRef.current);
     fitAddon.fit();
+    ptyBridgeRef.current.registerPtyTerminal(term);
 
     const ws = new WebSocket(wsUrl());
     let sessionCreated = false;
@@ -150,11 +151,13 @@ export default function ClaudeTerminalView({
         });
         term.write(d);
         ptyBridgeRef.current.appendTerminalOutput(d);
+        ptyBridgeRef.current.refreshPtyScreenSnapshot();
         return;
       }
 
       if (msg.type === 'error' && typeof msg.message === 'string') {
         ptyBridgeRef.current.setSessionConnected(false);
+        ptyBridgeRef.current.flushLiveTranscriptNow();
         term.writeln(`\r\n\x1b[31m[Server: ${msg.message}]\x1b[0m`);
         setExited(true);
         return;
@@ -162,6 +165,7 @@ export default function ClaudeTerminalView({
 
       if (msg.type === 'exit') {
         ptyBridgeRef.current.setSessionConnected(false);
+        ptyBridgeRef.current.flushLiveTranscriptNow();
         endPtyHeader();
         term.writeln('\r\n\x1b[33m[Claude process exited — click Restart to reconnect]\x1b[0m');
         setExited(true);
@@ -172,6 +176,7 @@ export default function ClaudeTerminalView({
       if (destroyed) return;
       ptyBridgeRef.current.setSessionConnected(false);
       if (sessionCreated) {
+        ptyBridgeRef.current.flushLiveTranscriptNow();
         endPtyHeader();
         term.writeln('\r\n\x1b[31m[Connection closed]\x1b[0m');
       }
@@ -180,6 +185,7 @@ export default function ClaudeTerminalView({
     ws.onerror = () => {
       if (destroyed) return;
       ptyBridgeRef.current.setSessionConnected(false);
+      ptyBridgeRef.current.flushLiveTranscriptNow();
       term.writeln('\r\n\x1b[31m[WebSocket error — is the API running and is PTY enabled?]\x1b[0m');
     };
 
@@ -299,11 +305,13 @@ export default function ClaudeTerminalView({
         const { cols, rows } = term;
         ws.send(JSON.stringify({ type: 'resize', cols, rows }));
       }
+      ptyBridgeRef.current.refreshPtyScreenSnapshot();
     });
     ro.observe(containerRef.current);
 
     return () => {
       destroyed = true;
+      ptyBridgeRef.current.registerPtyTerminal(null);
       ptyBridgeRef.current.setSessionConnected(false);
       ptyBridgeRef.current.registerTransport(() => {});
       if (sessionCreated || welcomeScanner.didEmit) {

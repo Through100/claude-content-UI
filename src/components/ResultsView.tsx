@@ -24,7 +24,6 @@ import {
 import { AuditMarkdownSections, hasVisibleAuditNarrative } from './AuditMarkdown';
 import { motion, AnimatePresence } from 'motion/react';
 import { GENERIC_FINDING_RECOMMENDATION, parseSeoOutput } from '../../shared/parseSeoOutput';
-import { prepareLivePtyMirrorText } from '../../shared/prepareLivePtyMirrorText';
 import { inferClaudeActivity } from '../../shared/inferClaudeActivity';
 import { downloadElementAsPdf } from '../utils/downloadReportPdf';
 import { usePtyBridge } from '../context/PtyBridgeContext';
@@ -398,15 +397,14 @@ const PLACEHOLDER_LIVE_STATS: RunStats = {
 };
 
 function LivePtyRawMirror() {
-  const { liveTranscript, clearLiveTranscript } = usePtyBridge();
+  const { ptyDisplayPlain, clearLiveTranscript } = usePtyBridge();
   const preRef = useRef<HTMLPreElement>(null);
-  const display = useMemo(() => prepareLivePtyMirrorText(liveTranscript), [liveTranscript]);
 
   useEffect(() => {
     const el = preRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
-  }, [display]);
+  }, [ptyDisplayPlain]);
 
   return (
     <div className="rounded-2xl border border-gray-800 bg-[#0c0c0c] shadow-inner overflow-hidden">
@@ -418,7 +416,7 @@ function LivePtyRawMirror() {
             <div className="w-3 h-3 rounded-full bg-[#27c93f]" />
           </div>
           <span className="text-[10px] font-mono text-gray-400 uppercase tracking-widest truncate">
-            Interactive PTY (live mirror)
+            Interactive PTY (same buffer as Logon)
           </span>
         </div>
         <button
@@ -426,18 +424,20 @@ function LivePtyRawMirror() {
           onClick={() => clearLiveTranscript()}
           className="text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 shrink-0"
         >
-          Clear buffer
+          From here only
         </button>
       </div>
       <p className="text-[11px] text-gray-500 px-4 py-2 bg-[#111] border-b border-gray-800 leading-relaxed">
-        Latest turn + noise-reduced (TUI frames / spinners removed). Logon shows the full session with colors.
+        Plain text from the same xterm session as the Logon page (no separate pipe). Colors and cursor motion match
+        Logon; only styling differs. Use <strong>From here only</strong> to hide earlier lines in this dashboard view
+        without clearing the real terminal.
       </p>
       <pre
         ref={preRef}
         className="p-4 md:p-6 text-xs md:text-sm font-mono text-gray-200 overflow-auto max-h-[min(55vh,560px)] min-h-[160px] leading-relaxed whitespace-pre-wrap break-words"
       >
-        {display.trim()
-          ? display
+        {ptyDisplayPlain.trim()
+          ? ptyDisplayPlain
           : '(Waiting for PTY output — use Logon, or send a reply below.)'}
       </pre>
     </div>
@@ -445,8 +445,8 @@ function LivePtyRawMirror() {
 }
 
 function LivePtyPrettySection() {
-  const { liveTranscript } = usePtyBridge();
-  const forLiveView = useMemo(() => prepareLivePtyMirrorText(liveTranscript), [liveTranscript]);
+  const { ptyDisplayPlain } = usePtyBridge();
+  const forLiveView = ptyDisplayPlain;
   const liveParsed = useMemo(() => parseSeoOutput(forLiveView), [forLiveView]);
   const scorecard = hasParsedScorecard(liveParsed);
 
@@ -459,9 +459,8 @@ function LivePtyPrettySection() {
         <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wider">Live PTY — latest</h3>
       </div>
       <p className="text-xs text-gray-500 leading-relaxed">
-        Shows the latest assistant turn after your last non-empty <code className="text-[11px] bg-gray-100 px-1 rounded">❯</code>{' '}
-        prompt. Scorecard layout only when the output matches an audit; otherwise plain text (no fake “audit”
-        narrative).
+        Same plain text as <strong>Raw Output</strong> (live xterm buffer). Scorecard layout only when the output
+        matches an audit; otherwise plain text (no fake “audit” narrative).
       </p>
       {scorecard ? (
         <PrettyReport report={liveParsed} stats={PLACEHOLDER_LIVE_STATS} rawOutput={forLiveView} />
@@ -496,7 +495,7 @@ function PtyReplyPanel() {
     clearLiveTranscript();
     sendToPty(appendEnter ? `${t}\r` : t);
     setHint(
-      'Mirror cleared; only new PTY output will show here. Raw tab for text, Logon for full xterm.'
+      'Dashboard view reset from this point; Logon terminal unchanged. Raw and Pretty will show only new lines.'
     );
     setText('');
   };
@@ -509,8 +508,9 @@ function PtyReplyPanel() {
       </h4>
       <p className="text-xs text-indigo-900/85 leading-relaxed">
         Sends keystrokes to the <strong>same</strong> persistent PTY as Logon (not to the finished{' '}
-        <code className="bg-white/70 px-1 rounded text-[11px]">claude -p</code> run). Use the <strong>Raw output</strong>{' '}
-        tab for a live text mirror, or <strong>Logon</strong> for full-color xterm.
+        <code className="bg-white/70 px-1 rounded text-[11px]">claude -p</code> run). <strong>Raw</strong> and{' '}
+        <strong>Pretty</strong> read the same xterm buffer as Logon (plain text here); open <strong>Logon</strong> for
+        full-color rendering.
       </p>
       <textarea
         value={text}
