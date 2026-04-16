@@ -1,8 +1,24 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkBreaks from 'remark-breaks';
 
 function stripAnsi(s: string): string {
   return s.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '');
+}
+
+/**
+ * Claude Code / TUI dumps: box-drawing, numbered file previews, tool lines.
+ * Markdown would collapse single newlines into spaces — render those as monospace pre instead.
+ */
+export function isLikelyTerminalOrCodeDump(text: string): boolean {
+  const s = stripAnsi(text).replace(/\r\n/g, '\n');
+  if (s.length < 80) return false;
+  if (/╌{6,}/.test(s) || /[╭╮╰╯│]{2}/.test(s)) return true;
+  if (/^\s{0,8}\d{1,4}\s+<!DOCTYPE\b/im.test(s) || /\n\s{0,8}\d{1,4}\s+<!DOCTYPE\b/i.test(s)) return true;
+  if (/^\s{0,8}\d{1,4}\s+<html\b/im.test(s) || /\n\s{0,8}\d{1,4}\s+<html\b/i.test(s)) return true;
+  if (/^\s*❯/m.test(s) && /●\s+\w+\s*\(/m.test(s)) return true;
+  if (/Esc to cancel/i.test(s) && /Tab to amend/i.test(s)) return true;
+  return false;
 }
 
 /** Split markdown on level-2 headings (`## `), not `###`. */
@@ -74,12 +90,24 @@ const PROSE_CLASSES = [
   'prose-li:marker:text-indigo-400',
 ].join(' ');
 
-function MarkdownBody({ markdown }: { markdown: string }) {
+function MarkdownBody({ markdown, softLineBreaks = false }: { markdown: string; softLineBreaks?: boolean }) {
   const src = markdown.trim() || '\u00a0';
+  const plugins = softLineBreaks ? [remarkGfm, remarkBreaks] : [remarkGfm];
   return (
     <div className={`${PROSE_CLASSES} max-w-none`}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{src}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={plugins}>{src}</ReactMarkdown>
     </div>
+  );
+}
+
+function TerminalPreBody({ text }: { text: string }) {
+  return (
+    <pre
+      className="text-[12px] sm:text-[13px] leading-relaxed whitespace-pre-wrap break-words font-mono text-gray-200 bg-[#0c0c0c] border border-gray-800 rounded-xl p-4 md:p-5 max-h-[min(70vh,720px)] overflow-auto shadow-inner"
+      tabIndex={0}
+    >
+      {text}
+    </pre>
   );
 }
 
@@ -87,17 +115,20 @@ function MarkdownBody({ markdown }: { markdown: string }) {
 export function AuditMarkdown({ source, title = 'Full report' }: { source: string; title?: string }) {
   const text = stripAnsi(source ?? '').trim();
   if (!text) return null;
+  const terminalLayout = isLikelyTerminalOrCodeDump(text);
 
   return (
     <section className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
       <div className="border-b border-gray-100 bg-gray-50/80 px-6 py-4">
         <h3 className="text-sm font-bold uppercase tracking-widest text-gray-500">{title}</h3>
         <p className="text-xs text-gray-500 mt-1">
-          Same content as Raw Output, formatted for reading (headings, tables, and code blocks).
+          {terminalLayout
+            ? 'Terminal-style layout preserved (monospace, line breaks). Markdown headings apply when the output is structured as a report.'
+            : 'Same content as Raw Output, formatted for reading (headings, tables, and code blocks).'}
         </p>
       </div>
       <div className="px-6 py-6 md:px-8 md:py-8 overflow-x-auto custom-scrollbar">
-        <MarkdownBody markdown={text} />
+        {terminalLayout ? <TerminalPreBody text={text} /> : <MarkdownBody markdown={text} softLineBreaks />}
       </div>
     </section>
   );
@@ -145,7 +176,11 @@ export function AuditMarkdownSections({
             <h2 className="text-lg md:text-xl font-bold text-gray-900 tracking-tight">{sec.title}</h2>
           </header>
           <div className="px-5 py-5 md:px-7 md:py-6 overflow-x-auto custom-scrollbar">
-            <MarkdownBody markdown={sec.body} />
+            {isLikelyTerminalOrCodeDump(sec.body) ? (
+              <TerminalPreBody text={stripAnsi(sec.body).trim()} />
+            ) : (
+              <MarkdownBody markdown={sec.body} />
+            )}
           </div>
         </article>
       ))}

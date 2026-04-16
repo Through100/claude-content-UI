@@ -606,6 +606,45 @@ function issuesBySeverityOrLegacy(report: ParsedReport): IssuesBySeverity {
   return report.summary.issuesBySeverity ?? { ...ZERO_ISSUES };
 }
 
+/** Shows a short “Receiving…” pulse while PTY narrative text is changing. */
+function PtyNarrativeLiveBadge({ rawOutput }: { rawOutput: string }) {
+  const [receiving, setReceiving] = useState(false);
+  const timerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    setReceiving(true);
+    if (timerRef.current != null) {
+      window.clearTimeout(timerRef.current);
+    }
+    timerRef.current = window.setTimeout(() => {
+      timerRef.current = null;
+      setReceiving(false);
+    }, 1000);
+    return () => {
+      if (timerRef.current != null) {
+        window.clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+  }, [rawOutput]);
+
+  return (
+    <span className="inline-flex items-center gap-1.5 shrink-0 text-[11px] font-semibold text-emerald-900">
+      {receiving ? (
+        <>
+          <span className="relative flex h-2 w-2" aria-hidden>
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-60" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-600" />
+          </span>
+          <span className="tabular-nums animate-pulse">Receiving…</span>
+        </>
+      ) : (
+        <span className="text-emerald-800/85">Live</span>
+      )}
+    </span>
+  );
+}
+
 function PrettyReport({
   report,
   stats,
@@ -778,10 +817,12 @@ function PrettyReport({
       {rawOutput?.trim() ? (
         <div className="space-y-2">
           {narrativeSource === 'pty' ? (
-            <p className="text-xs text-emerald-900/90 px-2 py-1.5 rounded-lg bg-emerald-50 border border-emerald-100">
-              Live interactive PTY — narrative below tracks the same Claude Code session as Logon and Raw, and updates
-              as new output arrives.
-            </p>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-emerald-900/90 px-2 py-1.5 rounded-lg bg-emerald-50 border border-emerald-100">
+              <span>
+                Live interactive PTY — narrative matches Logon / Raw and refreshes as output arrives.
+              </span>
+              <PtyNarrativeLiveBadge rawOutput={rawOutput} />
+            </div>
           ) : showAuditNarrativeCaption ? (
             <p className="text-xs text-gray-400 px-1">
               Run finished in {(stats.durationMs / 1000).toFixed(1)}s — narrative below matches captured stdout/stderr.
