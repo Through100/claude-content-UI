@@ -152,7 +152,7 @@ export function AuditMarkdown({ source, title = 'Full report' }: { source: strin
         <p className="text-xs text-gray-500 mt-1">
           {terminalLayout
             ? 'Prompts and questions use normal text; file previews and diffs use monospace code blocks (same content as Raw).'
-            : 'Same content as Raw Output, formatted for reading (headings, tables, and code blocks).'}
+            : 'Same content as Raw View, formatted for reading (headings, tables, and code blocks).'}
         </p>
       </div>
       <div className="px-6 py-6 md:px-8 md:py-8 overflow-x-auto custom-scrollbar">
@@ -168,7 +168,7 @@ export function AuditMarkdownSections({
   hidePageScoreCardNarrative = false,
 }: {
   source: string;
-  /** When true, drop `## Page Score Card` blocks — Pretty Report already shows the parsed score card. */
+  /** When true, drop `## Page Score Card` blocks — Pretty Output may already surface score context elsewhere. */
   hidePageScoreCardNarrative?: boolean;
 }) {
   const text = stripAnsi(source ?? '').trim();
@@ -191,7 +191,7 @@ export function AuditMarkdownSections({
       <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 px-4 py-3">
         <p className="text-xs font-semibold uppercase tracking-wider text-indigo-800">Structured narrative</p>
         <p className="text-xs text-indigo-900/80 mt-1">
-          Sections follow each <code className="rounded bg-white/80 px-1 text-[11px]">##</code> heading from Claude (e.g. Strengths, Critical Issues). Same text as Raw Output.
+          Sections follow each <code className="rounded bg-white/80 px-1 text-[11px]">##</code> heading from Claude (e.g. Strengths, Critical Issues). Same text as Raw View.
         </p>
       </div>
 

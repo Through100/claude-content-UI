@@ -8,6 +8,7 @@ import LogonView from './components/LogonView';
 import UsageView from './components/UsageView';
 import { apiService } from './services/api';
 import { RunResponse } from './types';
+import { appendDashboardChatTurn, formatRunUserSummary } from './lib/dashboardChatHistory';
 import { AlertCircle, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -85,6 +86,7 @@ export default function App() {
   const [result, setResult] = useState<RunResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [liveTerminal, setLiveTerminal] = useState('');
+  const [chatHistoryTick, setChatHistoryTick] = useState(0);
 
   useEffect(() => {
     if (!isLoading || runStartedAt == null) return;
@@ -102,6 +104,12 @@ export default function App() {
         setLiveTerminal(prev => prev + text);
       });
       setResult(response);
+      const userLine = formatRunUserSummary(commandKey, target, model);
+      const out = response.rawOutput?.trim() ?? '';
+      const err = response.error?.trim() ?? '';
+      const assistant = out || (err ? `Error: ${err}` : '') || '(no output captured)';
+      appendDashboardChatTurn(userLine, assistant);
+      setChatHistoryTick((n) => n + 1);
       if (!response.success && response.error) {
         setError(response.error);
       }
@@ -186,6 +194,7 @@ export default function App() {
               isLoading={isLoading}
               loadingStartedAt={runStartedAt}
               liveTerminal={liveTerminal}
+              chatHistoryTick={chatHistoryTick}
             />
             </div>
           </motion.div>
