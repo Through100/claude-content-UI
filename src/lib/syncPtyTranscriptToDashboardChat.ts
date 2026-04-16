@@ -1,6 +1,7 @@
 import {
   isTrivialAssistantTail,
   parsePtyTranscriptToMessages,
+  stripEphemeralAssistantEdges,
   trimTrailingTrivialAssistantTurns,
   type ChatTurn
 } from '../../shared/parsePtyTranscriptToMessages';
@@ -87,7 +88,8 @@ export function syncPrettyPtyTranscriptToDashboardThread(threadKey: string, sani
 
   for (const p of pairs) {
     const u = p.user.trim();
-    const body = sanitizeRunOutputForChat(p.assistant);
+    let body = sanitizeRunOutputForChat(p.assistant);
+    body = stripEphemeralAssistantEdges(body);
     if (!u) continue;
     if (!body.trim() || isTrivialAssistantTail(body)) continue;
 
@@ -96,13 +98,18 @@ export function syncPrettyPtyTranscriptToDashboardThread(threadKey: string, sani
 
     const last = ex[ex.length - 1];
     if (last && last.user === u) {
-      const la = last.assistant.trim();
+      const lastRaw = last.assistant.trim();
+      const la = stripEphemeralAssistantEdges(lastRaw).trim();
       const nb = body.trim();
-      if (nb.startsWith(la) && nb.length >= la.length && nb !== last.assistant) {
+      if (nb.startsWith(lastRaw) && nb.length >= lastRaw.length && nb !== last.assistant) {
         updateLastDashboardAssistant(threadKey, body);
         continue;
       }
-      if (nb === la) continue;
+      if (nb === lastRaw) continue;
+      if (!la || isTrivialAssistantTail(lastRaw) || isTrivialAssistantTail(la)) {
+        updateLastDashboardAssistant(threadKey, body);
+        continue;
+      }
     }
 
     appendDashboardChatTurn(u, body, threadKey);

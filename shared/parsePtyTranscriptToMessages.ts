@@ -2,28 +2,48 @@ import { normalizeTeletypeLines, stripAnsi } from './stripAnsi';
 
 export type ChatTurn = { role: 'user' | 'assistant'; text: string; id: string };
 
+/** One line of Claude Code TUI noise (spinners, tool hints, cost footer). */
+export function isPtyAssistantNoiseLine(line: string): boolean {
+  const l = line.trim();
+  if (!l) return true;
+  if (/^[─\-_\s|]+$/.test(l)) return true;
+  if (/^\|\s*cost:/i.test(l)) return true;
+  if (/^\s*❯\s*$/.test(l)) return true;
+  // Spinners: ✻, middle dot ·, bullet *, or bare “Catapulting…” style status.
+  if (
+    /^\s*[✻·*⎿]?\s*(?:Undulating|Thinking|Bouncing|Pulsing|Compacting|Scribbling|Catapulting|Warping)[·….\s]*(?:\([^)]*\))?\s*$/i.test(
+      l
+    )
+  ) {
+    return true;
+  }
+  if (/^\s*✻\s/.test(l) && l.length < 160) return true;
+  if (/\(thought for \d+s?\)/i.test(l) && l.length < 140) return true;
+  return false;
+}
+
+/** Drop leading/trailing spinner and status lines; keeps main assistant prose. */
+export function stripEphemeralAssistantEdges(text: string): string {
+  const lines = text.replace(/\r/g, '').split('\n');
+  while (lines.length && isPtyAssistantNoiseLine(lines[0] ?? '')) lines.shift();
+  while (lines.length && isPtyAssistantNoiseLine(lines[lines.length - 1] ?? '')) lines.pop();
+  return lines.join('\n').trim();
+}
+
 /** Footer / status-only assistant chunks (not a real reply yet / trailing UI noise). */
 export function isTrivialAssistantTail(text: string): boolean {
   const t = text.replace(/\r/g, '').trim();
   if (!t) return true;
-  const letters = (t.match(/[A-Za-z]/g) ?? []).length;
-  if (letters >= 6) return false;
   const lines = t
     .split('\n')
     .map((l) => l.trim())
     .filter((l) => l.length > 0);
   if (lines.length === 0) return true;
-  const noise = (l: string) =>
-    /^[─\-_\s|]+$/.test(l) ||
-    /^\|\s*cost:/i.test(l) ||
-    /^\s*✻\s*(?:Undulating|Thinking|Bouncing|Pulsing|Compacting|Scribbling)[·….\s]*$/i.test(l) ||
-    /^✻\s/.test(l) ||
-    /^Reading\b/i.test(l) ||
-    /^Listed\b/i.test(l) ||
-    /^Globbed\b/i.test(l) ||
-    // Empty `❯` prompt line (no user text yet) — otherwise footer-only blocks fail `every(noise)`.
-    /^\s*❯\s*$/.test(l);
-  return lines.every(noise);
+  const toolEcho = (l: string) =>
+    /^Reading\b/i.test(l) || /^Listed\b/i.test(l) || /^Globbed\b/i.test(l);
+  if (lines.every((l) => isPtyAssistantNoiseLine(l) || toolEcho(l))) return true;
+  const letters = (t.match(/[A-Za-z]/g) ?? []).length;
+  return letters < 6;
 }
 
 /** Drop trailing assistant bubbles that are only cost lines / rules / spinner hints. */

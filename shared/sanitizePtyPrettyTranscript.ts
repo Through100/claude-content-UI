@@ -1,4 +1,5 @@
 import { normalizeTeletypeLines, stripAnsi } from './stripAnsi';
+import { isPtyAssistantNoiseLine } from './parsePtyTranscriptToMessages';
 
 /** Table / rule lines typical of the Claude Code TUI splash header. */
 function isSplashOrChromeLine(line: string): boolean {
@@ -53,13 +54,18 @@ export function stripClaudeCodeSplashPrefix(text: string): string {
 
 /** Inline / full-line Claude Code “working” indicators (Undulating, Thinking, …). */
 export function stripPtyEphemeralLines(text: string): string {
-  const spinner = /(?:Undulating|Thinking|Bouncing|Pulsing|Compacting|Scribbling)/i;
+  const spinner =
+    /(?:Undulating|Thinking|Bouncing|Pulsing|Compacting|Scribbling|Catapulting|Warping)/i;
   return text
     .split('\n')
     .map((line) => {
+      if (isPtyAssistantNoiseLine(line)) return null;
       if (!spinner.test(line)) return line;
       if (/✻/.test(line)) {
-        let s = line.replace(/\s*✻\s*(?:Undulating|Thinking|Bouncing|Pulsing|Compacting|Scribbling)[·….\s]*/gi, '');
+        let s = line.replace(
+          /\s*✻\s*(?:Undulating|Thinking|Bouncing|Pulsing|Compacting|Scribbling|Catapulting|Warping)[·….\s]*/gi,
+          ''
+        );
         s = s.replace(/^\s*⎿\s+/g, '').trimEnd();
         if (!s.trim()) return null;
         return s;
