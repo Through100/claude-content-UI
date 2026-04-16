@@ -1,6 +1,6 @@
 import type { AccountStatusInfo, GroupedHistory, ModelOption, RunResponse, UsageInfo } from '../types';
 
-const apiBase = () => (import.meta.env.VITE_API_BASE_URL as string | undefined) || '';
+export const apiBase = () => (import.meta.env.VITE_API_BASE_URL as string | undefined) || '';
 
 const DEFAULT_CLIENT_TIMEOUT_MS = 1_800_000;
 const MIN_CLIENT_TIMEOUT_MS = 1_000;
@@ -137,6 +137,11 @@ async function consumeRunStream(
 }
 
 export const apiService = {
+  /** Same-origin URL to download a path under CLAUDE_WORKDIR (see GET /api/workspace-file). */
+  workspaceFileDownloadUrl(clientPath: string): string {
+    return `${apiBase()}/api/workspace-file?path=${encodeURIComponent(clientPath)}`;
+  },
+
   /**
    * Save a file into CLAUDE_WORKDIR/ui-uploads on the API host and return a path suitable for Target (e.g. blog analyze).
    */

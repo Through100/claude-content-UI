@@ -75,6 +75,31 @@ async function uniqueUploadFilename(dir: string, baseName: string): Promise<stri
   return candidate;
 }
 
+/** Resolve client-supplied path to a real file only when it stays under CLAUDE_WORKDIR. */
+function resolveSafePathUnderWorkdir(userPath: string): string | null {
+  const root = path.resolve(workdir());
+  const trimmed = String(userPath).trim().replace(/^["'`]+|["'`]+$/g, '');
+  if (!trimmed) return null;
+  const candidate = path.isAbsolute(trimmed) ? path.resolve(trimmed) : path.resolve(root, trimmed);
+  const rel = path.relative(root, candidate);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) return null;
+  return candidate;
+}
+
+function guessContentType(filePath: string): string {
+  const ext = path.extname(filePath).toLowerCase();
+  const map: Record<string, string> = {
+    '.md': 'text/markdown; charset=utf-8',
+    '.markdown': 'text/markdown; charset=utf-8',
+    '.txt': 'text/plain; charset=utf-8',
+    '.html': 'text/html; charset=utf-8',
+    '.htm': 'text/html; charset=utf-8',
+    '.json': 'application/json; charset=utf-8',
+    '.csv': 'text/csv; charset=utf-8'
+  };
+  return map[ext] || 'application/octet-stream';
+}
+
 const DEFAULT_RUN_TIMEOUT_MS = 1_800_000;
 const DEFAULT_USAGE_TIMEOUT_MS = 180_000;
 /** Reject 0/NaN/tiny values — they schedule SIGTERM immediately and look like "broken" Claude runs. */
@@ -330,6 +355,44 @@ app.post(
     }
   }
 );
+
+/** Download a single file from the Claude workspace (browser cannot read the server disk otherwise). */
+app.get('/api/workspace-file', (req, res) => {
+  try {
+    const raw = String(req.query.path ?? '').trim();
+    if (!raw) {
+      res.status(400).send('Missing path query parameter');
+      return;
+    }
+    const decoded = decodeURIComponent(raw);
+    const abs = resolveSafePathUnderWorkdir(decoded);
+    if (!abs) {
+      res.status(400).json({ error: 'Path escapes CLAUDE_WORKDIR or is invalid.' });
+      return;
+    }
+    if (!fs.existsSync(abs)) {
+      res.status(404).json({ error: 'File not found' });
+      return;
+    }
+    const st = fs.statSync(abs);
+    if (!st.isFile()) {
+      res.status(400).send('Not a regular file');
+      return;
+    }
+    const name = path.basename(abs);
+    res.setHeader('Content-Type', guessContentType(abs));
+    res.setHeader('Content-Disposition', `attachment; filename="${name.replace(/"/g, '')}"`);
+    const stream = fs.createReadStream(abs);
+    stream.on('error', () => {
+      if (!res.headersSent) res.status(500).end();
+      else res.end();
+    });
+    stream.pipe(res);
+  } catch (e) {
+    console.error('[claude-seo-ui] GET /api/workspace-file:', e);
+    res.status(500).json({ error: String(e) });
+  }
+});
 
 app.get('/api/health', (_req, res) => {
   res.json({

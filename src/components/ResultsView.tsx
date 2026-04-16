@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { extractArtifactPathsFromRunText } from '../../shared/extractArtifactPaths';
 import { mergePtyPlainArchive } from '../../shared/mergePtyPlainArchive';
 import { sanitizePtyPrettyTranscript } from '../../shared/sanitizePtyPrettyTranscript';
 import { loadPtyPrettyArchive, savePtyPrettyArchive } from '../lib/ptyPrettyArchiveStorage';
@@ -8,7 +9,8 @@ import {
   Copy,
   Download,
   FileDown,
-  Send
+  Send,
+  FileCode
 } from 'lucide-react';
 import { BLOG_COMMANDS, RunResponse } from '../types';
 import { formatChatThreadKey, sanitizeRunOutputForChat } from '../lib/dashboardChatHistory';
@@ -16,6 +18,7 @@ import { syncPrettyPtyTranscriptToDashboardThread } from '../lib/syncPtyTranscri
 import { motion, AnimatePresence } from 'motion/react';
 import { inferClaudeActivity } from '../../shared/inferClaudeActivity';
 import { downloadElementAsPdf } from '../utils/downloadReportPdf';
+import { apiService } from '../services/api';
 import { usePtyBridge } from '../context/PtyBridgeContext';
 import PtyMessengerThread from './PtyMessengerThread';
 import DashboardHeadlessChat from './DashboardHeadlessChat';
@@ -118,6 +121,14 @@ export default function ResultsView({
     if (hasFreshPtyCapture) return 'pty';
     return 'headless';
   }, [hasFreshPtyCapture, hasHeadlessRunCapture]);
+
+  const artifactPaths = useMemo(
+    () =>
+      extractArtifactPathsFromRunText(
+        [result?.rawOutput ?? '', result?.error ?? ''].filter(Boolean).join('\n\n')
+      ),
+    [result?.rawOutput, result?.error]
+  );
 
   const historyPrettySource = useMemo(() => {
     if (!isHistoryEmbed || !result) return '';
@@ -307,6 +318,25 @@ export default function ResultsView({
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3 flex-wrap justify-end">
+          {artifactPaths.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-2 justify-end">
+              {artifactPaths.map((p) => {
+                const label = p.split(/[/\\]/).filter(Boolean).pop() ?? p;
+                return (
+                  <a
+                    key={p}
+                    href={apiService.workspaceFileDownloadUrl(p)}
+                    download={label}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold border border-emerald-200 bg-emerald-50 text-emerald-950 shadow-sm hover:bg-emerald-100 hover:border-emerald-300 transition-colors max-w-[min(100%,14rem)]"
+                    title={p}
+                  >
+                    <FileCode size={16} className="text-emerald-700 shrink-0" aria-hidden />
+                    <span className="truncate">Download {label}</span>
+                  </a>
+                );
+              })}
+            </div>
+          ) : null}
           <button
             type="button"
             onClick={handlePdfClick}
