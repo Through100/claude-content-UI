@@ -19,6 +19,7 @@ import { downloadElementAsPdf } from '../utils/downloadReportPdf';
 import { usePtyBridge } from '../context/PtyBridgeContext';
 import PtyMessengerThread from './PtyMessengerThread';
 import DashboardHeadlessChat from './DashboardHeadlessChat';
+import PrettyOutputBody from './PrettyOutputBody';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
@@ -36,6 +37,8 @@ interface ResultsViewProps {
   chatThreadKey?: string;
   /** Latest finished Command Runner line + thread key so Live PTY Pretty can show the `claude -p` turn (not in the xterm buffer). */
   lastRunThreadMeta?: { threadKey: string; userSummary: string } | null;
+  /** History detail: show saved `rawOutput` in Pretty/Raw without binding to the live Logon PTY. */
+  embedMode?: 'live' | 'history';
 }
 
 function formatElapsed(startedAt: number) {
@@ -53,8 +56,10 @@ export default function ResultsView({
   liveTerminal = '',
   chatHistoryTick = 0,
   chatThreadKey = formatChatThreadKey(BLOG_COMMANDS[0].key, ''),
-  lastRunThreadMeta = null
+  lastRunThreadMeta = null,
+  embedMode = 'live'
 }: ResultsViewProps) {
+  const isHistoryEmbed = embedMode === 'history';
   const [activeTab, setActiveTab] = useState<'pretty' | 'raw'>('pretty');
   const [pdfExporting, setPdfExporting] = useState(false);
   const livePreRef = useRef<HTMLPreElement>(null);
@@ -69,6 +74,7 @@ export default function ResultsView({
   const ptyPrevSessionGenerationRef = useRef<number | null>(null);
 
   useEffect(() => {
+    if (isHistoryEmbed) return;
     const nextAnchor = `${chatThreadKey}|${ptySessionGeneration}`;
     const anchorChanged = nextAnchor !== ptyArchiveAnchorRef.current;
     ptyArchiveAnchorRef.current = nextAnchor;
@@ -88,16 +94,18 @@ export default function ResultsView({
       }
       return mergePtyPlainArchive(base, ptyFullSnapshotPlain);
     });
-  }, [chatThreadKey, ptySessionGeneration, ptyFullSnapshotPlain]);
+  }, [isHistoryEmbed, chatThreadKey, ptySessionGeneration, ptyFullSnapshotPlain]);
 
   useEffect(() => {
+    if (isHistoryEmbed) return;
     if (!ptyMergedArchive.trim()) return;
     const id = window.setTimeout(() => savePtyPrettyArchive(chatThreadKey, ptyMergedArchive), 500);
     return () => window.clearTimeout(id);
-  }, [chatThreadKey, ptyMergedArchive]);
+  }, [isHistoryEmbed, chatThreadKey, ptyMergedArchive]);
 
   const hasFreshPtyCapture =
-    ptyDisplayPlain.trim().length > 0 || ptyFullSnapshotPlain.trim().length > 0;
+    !isHistoryEmbed &&
+    (ptyDisplayPlain.trim().length > 0 || ptyFullSnapshotPlain.trim().length > 0);
   const hasHeadlessRunCapture =
     Boolean(result?.rawOutput?.trim()) || Boolean(result?.error?.trim());
 
@@ -110,6 +118,13 @@ export default function ResultsView({
     if (hasFreshPtyCapture) return 'pty';
     return 'headless';
   }, [hasFreshPtyCapture, hasHeadlessRunCapture]);
+
+  const historyPrettySource = useMemo(() => {
+    if (!isHistoryEmbed || !result) return '';
+    const out = sanitizeRunOutputForChat(result.rawOutput ?? '').trim();
+    const err = result.error?.trim();
+    return out || (err ? `Error: ${err}` : '') || '(no output captured)';
+  }, [isHistoryEmbed, result]);
 
   const liveActivity = useMemo(() => inferClaudeActivity(liveTerminal), [liveTerminal]);
 
@@ -321,15 +336,29 @@ export default function ResultsView({
             className="space-y-6"
           >
             <div ref={prettyReportRef} className="space-y-6">
-              <PrettyOutputView
-                key={`pretty-${prettyMode}-${chatThreadKey}`}
-                prettyMode={prettyMode}
-                ptyTranscript={ptyMergedArchive}
-                chatHistoryTick={chatHistoryTick}
-                chatThreadKey={chatThreadKey}
-                lastRunThreadMeta={lastRunThreadMeta}
-                headlessResult={result}
-              />
+              {isHistoryEmbed ? (
+                <div className="rounded-2xl border border-gray-100 bg-white shadow-sm overflow-hidden">
+                  <div className="px-4 py-3 md:px-6 border-b border-gray-100 bg-gray-50/80">
+                    <h3 className="text-[11px] font-bold uppercase tracking-wider text-gray-500">Saved run (Pretty)</h3>
+                    <p className="text-xs text-gray-500 mt-1">
+                      From history — not the live Logon PTY. Same text as Raw, formatted for reading.
+                    </p>
+                  </div>
+                  <div className="px-4 py-6 md:px-8 md:py-8">
+                    <PrettyOutputBody text={historyPrettySource} />
+                  </div>
+                </div>
+              ) : (
+                <PrettyOutputView
+                  key={`pretty-${prettyMode}-${chatThreadKey}`}
+                  prettyMode={prettyMode}
+                  ptyTranscript={ptyMergedArchive}
+                  chatHistoryTick={chatHistoryTick}
+                  chatThreadKey={chatThreadKey}
+                  lastRunThreadMeta={lastRunThreadMeta}
+                  headlessResult={result}
+                />
+              )}
             </div>
           </motion.div>
         ) : (
@@ -343,12 +372,13 @@ export default function ResultsView({
             <LivePtyRawMirror
               headlessStdout={result.rawOutput ?? ''}
               headlessError={result.error ?? ''}
+              livePtyMirror={!isHistoryEmbed}
             />
           </motion.div>
         )}
       </AnimatePresence>
 
-      <PtyReplyPanel hasCompletedHeadlessRun />
+      {!isHistoryEmbed ? <PtyReplyPanel hasCompletedHeadlessRun /> : null}
     </div>
   );
 }
@@ -357,9 +387,11 @@ type LivePtyRawMirrorProps = {
   /** When provided, last `claude -p` capture is shown below the PTY in the same card (no separate panel). */
   headlessStdout?: string;
   headlessError?: string;
+  /** When false (History raw), only the saved stdout block is shown — no live xterm. */
+  livePtyMirror?: boolean;
 };
 
-function LivePtyRawMirror({ headlessStdout, headlessError }: LivePtyRawMirrorProps = {}) {
+function LivePtyRawMirror({ headlessStdout, headlessError, livePtyMirror = true }: LivePtyRawMirrorProps = {}) {
   const mergeHeadless = headlessStdout !== undefined;
   const {
     clearLiveTranscript,
@@ -377,6 +409,7 @@ function LivePtyRawMirror({ headlessStdout, headlessError }: LivePtyRawMirrorPro
       : '(no terminal output captured)');
 
   useEffect(() => {
+    if (!livePtyMirror) return;
     const host = hostRef.current;
     if (!host) return;
 
@@ -437,44 +470,58 @@ function LivePtyRawMirror({ headlessStdout, headlessError }: LivePtyRawMirrorPro
       term.dispose();
       host.innerHTML = '';
     };
-  }, [peekPtyTranscriptBuffer, sendToPty, subscribePtyMirrorReset, subscribePtyMirrorWrite]);
+  }, [livePtyMirror, peekPtyTranscriptBuffer, sendToPty, subscribePtyMirrorReset, subscribePtyMirrorWrite]);
 
   return (
     <div className="rounded-2xl border border-gray-800 bg-[#0c0c0c] shadow-inner overflow-hidden">
       <div className="flex items-center justify-between px-4 py-2 bg-[#1a1a1a] border-b border-gray-800 gap-2 flex-wrap">
         <div className="flex items-center gap-2 min-w-0">
-          <div className="flex gap-1.5 shrink-0">
-            <div className="w-3 h-3 rounded-full bg-[#ff5f56]" />
-            <div className="w-3 h-3 rounded-full bg-[#ffbd2e]" />
-            <div className="w-3 h-3 rounded-full bg-[#27c93f]" />
-          </div>
+          {livePtyMirror ? (
+            <div className="flex gap-1.5 shrink-0">
+              <div className="w-3 h-3 rounded-full bg-[#ff5f56]" />
+              <div className="w-3 h-3 rounded-full bg-[#ffbd2e]" />
+              <div className="w-3 h-3 rounded-full bg-[#27c93f]" />
+            </div>
+          ) : null}
           <span className="text-[10px] font-mono text-gray-400 uppercase tracking-widest truncate">
-            {mergeHeadless
-              ? 'PTY (Logon) + last claude -p capture'
-              : 'Interactive PTY (same session as Logon)'}
+            {!livePtyMirror && mergeHeadless
+              ? 'Saved run (raw)'
+              : mergeHeadless
+                ? 'PTY (Logon) + last claude -p capture'
+                : 'Interactive PTY (same session as Logon)'}
           </span>
         </div>
-        <button
-          type="button"
-          onClick={() => clearLiveTranscript()}
-          className="text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 shrink-0"
-        >
-          From here only
-        </button>
+        {livePtyMirror ? (
+          <button
+            type="button"
+            onClick={() => clearLiveTranscript()}
+            className="text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700 shrink-0"
+          >
+            From here only
+          </button>
+        ) : (
+          <div className="w-12 shrink-0" aria-hidden />
+        )}
       </div>
       <p className="text-[11px] text-gray-500 px-4 py-2 bg-[#111] border-b border-gray-800 leading-relaxed">
-        xterm.js fed from the same WebSocket PTY as Logon — type here or on Logon. <strong>From here only</strong>{' '}
-        resets this panel’s slice and the Raw byte buffer from new output onward; it does not clear Logon. Pretty
-        Output still keeps a merged transcript (and localStorage for this command + target) so earlier turns usually
-        stay scrollable there.
-        {mergeHeadless ? (
+        {livePtyMirror ? (
           <>
-            {' '}
-            The <strong>first</strong> block (when present) is the latest dashboard{' '}
-            <code className="text-[10px] text-gray-400">claude -p</code> capture (read-only). The dark terminal below
-            is the live PTY only.
+            xterm.js fed from the same WebSocket PTY as Logon — type here or on Logon. <strong>From here only</strong>{' '}
+            resets this panel’s slice and the Raw byte buffer from new output onward; it does not clear Logon. Pretty
+            Output still keeps a merged transcript (and localStorage for this command + target) so earlier turns usually
+            stay scrollable there.
+            {mergeHeadless ? (
+              <>
+                {' '}
+                The <strong>first</strong> block (when present) is the latest dashboard{' '}
+                <code className="text-[10px] text-gray-400">claude -p</code> capture (read-only). The dark terminal below
+                is the live PTY only.
+              </>
+            ) : null}
           </>
-        ) : null}
+        ) : (
+          <>Read-only capture from History — open the Dashboard to use the live PTY.</>
+        )}
       </p>
       {mergeHeadless ? (
         <>
@@ -493,11 +540,13 @@ function LivePtyRawMirror({ headlessStdout, headlessError }: LivePtyRawMirrorPro
           </pre>
         </>
       ) : null}
-      <div
-        ref={hostRef}
-        className={`px-2 py-2 overflow-hidden max-h-[min(55vh,560px)] min-h-[200px] ${mergeHeadless ? 'border-t border-gray-800' : ''}`}
-        title="Focus the terminal to type. Same PTY as Logon."
-      />
+      {livePtyMirror ? (
+        <div
+          ref={hostRef}
+          className={`px-2 py-2 overflow-hidden max-h-[min(55vh,560px)] min-h-[200px] ${mergeHeadless ? 'border-t border-gray-800' : ''}`}
+          title="Focus the terminal to type. Same PTY as Logon."
+        />
+      ) : null}
     </div>
   );
 }

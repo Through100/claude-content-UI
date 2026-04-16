@@ -102,7 +102,7 @@ export default function HistoryView() {
             </div>
           </div>
 
-          <ResultsView 
+          <ResultsView
             result={{
               success: selectedItem.status === 'success',
               commandExecuted: historyCommandLine(selectedItem),
@@ -117,6 +117,7 @@ export default function HistoryView() {
             isLoading={false}
             chatThreadKey={formatChatThreadKey(selectedItem.commandKey, selectedItem.target)}
             chatHistoryTick={0}
+            embedMode="history"
           />
         </div>
       </div>
