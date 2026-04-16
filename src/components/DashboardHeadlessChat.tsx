@@ -2,41 +2,44 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import {
   clearDashboardChatHistory,
-  DASHBOARD_CHAT_STORAGE_KEY,
+  DASHBOARD_CHATS_STORE_KEY,
+  formatThreadKeyForDisplay,
   loadDashboardChatHistory,
   type DashboardChatTurn
 } from '../lib/dashboardChatHistory';
 import PrettyOutputBody from './PrettyOutputBody';
 
 type Props = {
+  /** Conversation bucket: `commandKey::normalizedTarget`. */
+  threadKey: string;
   /** Bump after each completed headless run so we re-read localStorage. */
   refreshKey: number;
 };
 
-export default function DashboardHeadlessChat({ refreshKey }: Props) {
+export default function DashboardHeadlessChat({ threadKey, refreshKey }: Props) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const stickBottomRef = useRef(true);
-  const [turns, setTurns] = useState<DashboardChatTurn[]>(() => loadDashboardChatHistory());
+  const [turns, setTurns] = useState<DashboardChatTurn[]>(() => loadDashboardChatHistory(threadKey));
 
   useEffect(() => {
-    setTurns(loadDashboardChatHistory());
-  }, [refreshKey]);
+    setTurns(loadDashboardChatHistory(threadKey));
+  }, [threadKey, refreshKey]);
 
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
-      if (e.key === DASHBOARD_CHAT_STORAGE_KEY) {
-        setTurns(loadDashboardChatHistory());
+      if (e.key === DASHBOARD_CHATS_STORE_KEY) {
+        setTurns(loadDashboardChatHistory(threadKey));
       }
     };
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
-  }, []);
+  }, [threadKey]);
 
   useEffect(() => {
     const el = scrollerRef.current;
     if (!el || !stickBottomRef.current) return;
     el.scrollTop = el.scrollHeight;
-  }, [refreshKey, turns.length]);
+  }, [refreshKey, turns.length, threadKey]);
 
   const onScroll = () => {
     const el = scrollerRef.current;
@@ -46,9 +49,10 @@ export default function DashboardHeadlessChat({ refreshKey }: Props) {
   };
 
   const empty = turns.length === 0;
+  const topicLabel = formatThreadKeyForDisplay(threadKey);
 
   const onClear = () => {
-    clearDashboardChatHistory();
+    clearDashboardChatHistory(threadKey);
     setTurns([]);
   };
 
@@ -60,10 +64,12 @@ export default function DashboardHeadlessChat({ refreshKey }: Props) {
         <div>
           <h3 className="text-sm font-bold uppercase tracking-widest text-gray-500">Conversation</h3>
           <p className="text-xs text-gray-500 mt-0.5">
-            Each run is one exchange (your command on the right, Claude on the left). Runs use{' '}
-            <code className="text-[10px] bg-gray-100 px-1 rounded">claude -p</code> (one-shot); replies like{' '}
-            <code className="text-[10px] bg-gray-100 px-1 rounded">1</code> go to the <strong>Logon / PTY</strong>{' '}
-            session below, not back into this finished output.
+            One thread per <strong>command + target</strong> in Command Runner — changing the target switches here.
+            Runs use <code className="text-[10px] bg-gray-100 px-1 rounded">claude -p</code> (one-shot); PTY replies stay
+            on Logon below.
+          </p>
+          <p className="text-[11px] text-gray-600 mt-1 font-medium truncate" title={threadKey}>
+            Topic: <span className="font-mono text-gray-800">{topicLabel}</span>
           </p>
         </div>
         <button
@@ -71,7 +77,7 @@ export default function DashboardHeadlessChat({ refreshKey }: Props) {
           onClick={onClear}
           disabled={empty}
           className="inline-flex items-center gap-1.5 shrink-0 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-red-50 hover:text-red-700 hover:border-red-200 disabled:opacity-40 disabled:cursor-not-allowed"
-          title="Clear saved conversation"
+          title="Clear this topic’s saved turns only"
         >
           <Trash2 size={14} aria-hidden />
           Clear
@@ -80,8 +86,8 @@ export default function DashboardHeadlessChat({ refreshKey }: Props) {
 
       {empty ? (
         <div className="px-6 py-12 text-center text-sm text-gray-500">
-          No runs yet. Use <strong>Command Runner</strong> above — each finished run appears here as a chat turn and
-          stays in your browser until you clear it.
+          No runs for this topic yet. Run <strong>Command Runner</strong> above — each finished run is saved under this
+          target. Older topics stay in their own threads when you change the Target field.
         </div>
       ) : (
         <div

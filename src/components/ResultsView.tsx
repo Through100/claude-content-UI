@@ -7,7 +7,8 @@ import {
   FileDown,
   Send
 } from 'lucide-react';
-import { RunResponse } from '../types';
+import { BLOG_COMMANDS, RunResponse } from '../types';
+import { formatChatThreadKey } from '../lib/dashboardChatHistory';
 import { motion, AnimatePresence } from 'motion/react';
 import { inferClaudeActivity } from '../../shared/inferClaudeActivity';
 import { downloadElementAsPdf } from '../utils/downloadReportPdf';
@@ -27,6 +28,8 @@ interface ResultsViewProps {
   liveTerminal?: string;
   /** Bump after each headless run completes so Pretty reloads saved conversation from localStorage. */
   chatHistoryTick?: number;
+  /** Headless Pretty conversation thread = blog command key + target (matches Command Runner). */
+  chatThreadKey?: string;
 }
 
 function formatElapsed(startedAt: number) {
@@ -42,7 +45,8 @@ export default function ResultsView({
   isLoading,
   loadingStartedAt,
   liveTerminal = '',
-  chatHistoryTick = 0
+  chatHistoryTick = 0,
+  chatThreadKey = formatChatThreadKey(BLOG_COMMANDS[0].key, '')
 }: ResultsViewProps) {
   const [activeTab, setActiveTab] = useState<'pretty' | 'raw'>('pretty');
   const [pdfExporting, setPdfExporting] = useState(false);
@@ -206,6 +210,7 @@ export default function ResultsView({
             rawOutput={narrativeRaw}
             narrativeSource="pty"
             chatHistoryTick={chatHistoryTick}
+            chatThreadKey={chatThreadKey}
           />
         ) : null}
         <PtyReplyPanel hasCompletedHeadlessRun={false} />
@@ -268,10 +273,11 @@ export default function ResultsView({
           >
             <div ref={prettyReportRef} className="space-y-6">
               <PrettyOutputView
-                key={isLivePtyNarrative ? 'narrative-pty' : 'narrative-headless'}
+                key={isLivePtyNarrative ? 'narrative-pty' : `narrative-headless-${chatThreadKey}`}
                 rawOutput={narrativeRaw}
                 narrativeSource={isLivePtyNarrative ? 'pty' : 'headless'}
                 chatHistoryTick={chatHistoryTick}
+                chatThreadKey={chatThreadKey}
               />
             </div>
           </motion.div>
@@ -570,11 +576,13 @@ function PtyNarrativeLiveBadge({ rawOutput }: { rawOutput: string }) {
 function PrettyOutputView({
   rawOutput,
   narrativeSource = 'headless',
-  chatHistoryTick = 0
+  chatHistoryTick = 0,
+  chatThreadKey
 }: {
   rawOutput: string;
   narrativeSource?: 'pty' | 'headless';
   chatHistoryTick?: number;
+  chatThreadKey: string;
 }) {
   if (narrativeSource === 'pty') {
     return (
@@ -594,5 +602,5 @@ function PrettyOutputView({
     );
   }
 
-  return <DashboardHeadlessChat refreshKey={chatHistoryTick} />;
+  return <DashboardHeadlessChat threadKey={chatThreadKey} refreshKey={chatHistoryTick} />;
 }

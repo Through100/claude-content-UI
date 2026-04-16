@@ -7,6 +7,8 @@ import type { ModelOption } from '../types';
 
 interface SeoCommandFormProps {
   onRun: (commandKey: string, target: string, model?: string) => void;
+  /** Fired when command or target draft changes so Pretty Output can switch conversation threads. */
+  onSessionChange?: (commandKey: string, target: string) => void;
   isLoading: boolean;
 }
 
@@ -19,7 +21,7 @@ const FALLBACK_MODELS: ModelOption[] = [
   { id: 'opus[1m]', label: 'Opus (1M context)', description: 'Long context Opus' }
 ];
 
-export default function SeoCommandForm({ onRun, isLoading }: SeoCommandFormProps) {
+export default function SeoCommandForm({ onRun, onSessionChange, isLoading }: SeoCommandFormProps) {
   const [selectedKey, setSelectedKey] = useState(BLOG_COMMANDS[0].key);
   const [target, setTarget] = useState('');
   const [model, setModel] = useState('haiku');
@@ -46,6 +48,10 @@ export default function SeoCommandForm({ onRun, isLoading }: SeoCommandFormProps
   useEffect(() => {
     setError(null);
   }, [selectedKey, target]);
+
+  useEffect(() => {
+    onSessionChange?.(selectedKey, target);
+  }, [selectedKey, target, onSessionChange]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

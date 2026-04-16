@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { apiService } from '../services/api';
 import { BLOG_COMMANDS, GroupedHistory, HistoryItem, historyCommandLine, isLikelyHttpUrl } from '../types';
+import { formatChatThreadKey } from '../lib/dashboardChatHistory';
 import { 
   ChevronDown, 
   ChevronRight, 
@@ -114,6 +115,8 @@ export default function HistoryView() {
               }
             }}
             isLoading={false}
+            chatThreadKey={formatChatThreadKey(selectedItem.commandKey, selectedItem.target)}
+            chatHistoryTick={0}
           />
         </div>
       </div>
