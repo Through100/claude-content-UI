@@ -443,7 +443,7 @@ function LivePtyRawMirror({ headlessStdout, headlessError }: LivePtyRawMirrorPro
 }
 
 function PtyReplyPanel({ hasCompletedHeadlessRun = false }: { hasCompletedHeadlessRun?: boolean }) {
-  const { sendToPty, ptySessionReady, clearLiveTranscript } = usePtyBridge();
+  const { sendToPty, ptySessionReady } = usePtyBridge();
   const [text, setText] = useState('');
   const [appendEnter, setAppendEnter] = useState(true);
   const [hint, setHint] = useState<string | null>(null);
@@ -458,11 +458,8 @@ function PtyReplyPanel({ hasCompletedHeadlessRun = false }: { hasCompletedHeadle
       setHint('PTY is not ready yet. Wait for the session to connect, or open Logon and check the terminal.');
       return;
     }
-    clearLiveTranscript();
     sendToPty(appendEnter ? `${t}\r` : t);
-    setHint(
-      'Dashboard view reset from this point; Logon terminal unchanged. Raw and Pretty will show only new lines.'
-    );
+    setHint('Sent to the same PTY as Logon. Pretty Output and Raw View keep full scrollback — scroll up to see earlier turns.');
     setText('');
   };
 

@@ -29,7 +29,10 @@ export type PtyBridgeContextValue = {
   registerPtyTerminal: (term: Terminal | null) => void;
   /** Re-read the registered xterm buffer into `ptyDisplayPlain` (call after `term.write`). */
   refreshPtyScreenSnapshot: () => void;
-  /** Show only xterm lines appended after this call (same session; does not clear the real PTY). */
+  /**
+   * Dashboard-only: show only xterm lines from the current buffer row onward (same PTY; Logon unchanged).
+   * Used by Raw “From here only”. Do not call before every keystroke — that would hide prior Pretty scrollback.
+   */
   clearLiveTranscript: () => void;
   /** Force an immediate snapshot read (e.g. session end). */
   flushLiveTranscriptNow: () => void;
