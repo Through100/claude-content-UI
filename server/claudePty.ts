@@ -22,8 +22,13 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROXY_SCRIPT = path.resolve(__dirname, '..', 'scripts', 'pty-proxy.py');
+const WIN_STUB = path.resolve(__dirname, '..', 'scripts', 'pty-windows-stub.mjs');
 
 const PTY_SESSION_IDLE_MS = 10 * 60 * 1000; // 10 minutes
+
+function envTruthy(v: string | undefined): boolean {
+  return ['1', 'true', 'yes'].includes(String(v ?? '').trim().toLowerCase());
+}
 
 /** execvp does not expand `~`; normalize so pty-proxy receives a real path when .env uses ~/. */
 function resolveClaudeBinForPty(bin: string): string {
@@ -31,6 +36,70 @@ function resolveClaudeBinForPty(bin: string): string {
   if (t.startsWith('~/')) return path.join(os.homedir(), t.slice(2));
   if (t === '~') return os.homedir();
   return t;
+}
+
+/** `C:\\foo\\bar` → `/mnt/c/foo/bar` for WSL default mounts. */
+function windowsPathToWsl(p: string): string {
+  const resolved = path.resolve(p);
+  const norm = resolved.replace(/\//g, '\\');
+  const m = /^([a-zA-Z]):\\(.*)$/.exec(norm);
+  if (!m) return resolved.replace(/\\/g, '/');
+  const drive = m[1].toLowerCase();
+  const rest = m[2].replace(/\\/g, '/');
+  return `/mnt/${drive}/${rest.replace(/^\//, '')}`;
+}
+
+/**
+ * How to spawn Python for `pty-proxy.py`.
+ * Windows: plain `python3` often resolves to the Microsoft Store stub — default to `py -3` (python.org launcher).
+ * Set `PTY_PYTHON` to a full path, or e.g. `py -3.12`, or `python` if that is your real interpreter.
+ */
+function resolvePtyPythonSpawn(): { file: string; args: string[] } {
+  const raw = process.env.PTY_PYTHON?.trim();
+  if (raw) {
+    const parts = raw.split(/\s+/).filter(Boolean);
+    if (parts.length === 1) return { file: parts[0]!, args: [] };
+    return { file: parts[0]!, args: parts.slice(1) };
+  }
+  if (process.platform === 'win32') {
+    return { file: 'py', args: ['-3'] };
+  }
+  return { file: 'python3', args: [] };
+}
+
+function ptySpawnFailureHint(): string {
+  if (process.platform !== 'win32') {
+    return '[pty-proxy] Install Python 3 so `python3` is on PATH, or set PTY_PYTHON to your interpreter (see .env.example).';
+  }
+  return (
+    '[pty-proxy] Windows: install Python 3 from https://www.python.org/downloads/ (enable “Add python.exe to PATH” and the py launcher), ' +
+    'or set PTY_PYTHON in .env to your real python.exe (full path). ' +
+    'If you see the Microsoft Store message, disable App execution aliases for python.exe/python3.exe ' +
+    '(Settings → Apps → Advanced app settings → App execution aliases), or keep using `py -3` (default when PTY_PYTHON is unset). ' +
+    'Native Windows cannot run the PTY proxy (no termios): use WSL (`CLAUDE_PTY_WSL=1` in .env) or set CLAUDE_TERMINAL_WS=0.'
+  );
+}
+
+/** argv for the PTY child: POSIX Python proxy, WSL-wrapped proxy, or Windows help stub. */
+function resolvePtyChildArgv(claudeBin: string): { file: string; args: string[] } {
+  const claudeResolved = resolveClaudeBinForPty(claudeBin);
+  if (process.platform === 'win32' && !envTruthy(process.env.CLAUDE_PTY_WSL)) {
+    return { file: process.execPath, args: [WIN_STUB] };
+  }
+  if (process.platform === 'win32' && envTruthy(process.env.CLAUDE_PTY_WSL)) {
+    const proxyWsl = windowsPathToWsl(PROXY_SCRIPT);
+    const claudeWsl =
+      /^[a-zA-Z]:\\/.test(claudeResolved) || claudeResolved.startsWith('\\\\')
+        ? windowsPathToWsl(claudeResolved)
+        : claudeResolved;
+    const distro = process.env.CLAUDE_WSL_DISTRO?.trim();
+    const args = distro
+      ? ['-d', distro, '-e', 'python3', proxyWsl, claudeWsl]
+      : ['-e', 'python3', proxyWsl, claudeWsl];
+    return { file: 'wsl.exe', args };
+  }
+  const py = resolvePtyPythonSpawn();
+  return { file: py.file, args: [...py.args, PROXY_SCRIPT, claudeResolved] };
 }
 
 export interface PtySession {
@@ -77,19 +146,16 @@ export function createPtySession(opts: {
 
   const utf8Decoder = new StringDecoder('utf8');
 
-  const child = spawn(
-    'python3',
-    [PROXY_SCRIPT, resolveClaudeBinForPty(opts.claudeBin)],
-    {
-      cwd: opts.cwd,
-      env: ptyEnv,
-      // fd 0: stdin from server → PTY  (piped)
-      // fd 1: PTY output → server      (piped)
-      // fd 2: stderr for diagnostics   (piped — we forward to onData)
-      // fd 3: resize control pipe      (pipe — server writes JSON resize cmds)
-      stdio: ['pipe', 'pipe', 'pipe', 'pipe'],
-    }
-  );
+  const { file: childFile, args: childArgs } = resolvePtyChildArgv(opts.claudeBin);
+  const child = spawn(childFile, childArgs, {
+    cwd: opts.cwd,
+    env: ptyEnv,
+    // fd 0: stdin from server → PTY  (piped)
+    // fd 1: PTY output → server      (piped)
+    // fd 2: stderr for diagnostics   (piped — we forward to onData)
+    // fd 3: resize control pipe      (pipe — server writes JSON resize cmds)
+    stdio: ['pipe', 'pipe', 'pipe', 'pipe'],
+  });
 
   const session: PtySession = {
     id,
@@ -100,6 +166,23 @@ export function createPtySession(opts: {
     onData: opts.onData,
     onExit: opts.onExit,
   };
+  sessions.set(id, session);
+
+  let finished = false;
+  const finish = (code: number | null) => {
+    if (finished) return;
+    finished = true;
+    const tail = utf8Decoder.end();
+    if (tail) opts.onData(tail);
+    sessions.delete(id);
+    opts.onExit(code);
+  };
+
+  child.on('error', (err) => {
+    const msg = err instanceof Error ? err.message : String(err);
+    opts.onData(`\r\n\x1b[31m[pty-proxy] ${msg}\x1b[0m\r\n${ptySpawnFailureHint()}\r\n`);
+    finish(127);
+  });
 
   child.stdout?.on('data', (buf: Buffer) => {
     session.lastActivity = Date.now();
@@ -115,13 +198,9 @@ export function createPtySession(opts: {
   });
 
   child.on('close', (code) => {
-    const tail = utf8Decoder.end();
-    if (tail) opts.onData(tail);
-    sessions.delete(id);
-    opts.onExit(code);
+    finish(code);
   });
 
-  sessions.set(id, session);
   return session;
 }
 

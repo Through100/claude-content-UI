@@ -87,8 +87,12 @@ export default function LogonView({ onVisible }: LogonViewProps) {
             </li>
           </ol>
           <p className="text-xs text-gray-500">
-            Right-click in the terminal for the normal browser menu (Copy / Paste). The server needs <code className="bg-gray-100 px-1 rounded">python3</code> and{' '}
-            <code className="bg-gray-100 px-1 rounded">scripts/pty-proxy.py</code>. Set <code className="bg-gray-100 px-1 rounded">CLAUDE_TERMINAL_WS=0</code> to disable the WebSocket entirely.
+            Right-click in the terminal for the normal browser menu (Copy / Paste). On <strong>macOS / Linux / WSL</strong> the server runs{' '}
+            <code className="bg-gray-100 px-1 rounded">scripts/pty-proxy.py</code> under Python 3 (set <code className="bg-gray-100 px-1 rounded">PTY_PYTHON</code> if needed).{' '}
+            On <strong>native Windows</strong> you will see a short help message instead (no POSIX <code className="bg-gray-100 px-1 rounded">termios</code>) — use WSL for a real PTY (
+            <code className="bg-gray-100 px-1 rounded">CLAUDE_PTY_WSL=1</code> in <code className="bg-gray-100 px-1 rounded">.env</code>) or disable the socket with{' '}
+            <code className="bg-gray-100 px-1 rounded">CLAUDE_TERMINAL_WS=0</code>. You still need the <code className="bg-gray-100 px-1 rounded">claude</code> CLI on{' '}
+            <code className="bg-gray-100 px-1 rounded">PATH</code> or <code className="bg-gray-100 px-1 rounded">CLAUDE_BIN</code>.
           </p>
         </div>
       </section>
