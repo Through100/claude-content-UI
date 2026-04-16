@@ -137,6 +137,34 @@ async function consumeRunStream(
 }
 
 export const apiService = {
+  /**
+   * Save a file into CLAUDE_WORKDIR/ui-uploads on the API host and return a path suitable for Target (e.g. blog analyze).
+   */
+  async uploadTargetFile(file: File): Promise<{ relativePath: string; bytesWritten: number }> {
+    const res = await fetch(`${apiBase()}/api/upload-target`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'X-Upload-Filename': encodeURIComponent(file.name || 'upload.bin')
+      },
+      body: file
+    });
+    const text = await res.text();
+    let data: { relativePath?: string; bytesWritten?: number; error?: string };
+    try {
+      data = JSON.parse(text) as typeof data;
+    } catch {
+      throw new Error(text || `Upload failed (${res.status})`);
+    }
+    if (!res.ok) {
+      throw new Error(data.error || text || `Upload failed (${res.status})`);
+    }
+    if (!data.relativePath) {
+      throw new Error('Upload response missing relativePath');
+    }
+    return { relativePath: data.relativePath, bytesWritten: data.bytesWritten ?? file.size };
+  },
+
   async runBlogCommand(
     commandKey: string,
     target: string,

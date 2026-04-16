@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
+import fsp from 'node:fs/promises';
 import {
   formatClaudeSpawnError,
   logClaudeAutoPermissionPolicy,
@@ -41,6 +42,37 @@ function claudeBin(): string {
 function workdir(): string {
   const w = process.env.CLAUDE_WORKDIR || process.cwd();
   return path.resolve(w);
+}
+
+const UI_UPLOAD_SUBDIR = 'ui-uploads';
+
+function uploadMaxBytes(): number {
+  const raw = process.env.UI_UPLOAD_MAX_BYTES;
+  if (raw === undefined || raw === '') return 32 * 1024 * 1024;
+  const n = parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < 1024 || n > 200 * 1024 * 1024) return 32 * 1024 * 1024;
+  return n;
+}
+
+/** Safe basename for uploads (no path segments). */
+function sanitizeUploadBasename(name: string): string {
+  let b = path.basename(String(name).replace(/\\/g, '/')).replace(/\0/g, '').trim();
+  if (!b || b === '.' || b === '..') return `upload-${randomUUID().slice(0, 8)}.txt`;
+  b = b.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
+  if (!b) return `upload-${randomUUID().slice(0, 8)}.txt`;
+  return b.length > 200 ? b.slice(0, 200) : b;
+}
+
+async function uniqueUploadFilename(dir: string, baseName: string): Promise<string> {
+  const ext = path.extname(baseName);
+  const stem = ext ? baseName.slice(0, -ext.length) : baseName;
+  let candidate = baseName;
+  let i = 0;
+  while (fs.existsSync(path.join(dir, candidate))) {
+    i++;
+    candidate = `${stem}-${i}${ext}`;
+  }
+  return candidate;
 }
 
 const DEFAULT_RUN_TIMEOUT_MS = 1_800_000;
@@ -261,6 +293,43 @@ const DEFAULT_MODELS = [
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
+
+/** Raw file bytes from the dashboard “Upload” button; path returned is under CLAUDE_WORKDIR. */
+app.post(
+  '/api/upload-target',
+  express.raw({ type: 'application/octet-stream', limit: uploadMaxBytes() }),
+  async (req, res) => {
+    try {
+      const buf = req.body as Buffer;
+      if (!Buffer.isBuffer(buf) || buf.length === 0) {
+        res.status(400).json({
+          error:
+            'Empty upload. Send the file as the request body with Content-Type: application/octet-stream and header X-Upload-Filename.'
+        });
+        return;
+      }
+      const rawHeader = req.get('x-upload-filename');
+      const decoded = rawHeader ? decodeURIComponent(rawHeader) : 'upload.txt';
+      const safeBase = sanitizeUploadBasename(decoded);
+      const cwd = workdir();
+      const dir = path.join(cwd, UI_UPLOAD_SUBDIR);
+      await fsp.mkdir(dir, { recursive: true });
+      const finalName = await uniqueUploadFilename(dir, safeBase);
+      const abs = path.join(dir, finalName);
+      await fsp.writeFile(abs, buf, { mode: 0o644 });
+      const relativePath = `${UI_UPLOAD_SUBDIR}/${finalName}`.replace(/\\/g, '/');
+      res.json({ relativePath, bytesWritten: buf.length });
+    } catch (e) {
+      const msg = String(e);
+      if (msg.includes('request entity too large') || /too large/i.test(msg)) {
+        res.status(413).json({ error: `Upload exceeds UI_UPLOAD_MAX_BYTES (${uploadMaxBytes()} bytes).` });
+        return;
+      }
+      console.error('[claude-seo-ui] POST /api/upload-target:', msg);
+      res.status(500).json({ error: msg });
+    }
+  }
+);
 
 app.get('/api/health', (_req, res) => {
   res.json({

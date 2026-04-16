@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Search, Play, AlertCircle, CheckCircle2 } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Search, Play, AlertCircle, CheckCircle2, Upload } from 'lucide-react';
 import { BLOG_COMMANDS } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { apiService } from '../services/api';
@@ -27,6 +27,8 @@ export default function SeoCommandForm({ onRun, onSessionChange, isLoading }: Se
   const [model, setModel] = useState('haiku');
   const [error, setError] = useState<string | null>(null);
   const [models, setModels] = useState<ModelOption[]>(FALLBACK_MODELS);
+  const [uploadBusy, setUploadBusy] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const selectedCommand = BLOG_COMMANDS.find(c => c.key === selectedKey)!;
 
@@ -64,12 +66,37 @@ export default function SeoCommandForm({ onRun, onSessionChange, isLoading }: Se
     onRun(selectedKey, target, model);
   };
 
+  const onPickFile = () => {
+    if (isLoading || uploadBusy) return;
+    fileInputRef.current?.click();
+  };
+
+  const onFileChosen = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setUploadBusy(true);
+    setError(null);
+    try {
+      const { relativePath } = await apiService.uploadTargetFile(file);
+      setTarget(relativePath);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg || 'Upload failed');
+    } finally {
+      setUploadBusy(false);
+    }
+  };
+
   return (
     <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
       <div className="p-6 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold text-gray-900">Command Runner</h2>
-          <p className="text-sm text-gray-500">Select a blog skill command and optional target (topic, file path, or directory).</p>
+          <p className="text-sm text-gray-500">
+            Select a blog skill command and optional target (topic, path under <code className="text-xs bg-gray-100 px-1 rounded">CLAUDE_WORKDIR</code>, or{' '}
+            <strong>Upload</strong> to save into <code className="text-xs bg-gray-100 px-1 rounded">ui-uploads/</code> and fill Target).
+          </p>
         </div>
         
         <div className="flex items-center gap-3">
@@ -116,15 +143,39 @@ export default function SeoCommandForm({ onRun, onSessionChange, isLoading }: Se
               Target{selectedCommand.targetOptional ? ' (optional)' : ''}
             </label>
             <input
-              type="text"
-              value={target}
-              onChange={(e) => setTarget(e.target.value)}
-              disabled={isLoading}
-              placeholder={selectedCommand.placeholder}
-              className={`w-full px-4 py-2.5 bg-white border rounded-xl text-sm focus:ring-2 transition-all outline-none disabled:bg-gray-50 disabled:text-gray-400 ${
-                error ? 'border-red-300 focus:ring-red-500' : 'border-gray-300 focus:ring-indigo-500'
-              }`}
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              accept=".md,.markdown,.txt,.json,.html,.htm,.csv,.xml,.yaml,.yml,.rst,text/*"
+              aria-hidden
+              tabIndex={-1}
+              onChange={onFileChosen}
             />
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={target}
+                onChange={(e) => setTarget(e.target.value)}
+                disabled={isLoading || uploadBusy}
+                placeholder={selectedCommand.placeholder}
+                className={`min-w-0 flex-1 px-4 py-2.5 bg-white border rounded-xl text-sm focus:ring-2 transition-all outline-none disabled:bg-gray-50 disabled:text-gray-400 ${
+                  error ? 'border-red-300 focus:ring-red-500' : 'border-gray-300 focus:ring-indigo-500'
+                }`}
+              />
+              <button
+                type="button"
+                onClick={onPickFile}
+                disabled={isLoading || uploadBusy}
+                title="Upload a file to the server workspace (ui-uploads) and set Target to that path"
+                className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-sm font-semibold border border-gray-300 bg-white text-gray-800 hover:bg-gray-50 hover:border-gray-400 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Upload size={16} aria-hidden />
+                {uploadBusy ? '…' : 'Upload'}
+              </button>
+            </div>
+            <p className="text-[11px] text-gray-500 leading-snug">
+              Upload stores a copy next to your project on the API host so skills like <em>analyze</em> / <em>rewrite</em> can read it by path.
+            </p>
           </div>
         </div>
 

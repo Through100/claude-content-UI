@@ -8,6 +8,8 @@ coverage/
 !.env.example
 /data/
 tmp
+# Browser uploads from Command Runner (when CLAUDE_WORKDIR is this repo)
+ui-uploads/
 
 # Container image build kept out of the repo (local / CI only)
 Dockerfile
