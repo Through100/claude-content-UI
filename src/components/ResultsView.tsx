@@ -27,6 +27,7 @@ import { GENERIC_FINDING_RECOMMENDATION, parseSeoOutput } from '../../shared/par
 import { inferClaudeActivity } from '../../shared/inferClaudeActivity';
 import { downloadElementAsPdf } from '../utils/downloadReportPdf';
 import { usePtyBridge } from '../context/PtyBridgeContext';
+import PtyMessengerThread from './PtyMessengerThread';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
@@ -828,7 +829,11 @@ function PrettyReport({
               Run finished in {(stats.durationMs / 1000).toFixed(1)}s — narrative below matches captured stdout/stderr.
             </p>
           ) : null}
-          <AuditMarkdownSections source={rawOutput} hidePageScoreCardNarrative={hidePageScoreCardNarrative} />
+          {narrativeSource === 'pty' ? (
+            <PtyMessengerThread transcript={rawOutput} />
+          ) : (
+            <AuditMarkdownSections source={rawOutput} hidePageScoreCardNarrative={hidePageScoreCardNarrative} />
+          )}
         </div>
       ) : (
         <p className="text-sm text-gray-500 px-1">No stdout/stderr was captured for this run.</p>
