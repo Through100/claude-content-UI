@@ -140,7 +140,8 @@ function mergeAdjacentText(parts: InlinePart[]): InlinePart[] {
 
 function flushParagraph(buf: string[], blocks: LinearBlock[]) {
   if (buf.length === 0) return;
-  const text = buf.join(' ').trim();
+  /** Join with newlines so terminal / PTY captures keep line breaks (space join collapsed multi-line prose). */
+  const text = buf.join('\n').trim();
   buf.length = 0;
   if (!text) return;
   blocks.push({ type: 'paragraph', parts: parseInline(text) });

@@ -267,7 +267,7 @@ function SectionChildView({ child, index }: { child: SectionChild; index: number
       );
     case 'paragraph':
       return (
-        <p key={k} className="text-[15px] leading-7 text-gray-800">
+        <p key={k} className="text-[15px] leading-7 text-gray-800 whitespace-pre-wrap break-words">
           {renderInlineParts(child.parts, `${k}-p`)}
         </p>
       );

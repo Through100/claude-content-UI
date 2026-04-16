@@ -723,18 +723,6 @@ function PrettyOutputView({
     return <div className="space-y-3">{ptySection}</div>;
   }
 
-  return (
-    <div className="space-y-10">
-      <section className="space-y-3">
-        <p className="text-[11px] font-bold uppercase tracking-wider text-gray-500 px-1">
-          Dashboard run (<code className="text-[10px] font-mono bg-gray-100 px-1 rounded">claude -p</code>)
-        </p>
-        <DashboardHeadlessChat threadKey={chatThreadKey} refreshKey={chatHistoryTick} />
-      </section>
-      <section className="space-y-3">
-        <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-900 px-1">Live PTY (Logon)</p>
-        {ptySection}
-      </section>
-    </div>
-  );
+  /** Headless turn is prepended into Live PTY Pretty above; no separate Conversation card here. */
+  return <div className="space-y-3">{ptySection}</div>;
 }
