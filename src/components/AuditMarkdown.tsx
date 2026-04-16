@@ -1,5 +1,6 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { segmentTerminalNarrative } from '../../shared/segmentTerminalNarrative';
 
 function stripAnsi(s: string): string {
   return s.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '');
@@ -109,6 +110,35 @@ function TerminalPreBody({ text }: { text: string }) {
   );
 }
 
+/** Prompts, questions, and separators — readable sans-serif, line breaks preserved. */
+function ProseNarrativeBlock({ text }: { text: string }) {
+  const b = text.trim();
+  if (!b) return null;
+  return (
+    <div className="rounded-xl border border-slate-200/90 bg-slate-50/50 px-4 py-3 md:px-5 md:py-4">
+      <div className="text-[13px] md:text-sm text-gray-800 leading-relaxed whitespace-pre-wrap font-sans">
+        {b}
+      </div>
+    </div>
+  );
+}
+
+/** Mix readable prose with monospace code/diff blocks. */
+function TerminalMixedNarrativeBody({ text }: { text: string }) {
+  const segments = segmentTerminalNarrative(text);
+  return (
+    <div className="space-y-5">
+      {segments.map((seg, idx) =>
+        seg.type === 'code' ? (
+          <TerminalPreBody key={idx} text={seg.body} />
+        ) : (
+          <ProseNarrativeBlock key={idx} text={seg.body} />
+        )
+      )}
+    </div>
+  );
+}
+
 /** One scrollable markdown block (legacy / no H2 structure). */
 export function AuditMarkdown({ source, title = 'Full report' }: { source: string; title?: string }) {
   const text = stripAnsi(source ?? '').trim();
@@ -121,12 +151,12 @@ export function AuditMarkdown({ source, title = 'Full report' }: { source: strin
         <h3 className="text-sm font-bold uppercase tracking-widest text-gray-500">{title}</h3>
         <p className="text-xs text-gray-500 mt-1">
           {terminalLayout
-            ? 'Terminal-style layout preserved (monospace, line breaks). Markdown headings apply when the output is structured as a report.'
+            ? 'Prompts and questions use normal text; file previews and diffs use monospace code blocks (same content as Raw).'
             : 'Same content as Raw Output, formatted for reading (headings, tables, and code blocks).'}
         </p>
       </div>
       <div className="px-6 py-6 md:px-8 md:py-8 overflow-x-auto custom-scrollbar">
-        {terminalLayout ? <TerminalPreBody text={text} /> : <MarkdownBody markdown={text} />}
+        {terminalLayout ? <TerminalMixedNarrativeBody text={text} /> : <MarkdownBody markdown={text} />}
       </div>
     </section>
   );
@@ -175,7 +205,7 @@ export function AuditMarkdownSections({
           </header>
           <div className="px-5 py-5 md:px-7 md:py-6 overflow-x-auto custom-scrollbar">
             {isLikelyTerminalOrCodeDump(sec.body) ? (
-              <TerminalPreBody text={stripAnsi(sec.body).trim()} />
+              <TerminalMixedNarrativeBody text={stripAnsi(sec.body).trim()} />
             ) : (
               <MarkdownBody markdown={sec.body} />
             )}
