@@ -77,6 +77,7 @@ export default function ClaudeTerminalView({
     if (!containerRef.current) return;
 
     const term = new Terminal({
+      scrollback: 50_000,
       theme: {
         background: '#030712',
         foreground: '#f3f4f6',
@@ -136,7 +137,7 @@ export default function ClaudeTerminalView({
 
       if (msg.type === 'created') {
         sessionCreated = true;
-        ptyBridgeRef.current.clearLiveTranscript();
+        ptyBridgeRef.current.clearLiveTranscript({ resetPrettySession: true });
         ptyBridgeRef.current.setSessionConnected(true);
         if (initialInput && ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: 'input', data: initialInput }));
