@@ -78,21 +78,21 @@ export default function ResultsView({
     return () => window.clearTimeout(id);
   }, [chatThreadKey, ptyMergedArchive]);
 
-  /** Live PTY: merged archive (xterm line 0 + scrollback loss repair + per-topic localStorage). */
-  const narrativeRaw = useMemo(() => {
-    const hasFreshPtyCapture =
-      ptyDisplayPlain.trim().length > 0 || ptyFullSnapshotPlain.trim().length > 0;
-    if (hasFreshPtyCapture) return ptyMergedArchive;
-    if (!result) return ptyMergedArchive.trim() ? ptyMergedArchive : '';
-    return result?.rawOutput ?? '';
-  }, [ptyDisplayPlain, ptyFullSnapshotPlain, ptyMergedArchive, result]);
+  /** Last dashboard `claude -p` capture (stdout or error summary). */
+  const hasHeadlessRunCapture =
+    Boolean(result?.rawOutput?.trim()) || Boolean(result?.error?.trim());
+  const hasPtyCapture =
+    ptyDisplayPlain.trim().length > 0 || ptyFullSnapshotPlain.trim().length > 0;
 
-  const isLivePtyNarrative = useMemo(() => {
-    const live = ptyDisplayPlain.trim().length > 0 || ptyFullSnapshotPlain.trim().length > 0;
-    if (live) return true;
-    if (!result && ptyMergedArchive.trim().length > 0) return true;
-    return false;
-  }, [ptyDisplayPlain, ptyFullSnapshotPlain, result, ptyMergedArchive]);
+  /**
+   * Pretty layout: never hide a finished headless run just because Logon has PTY text — that was losing
+   * `/blog …` stdout in Pretty when the PTY splash was present.
+   */
+  const prettyMode = useMemo<'headless' | 'pty' | 'both'>(() => {
+    if (hasPtyCapture && hasHeadlessRunCapture) return 'both';
+    if (hasPtyCapture) return 'pty';
+    return 'headless';
+  }, [hasPtyCapture, hasHeadlessRunCapture]);
 
   const liveActivity = useMemo(() => inferClaudeActivity(liveTerminal), [liveTerminal]);
 
@@ -235,11 +235,11 @@ export default function ResultsView({
           </p>
         </div>
         <LivePtyRawMirror />
-        {narrativeRaw.trim() ? (
+        {ptyMergedArchive.trim() ? (
           <PrettyOutputView
-            key="pty-pretty-empty-run"
-            rawOutput={narrativeRaw}
-            narrativeSource="pty"
+            key={`pty-pretty-empty-run-${chatThreadKey}`}
+            prettyMode="pty"
+            ptyTranscript={ptyMergedArchive}
             chatHistoryTick={chatHistoryTick}
             chatThreadKey={chatThreadKey}
           />
@@ -304,9 +304,9 @@ export default function ResultsView({
           >
             <div ref={prettyReportRef} className="space-y-6">
               <PrettyOutputView
-                key={isLivePtyNarrative ? 'narrative-pty' : `narrative-headless-${chatThreadKey}`}
-                rawOutput={narrativeRaw}
-                narrativeSource={isLivePtyNarrative ? 'pty' : 'headless'}
+                key={`pretty-${prettyMode}-${chatThreadKey}`}
+                prettyMode={prettyMode}
+                ptyTranscript={ptyMergedArchive}
                 chatHistoryTick={chatHistoryTick}
                 chatThreadKey={chatThreadKey}
               />
@@ -450,23 +450,17 @@ function LivePtyRawMirror({ headlessStdout, headlessError }: LivePtyRawMirrorPro
         {mergeHeadless ? (
           <>
             {' '}
-            The block below the divider is the most recent dashboard <code className="text-[10px] text-gray-400">claude -p</code>{' '}
-            capture (read-only). Keystrokes in this terminal go to the interactive session only — they do not continue
-            that finished run.
+            When a dashboard <code className="text-[10px] text-gray-400">claude -p</code> run has finished, its stdout
+            is shown <strong>first</strong> (read-only); the terminal below is the live PTY only.
           </>
         ) : null}
       </p>
-      <div
-        ref={hostRef}
-        className="px-2 py-2 overflow-hidden max-h-[min(55vh,560px)] min-h-[200px]"
-        title="Focus the terminal to type. Same PTY as Logon."
-      />
       {mergeHeadless ? (
         <>
           <div
             className="flex items-center gap-2 px-3 py-2 bg-[#0a0a0a] border-t border-gray-800 text-[10px] font-mono text-gray-500 uppercase tracking-widest"
             role="separator"
-            aria-label="Headless run output follows"
+            aria-label="Headless run output"
           >
             <span className="text-gray-600 select-none" aria-hidden>
               ──
@@ -478,6 +472,11 @@ function LivePtyRawMirror({ headlessStdout, headlessError }: LivePtyRawMirrorPro
           </pre>
         </>
       ) : null}
+      <div
+        ref={hostRef}
+        className={`px-2 py-2 overflow-hidden max-h-[min(55vh,560px)] min-h-[200px] ${mergeHeadless ? 'border-t border-gray-800' : ''}`}
+        title="Focus the terminal to type. Same PTY as Logon."
+      />
     </div>
   );
 }
@@ -609,38 +608,55 @@ function PtyNarrativeLiveBadge({ rawOutput }: { rawOutput: string }) {
   );
 }
 
+type PrettyOutputMode = 'headless' | 'pty' | 'both';
+
 function PrettyOutputView({
-  rawOutput,
-  narrativeSource = 'headless',
+  prettyMode,
+  ptyTranscript,
   chatHistoryTick = 0,
   chatThreadKey
 }: {
-  rawOutput: string;
-  narrativeSource?: 'pty' | 'headless';
+  prettyMode: PrettyOutputMode;
+  ptyTranscript: string;
   chatHistoryTick?: number;
   chatThreadKey: string;
 }) {
-  if (narrativeSource === 'pty') {
-    return (
-      <div className="space-y-3">
-        {rawOutput?.trim() ? (
-          <>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-emerald-900/90 px-2 py-1.5 rounded-lg bg-emerald-50 border border-emerald-100">
-              <span>
-                Live session — same PTY as Logon / Raw. Pretty merges the full buffer (line 0) so earlier turns stay
-                even if xterm scrollback trims the top; this topic is also saved in your browser (localStorage) for
-                reloads.
-              </span>
-              <PtyNarrativeLiveBadge rawOutput={rawOutput} />
-            </div>
-            <PtyMessengerThread transcript={rawOutput} />
-          </>
-        ) : (
-          <p className="text-sm text-gray-500 px-1">No PTY output yet — open Logon or send a reply below.</p>
-        )}
-      </div>
+  const ptySection =
+    ptyTranscript?.trim().length > 0 ? (
+      <>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-emerald-900/90 px-2 py-1.5 rounded-lg bg-emerald-50 border border-emerald-100">
+          <span>
+            Live session — same PTY as Logon / Raw. Pretty merges the full buffer (line 0) so earlier turns stay even
+            if xterm scrollback trims the top; this topic is also saved in your browser (localStorage) for reloads.
+          </span>
+          <PtyNarrativeLiveBadge rawOutput={ptyTranscript} />
+        </div>
+        <PtyMessengerThread transcript={ptyTranscript} />
+      </>
+    ) : (
+      <p className="text-sm text-gray-500 px-1">No PTY output yet — open Logon or send a reply below.</p>
     );
+
+  if (prettyMode === 'headless') {
+    return <DashboardHeadlessChat threadKey={chatThreadKey} refreshKey={chatHistoryTick} />;
   }
 
-  return <DashboardHeadlessChat threadKey={chatThreadKey} refreshKey={chatHistoryTick} />;
+  if (prettyMode === 'pty') {
+    return <div className="space-y-3">{ptySection}</div>;
+  }
+
+  return (
+    <div className="space-y-10">
+      <section className="space-y-3">
+        <p className="text-[11px] font-bold uppercase tracking-wider text-gray-500 px-1">
+          Dashboard run (<code className="text-[10px] font-mono bg-gray-100 px-1 rounded">claude -p</code>)
+        </p>
+        <DashboardHeadlessChat threadKey={chatThreadKey} refreshKey={chatHistoryTick} />
+      </section>
+      <section className="space-y-3">
+        <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-900 px-1">Live PTY (Logon)</p>
+        {ptySection}
+      </section>
+    </div>
+  );
 }
