@@ -807,9 +807,10 @@ function PrettyOutputView({
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-emerald-900/90 px-2 py-1.5 rounded-lg bg-emerald-50 border border-emerald-100">
           <span>
             Live PTY (Pretty): hides the Claude Code welcome chrome and short “thinking” lines (e.g. ✻ Undulating…).
-            Full terminal stays in <strong>Logon</strong> / <strong>Raw</strong>. When a dashboard{' '}
+            Full terminal stays in <strong>Logon</strong> / <strong>Raw</strong>.             When a dashboard{' '}
             <code className="text-[10px] font-mono bg-emerald-950/10 px-1 rounded">claude -p</code> run exists for this
-            topic, its first turn is prepended here (the PTY never receives that spawn). Merged buffer + local save per
+            topic, its first turn is prepended here for reading only — the interactive Logon PTY does not see that text,
+            so replies there start without that context unless you paste or restate it. Merged buffer + local save per
             command + target as before.
           </span>
           <PtyNarrativeLiveBadge rawOutput={ptyForDisplay} />
