@@ -122,13 +122,12 @@ export default function ResultsView({
     return 'headless';
   }, [hasFreshPtyCapture, hasHeadlessRunCapture]);
 
-  const artifactPaths = useMemo(
-    () =>
-      extractArtifactPathsFromRunText(
-        [result?.rawOutput ?? '', result?.error ?? ''].filter(Boolean).join('\n\n')
-      ),
-    [result?.rawOutput, result?.error]
-  );
+  /** Headless capture plus live PTY transcript so workspace files mentioned only in interactive mode still get top download links. */
+  const artifactPaths = useMemo(() => {
+    const headless = [result?.rawOutput ?? '', result?.error ?? ''].filter(Boolean).join('\n\n');
+    const chunks = [headless, !isHistoryEmbed ? ptyMergedArchive : ''].filter((s) => s.trim().length > 0);
+    return extractArtifactPathsFromRunText(chunks.join('\n\n'));
+  }, [result?.rawOutput, result?.error, ptyMergedArchive, isHistoryEmbed]);
 
   const historyPrettySource = useMemo(() => {
     if (!isHistoryEmbed || !result) return '';
@@ -267,6 +266,28 @@ export default function ResultsView({
   if (!result) {
     return (
       <div className="space-y-8">
+        {artifactPaths.length > 0 ? (
+          <div className="flex flex-wrap items-center gap-2 justify-end rounded-xl border border-emerald-100 bg-emerald-50/50 px-4 py-3">
+            <span className="text-xs font-bold uppercase tracking-wide text-emerald-900/80 mr-auto shrink-0">
+              Workspace downloads
+            </span>
+            {artifactPaths.map((p) => {
+              const label = p.split(/[/\\]/).filter(Boolean).pop() ?? p;
+              return (
+                <a
+                  key={p}
+                  href={apiService.workspaceFileDownloadUrl(p)}
+                  download={label}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold border border-emerald-200 bg-white text-emerald-950 shadow-sm hover:bg-emerald-100 hover:border-emerald-300 transition-colors max-w-[min(100%,14rem)]"
+                  title={p}
+                >
+                  <FileCode size={16} className="text-emerald-700 shrink-0" aria-hidden />
+                  <span className="truncate">Download {label}</span>
+                </a>
+              );
+            })}
+          </div>
+        ) : null}
         <div className="bg-white rounded-2xl border border-dashed border-gray-300 p-12 flex flex-col items-center justify-center text-center">
           <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mb-4">
             <FileText className="text-gray-400" size={32} />
@@ -295,6 +316,30 @@ export default function ResultsView({
 
   return (
     <div className="space-y-6">
+      {artifactPaths.length > 0 ? (
+        <div className="flex flex-col gap-2 rounded-xl border border-emerald-200 bg-emerald-50/70 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs font-bold uppercase tracking-wide text-emerald-900 shrink-0">
+            Workspace files
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            {artifactPaths.map((p) => {
+              const label = p.split(/[/\\]/).filter(Boolean).pop() ?? p;
+              return (
+                <a
+                  key={p}
+                  href={apiService.workspaceFileDownloadUrl(p)}
+                  download={label}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold border border-emerald-200 bg-white text-emerald-950 shadow-sm hover:bg-emerald-100 hover:border-emerald-300 transition-colors max-w-[min(100%,14rem)]"
+                  title={p}
+                >
+                  <FileCode size={16} className="text-emerald-700 shrink-0" aria-hidden />
+                  <span className="truncate">Download {label}</span>
+                </a>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
       <div className="flex items-center justify-between">
         <div className="flex bg-gray-100 p-1 rounded-xl">
           <button
@@ -318,25 +363,6 @@ export default function ResultsView({
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3 flex-wrap justify-end">
-          {artifactPaths.length > 0 ? (
-            <div className="flex flex-wrap items-center gap-2 justify-end">
-              {artifactPaths.map((p) => {
-                const label = p.split(/[/\\]/).filter(Boolean).pop() ?? p;
-                return (
-                  <a
-                    key={p}
-                    href={apiService.workspaceFileDownloadUrl(p)}
-                    download={label}
-                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold border border-emerald-200 bg-emerald-50 text-emerald-950 shadow-sm hover:bg-emerald-100 hover:border-emerald-300 transition-colors max-w-[min(100%,14rem)]"
-                    title={p}
-                  >
-                    <FileCode size={16} className="text-emerald-700 shrink-0" aria-hidden />
-                    <span className="truncate">Download {label}</span>
-                  </a>
-                );
-              })}
-            </div>
-          ) : null}
           <button
             type="button"
             onClick={handlePdfClick}

@@ -20,6 +20,22 @@ export function extractArtifactPathsFromRunText(text: string): string[] {
     push(m[1]);
   }
 
+  for (const m of raw.matchAll(/\*\*([^*\n]+?\.(?:md|markdown|txt|html|htm))\*\*/gi)) {
+    push(m[1]);
+  }
+
+  for (const m of raw.matchAll(
+    /\bWrite\s*\(\s*([^)\n]+\.(?:md|markdown|txt|html|htm))\s*\)/gi
+  )) {
+    push(m[1]);
+  }
+
+  for (const m of raw.matchAll(
+    /(?:^|[\s>"'([{,;:])([A-Za-z0-9](?:[A-Za-z0-9_.-]*[A-Za-z0-9])?\.(?:md|markdown|txt|html|htm))\b/gim
+  )) {
+    push(m[1]);
+  }
+
   for (const m of raw.matchAll(
     /(?:^|[\s>:([*"'“‘])(\/(?:[A-Za-z0-9_.-]+\/)+[A-Za-z0-9_.-]+\.(?:md|markdown|txt|html|htm))(?=[\s`'",).<\]]|$)/gim
   )) {
