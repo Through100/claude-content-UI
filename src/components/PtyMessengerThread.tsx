@@ -5,7 +5,7 @@ import {
   parsePtyTranscriptToMessages,
   trimTrailingTrivialAssistantTurns
 } from '../../shared/parsePtyTranscriptToMessages';
-import PrettyOutputBody from './PrettyOutputBody';
+import PtyAssistantBody from './PtyAssistantBody';
 
 type PtyMessengerThreadProps = {
   transcript: string;
@@ -90,7 +90,7 @@ export default function PtyMessengerThread({ transcript }: PtyMessengerThreadPro
           <div className="flex justify-start">
             <div className="w-full max-w-[48rem]">
               <div className="rounded-2xl border border-gray-100 bg-white px-4 py-5 md:px-6 md:py-5 shadow-sm">
-                <PrettyOutputBody text={fallback} />
+                <PtyAssistantBody text={fallback} />
               </div>
             </div>
           </div>
@@ -115,9 +115,9 @@ export default function PtyMessengerThread({ transcript }: PtyMessengerThreadPro
         {visibleTurns.map((m) =>
           m.role === 'assistant' ? (
             <div key={m.id} className="flex justify-start w-full">
-              <div className="w-full max-w-[min(100%,40rem)] md:max-w-[48rem] pr-2 md:pr-16">
+              <div className="w-full max-w-[min(100%,44rem)] md:max-w-[56rem] pr-2 md:pr-16">
                 <div className="rounded-2xl border border-gray-100 bg-white px-4 py-5 md:px-6 md:py-5 shadow-sm">
-                  <PrettyOutputBody text={m.text} />
+                  <PtyAssistantBody text={m.text} />
                 </div>
               </div>
             </div>
