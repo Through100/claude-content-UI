@@ -11,7 +11,7 @@ import {
   Send
 } from 'lucide-react';
 import { BLOG_COMMANDS, RunResponse } from '../types';
-import { formatChatThreadKey } from '../lib/dashboardChatHistory';
+import { formatChatThreadKey, sanitizeRunOutputForChat } from '../lib/dashboardChatHistory';
 import { syncPrettyPtyTranscriptToDashboardThread } from '../lib/syncPtyTranscriptToDashboardChat';
 import { motion, AnimatePresence } from 'motion/react';
 import { inferClaudeActivity } from '../../shared/inferClaudeActivity';
@@ -34,6 +34,8 @@ interface ResultsViewProps {
   chatHistoryTick?: number;
   /** Headless Pretty conversation thread = blog command key + target (matches Command Runner). */
   chatThreadKey?: string;
+  /** Latest finished Command Runner line + thread key so Live PTY Pretty can show the `claude -p` turn (not in the xterm buffer). */
+  lastRunThreadMeta?: { threadKey: string; userSummary: string } | null;
 }
 
 function formatElapsed(startedAt: number) {
@@ -50,7 +52,8 @@ export default function ResultsView({
   loadingStartedAt,
   liveTerminal = '',
   chatHistoryTick = 0,
-  chatThreadKey = formatChatThreadKey(BLOG_COMMANDS[0].key, '')
+  chatThreadKey = formatChatThreadKey(BLOG_COMMANDS[0].key, ''),
+  lastRunThreadMeta = null
 }: ResultsViewProps) {
   const [activeTab, setActiveTab] = useState<'pretty' | 'raw'>('pretty');
   const [pdfExporting, setPdfExporting] = useState(false);
@@ -256,6 +259,7 @@ export default function ResultsView({
             ptyTranscript={ptyMergedArchive}
             chatHistoryTick={chatHistoryTick}
             chatThreadKey={chatThreadKey}
+            lastRunThreadMeta={lastRunThreadMeta}
           />
         ) : null}
         <PtyReplyPanel hasCompletedHeadlessRun={false} />
@@ -323,6 +327,8 @@ export default function ResultsView({
                 ptyTranscript={ptyMergedArchive}
                 chatHistoryTick={chatHistoryTick}
                 chatThreadKey={chatThreadKey}
+                lastRunThreadMeta={lastRunThreadMeta}
+                headlessResult={result}
               />
             </div>
           </motion.div>
@@ -628,16 +634,34 @@ function PtyNarrativeLiveBadge({ rawOutput }: { rawOutput: string }) {
 
 type PrettyOutputMode = 'headless' | 'pty' | 'both';
 
+/** Synthesize a PTY-shaped transcript so Pretty uses the same `❯` parser as Logon-only lines. */
+function prependDashboardRunAsPtyPlain(userSummary: string, assistantRaw: string, ptyTail: string): string {
+  const u = userSummary.replace(/\r\n/g, '\n').trim();
+  const a = assistantRaw.replace(/\r\n/g, '\n').trim();
+  const headParts: string[] = [];
+  if (u) headParts.push(`❯ ${u}`);
+  if (a) headParts.push(a);
+  const head = headParts.join('\n\n');
+  const tail = ptyTail.replace(/\r\n/g, '\n').trim();
+  if (!head) return tail;
+  if (!tail) return head;
+  return `${head}\n\n${tail}`;
+}
+
 function PrettyOutputView({
   prettyMode,
   ptyTranscript,
   chatHistoryTick = 0,
-  chatThreadKey
+  chatThreadKey,
+  lastRunThreadMeta = null,
+  headlessResult = null
 }: {
   prettyMode: PrettyOutputMode;
   ptyTranscript: string;
   chatHistoryTick?: number;
   chatThreadKey: string;
+  lastRunThreadMeta?: { threadKey: string; userSummary: string } | null;
+  headlessResult?: RunResponse | null;
 }) {
   /** Splash + spinner lines hidden here only; Logon / Raw stay full-fidelity. */
   const ptyForPretty = useMemo(() => {
@@ -645,6 +669,23 @@ function PrettyOutputView({
     if (!s.trim() && ptyTranscript.trim()) return ptyTranscript;
     return s;
   }, [ptyTranscript]);
+
+  /** Command Runner output is not in the Logon xterm; prepend it here when both panes are shown for this topic. */
+  const ptyForDisplay = useMemo(() => {
+    if (
+      prettyMode !== 'both' ||
+      !headlessResult ||
+      !lastRunThreadMeta ||
+      lastRunThreadMeta.threadKey !== chatThreadKey
+    ) {
+      return ptyForPretty;
+    }
+    const cleaned = sanitizeRunOutputForChat(headlessResult.rawOutput ?? '').trim();
+    const err = headlessResult.error?.trim();
+    const assistant = cleaned || (err ? `Error: ${err}` : '') || '(no output captured)';
+    if (!assistant.trim() && !lastRunThreadMeta.userSummary.trim()) return ptyForPretty;
+    return prependDashboardRunAsPtyPlain(lastRunThreadMeta.userSummary, assistant, ptyForPretty);
+  }, [prettyMode, headlessResult, lastRunThreadMeta, chatThreadKey, ptyForPretty]);
 
   useEffect(() => {
     if (prettyMode === 'headless') return;
@@ -656,17 +697,19 @@ function PrettyOutputView({
   }, [prettyMode, chatThreadKey, ptyForPretty, ptyTranscript]);
 
   const ptySection =
-    ptyTranscript?.trim().length > 0 ? (
+    ptyForDisplay.trim().length > 0 ? (
       <>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-emerald-900/90 px-2 py-1.5 rounded-lg bg-emerald-50 border border-emerald-100">
           <span>
             Live PTY (Pretty): hides the Claude Code welcome chrome and short “thinking” lines (e.g. ✻ Undulating…).
-            Full terminal stays in <strong>Logon</strong> / <strong>Raw</strong>. Merged buffer + local save per
+            Full terminal stays in <strong>Logon</strong> / <strong>Raw</strong>. When a dashboard{' '}
+            <code className="text-[10px] font-mono bg-emerald-950/10 px-1 rounded">claude -p</code> run exists for this
+            topic, its first turn is prepended here (the PTY never receives that spawn). Merged buffer + local save per
             command + target as before.
           </span>
-          <PtyNarrativeLiveBadge rawOutput={ptyForPretty} />
+          <PtyNarrativeLiveBadge rawOutput={ptyForDisplay} />
         </div>
-        <PtyMessengerThread transcript={ptyForPretty} />
+        <PtyMessengerThread transcript={ptyForDisplay} />
       </>
     ) : (
       <p className="text-sm text-gray-500 px-1">No PTY output yet — open Logon or send a reply below.</p>

@@ -92,10 +92,16 @@ export default function App() {
   const [liveTerminal, setLiveTerminal] = useState('');
   const [chatHistoryTick, setChatHistoryTick] = useState(0);
   const [chatThreadKey, setChatThreadKey] = useState(() => formatChatThreadKey(BLOG_COMMANDS[0].key, ''));
+  /** Lets Live PTY Pretty prepend the latest dashboard run for the same command + target (PTY buffer never sees `claude -p`). */
+  const [lastRunThreadMeta, setLastRunThreadMeta] = useState<{
+    threadKey: string;
+    userSummary: string;
+  } | null>(null);
 
   const onRunnerSessionChange = useCallback((commandKey: string, target: string) => {
     setChatThreadKey(formatChatThreadKey(commandKey, target));
     setResult(null);
+    setLastRunThreadMeta(null);
   }, []);
 
   useEffect(() => {
@@ -109,16 +115,19 @@ export default function App() {
     setRunStartedAt(Date.now());
     setLiveTerminal('');
     setError(null);
+    setLastRunThreadMeta(null);
     try {
       const response = await apiService.runBlogCommand(commandKey, target, model, (_ch, text) => {
         setLiveTerminal(prev => prev + text);
       });
       setResult(response);
       const userLine = formatRunUserSummary(commandKey, target, model);
+      const tk = formatChatThreadKey(commandKey, target);
+      setLastRunThreadMeta({ threadKey: tk, userSummary: userLine });
       const out = response.rawOutput?.trim() ?? '';
       const err = response.error?.trim() ?? '';
       const assistant = out || (err ? `Error: ${err}` : '') || '(no output captured)';
-      appendDashboardChatTurn(userLine, assistant, formatChatThreadKey(commandKey, target));
+      appendDashboardChatTurn(userLine, assistant, tk);
       setChatHistoryTick((n) => n + 1);
       if (!response.success && response.error) {
         setError(response.error);
@@ -210,6 +219,7 @@ export default function App() {
               liveTerminal={liveTerminal}
               chatHistoryTick={chatHistoryTick}
               chatThreadKey={chatThreadKey}
+              lastRunThreadMeta={lastRunThreadMeta}
             />
             </div>
           </motion.div>
