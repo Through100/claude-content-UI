@@ -11,9 +11,17 @@ export function isPtyAssistantNoiseLine(line: string): boolean {
   if (/^\s*❯\s*$/.test(l)) return true;
   // Spinners: ✻, middle dot ·, bullet *, or bare “Catapulting…” style status.
   if (
-    /^\s*[✻·*•⎿]?\s*(?:Undulating|Thinking|Bouncing|Pulsing|Compacting|Scribbling|Catapulting|Warping|Drizzling|Twirling)[·….\s]*(?:\([^)]*\))?\s*$/i.test(
+    /^\s*[✻·*•⎿]?\s*(?:Undulating|Thinking|Bouncing|Pulsing|Compacting|Scribbling|Catapulting|Warping|Drizzling|Twirling|Cerebrating|Percolating|Simmering|Ruminating|Marinating|Brooding|Festooning|Moonwalking)[·….\s]*(?:\([^)]*\))?\s*$/i.test(
       l
     )
+  ) {
+    return true;
+  }
+  // Claude Code invents new one-word “* Foobaring…” status lines often; keep tight to avoid real bullets.
+  if (
+    l.length < 140 &&
+    /^\s*[·*•✻⎿]\s*[A-Za-z]{4,26}ing\b(?:[·….]\s*)*(?:\([^)]*\))?\s*$/i.test(l) &&
+    !/\s(and|or|the|for|with|your|you|from|that|this)\s/i.test(l)
   ) {
     return true;
   }
@@ -27,6 +35,11 @@ export function isPtyAssistantNoiseLine(line: string): boolean {
   }
   if (/^\s*✻\s/.test(l) && l.length < 160) return true;
   if (/\(thought for \d+s?\)/i.test(l) && l.length < 140) return true;
+  // e.g. "> Thinking a bit longer... still working on it..."
+  if (/^\s*>\s*Thinking\b/i.test(l) && l.length < 220) return true;
+  // Claude Code terminal widget hints (not model prose).
+  if (/^\s*(?:⎿\s*)?L\s*Tip:/i.test(l)) return true;
+  if (l.length < 240 && /\bDid you know\b/i.test(l) && /\bterminal\b/i.test(l)) return true;
   return false;
 }
 

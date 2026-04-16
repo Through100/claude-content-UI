@@ -407,8 +407,10 @@ export function buildPrettyDocument(linear: LinearBlock[]): DocumentBlock[] {
   const doc: DocumentBlock[] = [];
   let i = 0;
 
-  while (i < linear.length && linear[i].type === 'title') {
-    doc.push({ type: 'title', text: linear[i].text });
+  while (i < linear.length) {
+    const head = linear[i];
+    if (head.type !== 'title') break;
+    doc.push({ type: 'title', text: head.text });
     i++;
   }
 
@@ -458,8 +460,10 @@ export function buildPrettyDocument(linear: LinearBlock[]): DocumentBlock[] {
       continue;
     }
     const orphan: Exclude<LinearBlock, 'title'>[] = [];
-    while (i < linear.length && !(linear[i].type === 'heading' && linear[i].level === 2)) {
-      const x = linear[i];
+    while (i < linear.length) {
+      const hi = linear[i];
+      if (hi.type === 'heading' && hi.level === 2) break;
+      const x = hi;
       if (x.type === 'title') break;
       orphan.push(x as Exclude<LinearBlock, 'title'>);
       i++;

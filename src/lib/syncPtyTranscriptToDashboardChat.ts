@@ -1,4 +1,5 @@
 import {
+  isPtyAssistantNoiseLine,
   isTrivialAssistantTail,
   parsePtyTranscriptToMessages,
   stripEphemeralAssistantEdges,
@@ -24,6 +25,14 @@ function normalizeTurnText(s: string): string {
 
 function turnSignature(user: string, assistant: string): string {
   return `${normalizeTurnText(user)}::${normalizeTurnText(assistant)}`;
+}
+
+/** True when every non-empty line is PTY chrome (covers verbs we have not listed yet). */
+function assistantIsEphemeralNoiseOnly(raw: string): boolean {
+  const t = stripEphemeralAssistantEdges(sanitizeRunOutputForChat(raw)).trim();
+  if (!t) return true;
+  const lines = t.split('\n').map((l) => l.trim()).filter((l) => l.length > 0);
+  return lines.length > 0 && lines.every((l) => isPtyAssistantNoiseLine(l));
 }
 
 function ptyTurnsToUserAssistantPairs(turns: ChatTurn[]): { user: string; assistant: string }[] {
@@ -55,6 +64,44 @@ function ptyTurnsToUserAssistantPairs(turns: ChatTurn[]): { user: string; assist
 }
 
 /** Drop the first PTY pair when it is clearly the initial `/blog …` exchange already mirrored by the headless turn. */
+/**
+ * True when every non-empty line is PTY noise, spinners, or inline terminal tips
+ * (so a duplicate `❯ same` block in the transcript is almost certainly TUI echo, not a second send).
+ */
+function assistantIsPtyChromeOrTipsOnly(raw: string): boolean {
+  const t = stripEphemeralAssistantEdges(sanitizeRunOutputForChat(raw)).trim();
+  if (!t) return true;
+  const lines = t
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+  return lines.length > 0 && lines.every((l) => isPtyAssistantNoiseLine(l));
+}
+
+/**
+ * Transcript repaints sometimes emit back-to-back `❯ user` with only spinners/tips between.
+ * Merge those into one pair so the dashboard does not show duplicate user bubbles.
+ */
+function mergeConsecutivePtyEchoUserTurns(
+  pairs: { user: string; assistant: string }[]
+): { user: string; assistant: string }[] {
+  const out: { user: string; assistant: string }[] = [];
+  for (const p of pairs) {
+    const nu = normalizeTurnText(p.user);
+    const last = out[out.length - 1];
+    if (!last || !nu || nu !== normalizeTurnText(last.user)) {
+      out.push({ ...p });
+      continue;
+    }
+    if (assistantIsPtyChromeOrTipsOnly(last.assistant)) {
+      last.assistant = [last.assistant, p.assistant].filter(Boolean).join('\n\n');
+      continue;
+    }
+    out.push({ ...p });
+  }
+  return out;
+}
+
 function skipHeadlessDuplicateLeadingPair(
   pairs: { user: string; assistant: string }[],
   headlessTurn: DashboardChatTurn | undefined
@@ -98,6 +145,7 @@ export function syncPrettyPtyTranscriptToDashboardThread(threadKey: string, sani
 
   const headlessFirst = existingAll[0];
   pairs = skipHeadlessDuplicateLeadingPair(pairs, headlessFirst);
+  pairs = mergeConsecutivePtyEchoUserTurns(pairs);
 
   /** Same transcript often contains back-to-back identical ❯ blocks after merge/scrollback. */
   const collapsedPairs: { user: string; assistant: string }[] = [];
@@ -131,6 +179,10 @@ export function syncPrettyPtyTranscriptToDashboardThread(threadKey: string, sani
 
     const last = ex[ex.length - 1];
     if (last && last.user === u) {
+      if (assistantIsEphemeralNoiseOnly(last.assistant)) {
+        updateLastDashboardAssistant(threadKey, body);
+        continue;
+      }
       const lastRaw = last.assistant.trim();
       const la = stripEphemeralAssistantEdges(lastRaw).trim();
       const nb = body.trim();
