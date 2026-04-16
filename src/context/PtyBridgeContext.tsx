@@ -33,6 +33,12 @@ export type PtyBridgeContextValue = {
   clearLiveTranscript: () => void;
   /** Force an immediate snapshot read (e.g. session end). */
   flushLiveTranscriptNow: () => void;
+  /** Current raw PTY byte capture (for mirror xterm replay). */
+  peekPtyTranscriptBuffer: () => string;
+  /** Receive every new PTY chunk after primary xterm writes it (for Raw mirror terminal). */
+  subscribePtyMirrorWrite: (fn: (chunk: string) => void) => () => void;
+  /** Fired when the transcript buffer is cleared or the primary terminal unregisters (mirror should reset). */
+  subscribePtyMirrorReset: (fn: () => void) => () => void;
 };
 
 const PtyBridgeContext = createContext<PtyBridgeContextValue | null>(null);
@@ -47,6 +53,34 @@ export function PtyBridgeProvider({ children }: { children: React.ReactNode }) {
   const terminalRef = useRef<Terminal | null>(null);
   const serializeStartLineRef = useRef(0);
   const snapshotRafRef = useRef<number | null>(null);
+  const mirrorWriteRef = useRef(new Set<(chunk: string) => void>());
+  const mirrorResetRef = useRef(new Set<() => void>());
+
+  const peekPtyTranscriptBuffer = useCallback(() => transcriptBuf.current, []);
+
+  const subscribePtyMirrorWrite = useCallback((fn: (chunk: string) => void) => {
+    mirrorWriteRef.current.add(fn);
+    return () => {
+      mirrorWriteRef.current.delete(fn);
+    };
+  }, []);
+
+  const subscribePtyMirrorReset = useCallback((fn: () => void) => {
+    mirrorResetRef.current.add(fn);
+    return () => {
+      mirrorResetRef.current.delete(fn);
+    };
+  }, []);
+
+  const emitMirrorReset = useCallback(() => {
+    mirrorResetRef.current.forEach((f) => {
+      try {
+        f();
+      } catch {
+        /* ignore listener errors */
+      }
+    });
+  }, []);
 
   const refreshPtyScreenSnapshot = useCallback(() => {
     if (snapshotRafRef.current != null) {
@@ -78,16 +112,24 @@ export function PtyBridgeProvider({ children }: { children: React.ReactNode }) {
           snapshotRafRef.current = null;
         }
         setPtyDisplayPlain('');
+        emitMirrorReset();
       } else {
         refreshPtyScreenSnapshot();
       }
     },
-    [refreshPtyScreenSnapshot]
+    [refreshPtyScreenSnapshot, emitMirrorReset]
   );
 
   const appendTerminalOutput = useCallback((chunk: string) => {
     if (!chunk) return;
     transcriptBuf.current = (transcriptBuf.current + chunk).slice(-MAX_LIVE_TRANSCRIPT);
+    mirrorWriteRef.current.forEach((f) => {
+      try {
+        f(chunk);
+      } catch {
+        /* ignore */
+      }
+    });
   }, []);
 
   const clearLiveTranscript = useCallback(() => {
@@ -95,8 +137,9 @@ export function PtyBridgeProvider({ children }: { children: React.ReactNode }) {
     const t = terminalRef.current;
     serializeStartLineRef.current = t ? t.buffer.active.length : 0;
     setPtyDisplayPlain('');
+    emitMirrorReset();
     refreshPtyScreenSnapshot();
-  }, [refreshPtyScreenSnapshot]);
+  }, [refreshPtyScreenSnapshot, emitMirrorReset]);
 
   const flushLiveTranscriptNow = useCallback(() => {
     if (snapshotRafRef.current != null) {
@@ -139,7 +182,10 @@ export function PtyBridgeProvider({ children }: { children: React.ReactNode }) {
       registerPtyTerminal,
       refreshPtyScreenSnapshot,
       clearLiveTranscript,
-      flushLiveTranscriptNow
+      flushLiveTranscriptNow,
+      peekPtyTranscriptBuffer,
+      subscribePtyMirrorWrite,
+      subscribePtyMirrorReset
     }),
     [
       sendToPty,
@@ -151,7 +197,10 @@ export function PtyBridgeProvider({ children }: { children: React.ReactNode }) {
       registerPtyTerminal,
       refreshPtyScreenSnapshot,
       clearLiveTranscript,
-      flushLiveTranscriptNow
+      flushLiveTranscriptNow,
+      peekPtyTranscriptBuffer,
+      subscribePtyMirrorWrite,
+      subscribePtyMirrorReset
     ]
   );
 

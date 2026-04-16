@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import {
   FileText,
-  Terminal,
+  Terminal as TerminalIcon,
   Copy,
   Download,
   ChevronRight,
@@ -27,6 +27,9 @@ import { GENERIC_FINDING_RECOMMENDATION, parseSeoOutput } from '../../shared/par
 import { inferClaudeActivity } from '../../shared/inferClaudeActivity';
 import { downloadElementAsPdf } from '../utils/downloadReportPdf';
 import { usePtyBridge } from '../context/PtyBridgeContext';
+import { Terminal } from '@xterm/xterm';
+import { FitAddon } from '@xterm/addon-fit';
+import '@xterm/xterm/css/xterm.css';
 
 interface ResultsViewProps {
   result: RunResponse | null;
@@ -148,6 +151,16 @@ export default function ResultsView({ result, isLoading, loadingStartedAt, liveT
   const livePreRef = useRef<HTMLPreElement>(null);
   const prettyReportRef = useRef<HTMLDivElement>(null);
   const pdfAfterPrettySwitchRef = useRef(false);
+  const { ptyDisplayPlain } = usePtyBridge();
+
+  /** Prefer live interactive PTY text when present so Pretty stays in sync with Logon. */
+  const narrativeRaw = useMemo(() => {
+    if (ptyDisplayPlain.trim().length > 0) return ptyDisplayPlain;
+    return result?.rawOutput ?? '';
+  }, [ptyDisplayPlain, result?.rawOutput]);
+
+  const narrativeParsed = useMemo(() => parseSeoOutput(narrativeRaw), [narrativeRaw]);
+  const isLivePtyNarrative = ptyDisplayPlain.trim().length > 0;
 
   const liveActivity = useMemo(() => inferClaudeActivity(liveTerminal), [liveTerminal]);
 
@@ -201,7 +214,7 @@ export default function ResultsView({ result, isLoading, loadingStartedAt, liveT
         <div className="flex flex-col items-center space-y-4">
           <div className="relative">
             <div className="w-16 h-16 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
-            <Terminal className="absolute inset-0 m-auto text-indigo-600" size={24} />
+            <TerminalIcon className="absolute inset-0 m-auto text-indigo-600" size={24} />
           </div>
           <div className="text-center w-full max-w-xl mx-auto">
             <h3 className="text-lg font-semibold text-gray-900">Executing blog command</h3>
@@ -290,7 +303,15 @@ export default function ResultsView({ result, isLoading, loadingStartedAt, liveT
           </p>
         </div>
         <LivePtyRawMirror />
-        <LivePtyPrettySection />
+        {narrativeRaw.trim() ? (
+          <PrettyReport
+            key="pty-pretty-empty-run"
+            report={narrativeParsed}
+            stats={PLACEHOLDER_LIVE_STATS}
+            rawOutput={narrativeRaw}
+            narrativeSource="pty"
+          />
+        ) : null}
         <PtyReplyPanel />
       </div>
     );
@@ -315,7 +336,7 @@ export default function ResultsView({ result, isLoading, loadingStartedAt, liveT
               activeTab === 'raw' ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
             }`}
           >
-            <Terminal size={16} />
+            <TerminalIcon size={16} />
             Raw Output
           </button>
         </div>
@@ -351,12 +372,13 @@ export default function ResultsView({ result, isLoading, loadingStartedAt, liveT
           >
             <div ref={prettyReportRef} className="space-y-6">
               <PrettyReport
-                report={result.parsedReport ?? EMPTY_PARSED_REPORT}
+                key={isLivePtyNarrative ? 'narrative-pty' : 'narrative-headless'}
+                report={narrativeParsed}
                 stats={result.stats}
-                rawOutput={result.rawOutput}
+                rawOutput={narrativeRaw}
+                narrativeSource={isLivePtyNarrative ? 'pty' : 'headless'}
               />
             </div>
-            <LivePtyPrettySection />
           </motion.div>
         ) : (
           <motion.div
@@ -397,14 +419,76 @@ const PLACEHOLDER_LIVE_STATS: RunStats = {
 };
 
 function LivePtyRawMirror() {
-  const { ptyDisplayPlain, clearLiveTranscript } = usePtyBridge();
-  const preRef = useRef<HTMLPreElement>(null);
+  const {
+    clearLiveTranscript,
+    sendToPty,
+    peekPtyTranscriptBuffer,
+    subscribePtyMirrorWrite,
+    subscribePtyMirrorReset
+  } = usePtyBridge();
+  const hostRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const el = preRef.current;
-    if (!el) return;
-    el.scrollTop = el.scrollHeight;
-  }, [ptyDisplayPlain]);
+    const host = hostRef.current;
+    if (!host) return;
+
+    const term = new Terminal({
+      theme: {
+        background: '#030712',
+        foreground: '#f3f4f6',
+        cursor: '#4ade80',
+        selectionBackground: '#374151'
+      },
+      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace',
+      fontSize: 13,
+      lineHeight: 1.4,
+      cursorBlink: true,
+      allowProposedApi: true
+    });
+    const fitAddon = new FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(host);
+    fitAddon.fit();
+
+    const replay = () => {
+      const buf = peekPtyTranscriptBuffer();
+      if (buf) term.write(buf);
+    };
+    replay();
+
+    const unsubWrite = subscribePtyMirrorWrite((chunk) => {
+      term.write(chunk);
+    });
+    const unsubReset = subscribePtyMirrorReset(() => {
+      term.reset();
+      fitAddon.fit();
+      replay();
+    });
+
+    term.onData((data) => {
+      sendToPty(data);
+    });
+
+    const ro = new ResizeObserver(() => {
+      fitAddon.fit();
+    });
+    ro.observe(host);
+
+    const focusTerm = () => {
+      term.focus();
+      term.textarea?.focus();
+    };
+    host.addEventListener('pointerdown', focusTerm, true);
+
+    return () => {
+      host.removeEventListener('pointerdown', focusTerm, true);
+      ro.disconnect();
+      unsubWrite();
+      unsubReset();
+      term.dispose();
+      host.innerHTML = '';
+    };
+  }, [peekPtyTranscriptBuffer, sendToPty, subscribePtyMirrorReset, subscribePtyMirrorWrite]);
 
   return (
     <div className="rounded-2xl border border-gray-800 bg-[#0c0c0c] shadow-inner overflow-hidden">
@@ -416,7 +500,7 @@ function LivePtyRawMirror() {
             <div className="w-3 h-3 rounded-full bg-[#27c93f]" />
           </div>
           <span className="text-[10px] font-mono text-gray-400 uppercase tracking-widest truncate">
-            Interactive PTY (same buffer as Logon)
+            Interactive PTY (same session as Logon)
           </span>
         </div>
         <button
@@ -428,50 +512,14 @@ function LivePtyRawMirror() {
         </button>
       </div>
       <p className="text-[11px] text-gray-500 px-4 py-2 bg-[#111] border-b border-gray-800 leading-relaxed">
-        Plain text from the same xterm session as the Logon page (no separate pipe). Colors and cursor motion match
-        Logon; only styling differs. Use <strong>From here only</strong> to hide earlier lines in this dashboard view
-        without clearing the real terminal.
+        xterm.js fed from the same WebSocket PTY as Logon — type here or on Logon. <strong>From here only</strong>{' '}
+        resets this panel and Pretty/Rich text from new output onward; it does not clear the Logon terminal scrollback.
       </p>
-      <pre
-        ref={preRef}
-        className="p-4 md:p-6 text-xs md:text-sm font-mono text-gray-200 overflow-auto max-h-[min(55vh,560px)] min-h-[160px] leading-relaxed whitespace-pre-wrap break-words"
-      >
-        {ptyDisplayPlain.trim()
-          ? ptyDisplayPlain
-          : '(Waiting for PTY output — use Logon, or send a reply below.)'}
-      </pre>
-    </div>
-  );
-}
-
-function LivePtyPrettySection() {
-  const { ptyDisplayPlain } = usePtyBridge();
-  const forLiveView = ptyDisplayPlain;
-  const liveParsed = useMemo(() => parseSeoOutput(forLiveView), [forLiveView]);
-  const scorecard = hasParsedScorecard(liveParsed);
-
-  if (!forLiveView.trim()) return null;
-
-  return (
-    <div className="space-y-4 pt-4 border-t border-gray-200">
-      <div className="flex items-center gap-2">
-        <Terminal size={16} className="text-indigo-600 shrink-0" aria-hidden />
-        <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wider">Live PTY — latest</h3>
-      </div>
-      <p className="text-xs text-gray-500 leading-relaxed">
-        Same plain text as <strong>Raw Output</strong> (live xterm buffer). Scorecard layout only when the output
-        matches an audit; otherwise plain text (no fake “audit” narrative).
-      </p>
-      {scorecard ? (
-        <PrettyReport report={liveParsed} stats={PLACEHOLDER_LIVE_STATS} rawOutput={forLiveView} />
-      ) : (
-        <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-          <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Assistant output</p>
-          <pre className="text-sm text-gray-800 whitespace-pre-wrap break-words font-mono leading-relaxed max-h-[min(60vh,640px)] overflow-auto">
-            {forLiveView}
-          </pre>
-        </div>
-      )}
+      <div
+        ref={hostRef}
+        className="px-2 py-2 overflow-hidden max-h-[min(55vh,560px)] min-h-[200px]"
+        title="Focus the terminal to type. Same PTY as Logon."
+      />
     </div>
   );
 }
@@ -508,9 +556,9 @@ function PtyReplyPanel() {
       </h4>
       <p className="text-xs text-indigo-900/85 leading-relaxed">
         Sends keystrokes to the <strong>same</strong> persistent PTY as Logon (not to the finished{' '}
-        <code className="bg-white/70 px-1 rounded text-[11px]">claude -p</code> run). <strong>Raw</strong> and{' '}
-        <strong>Pretty</strong> read the same xterm buffer as Logon (plain text here); open <strong>Logon</strong> for
-        full-color rendering.
+        <code className="bg-white/70 px-1 rounded text-[11px]">claude -p</code> run). <strong>Raw</strong> is a second
+        xterm on the same PTY stream; <strong>Pretty</strong> follows that live text when the PTY has output. Open{' '}
+        <strong>Logon</strong> if you prefer the primary terminal layout.
       </p>
       <textarea
         value={text}
@@ -558,7 +606,17 @@ function issuesBySeverityOrLegacy(report: ParsedReport): IssuesBySeverity {
   return report.summary.issuesBySeverity ?? { ...ZERO_ISSUES };
 }
 
-function PrettyReport({ report, stats, rawOutput }: { report: ParsedReport; stats: RunStats; rawOutput: string }) {
+function PrettyReport({
+  report,
+  stats,
+  rawOutput,
+  narrativeSource = 'headless'
+}: {
+  report: ParsedReport;
+  stats: RunStats;
+  rawOutput: string;
+  narrativeSource?: 'pty' | 'headless';
+}) {
   const scorecard = hasParsedScorecard(report);
   const bySev = issuesBySeverityOrLegacy(report);
   const findingTotal =
@@ -719,7 +777,12 @@ function PrettyReport({ report, stats, rawOutput }: { report: ParsedReport; stat
 
       {rawOutput?.trim() ? (
         <div className="space-y-2">
-          {showAuditNarrativeCaption ? (
+          {narrativeSource === 'pty' ? (
+            <p className="text-xs text-emerald-900/90 px-2 py-1.5 rounded-lg bg-emerald-50 border border-emerald-100">
+              Live interactive PTY — narrative below tracks the same Claude Code session as Logon and Raw, and updates
+              as new output arrives.
+            </p>
+          ) : showAuditNarrativeCaption ? (
             <p className="text-xs text-gray-400 px-1">
               Run finished in {(stats.durationMs / 1000).toFixed(1)}s — narrative below matches captured stdout/stderr.
             </p>

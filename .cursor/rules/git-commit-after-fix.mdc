@@ -3,7 +3,9 @@ description: Automatically commit and push after completed work unless the user 
 alwaysApply: true
 ---
 
-# Git: commit and push automatically
+# Git: commit and push automatically (every session)
+
+This project expects the agent to finish the git workflow without being asked each time.
 
 Unless the user explicitly says **not** to commit/push for **this** task (or says to stop doing this in general):
 
