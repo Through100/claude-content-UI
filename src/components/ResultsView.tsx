@@ -573,8 +573,11 @@ function PtyReplyPanel({ hasCompletedHeadlessRun = false }: { hasCompletedHeadle
 function PtyNarrativeLiveBadge({ rawOutput }: { rawOutput: string }) {
   const [receiving, setReceiving] = useState(false);
   const timerRef = useRef<number | null>(null);
+  const prevOutRef = useRef<string | null>(null);
 
   useEffect(() => {
+    if (rawOutput === prevOutRef.current) return;
+    prevOutRef.current = rawOutput;
     setReceiving(true);
     if (timerRef.current != null) {
       window.clearTimeout(timerRef.current);
@@ -582,7 +585,7 @@ function PtyNarrativeLiveBadge({ rawOutput }: { rawOutput: string }) {
     timerRef.current = window.setTimeout(() => {
       timerRef.current = null;
       setReceiving(false);
-    }, 1000);
+    }, 900);
     return () => {
       if (timerRef.current != null) {
         window.clearTimeout(timerRef.current);

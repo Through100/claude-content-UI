@@ -66,6 +66,8 @@ function tryLabelFromStreamJson(line: string): string | null {
 
   if (rec.type === 'tool_use' || rec.subtype === 'tool_use') return 'Using a tool';
   if (rec.type === 'tool_result') return 'Tool finished';
+  if (rec.type === 'message_stop') return 'Run output complete';
+  if (rec.type === 'result') return 'Run output complete';
 
   return null;
 }
@@ -110,6 +112,15 @@ export function inferClaudeActivity(buffer: string): RunActivityPhase | null {
 
   const scan = lines.slice(-50);
 
+  /** Claude Code often prints this right before the `claude -p` process exits — avoid showing endless “Working”. */
+  const tailJoined = scan.slice(-24).join('\n');
+  if (/\|\s*cost:\s*\$/m.test(tailJoined)) {
+    return {
+      label: 'Run output complete',
+      detail: 'Cost line seen — Claude should be finishing; waiting for the API to confirm the run.'
+    };
+  }
+
   for (let i = scan.length - 1; i >= 0; i--) {
     const line = scan[i];
 
@@ -127,6 +138,6 @@ export function inferClaudeActivity(buffer: string): RunActivityPhase | null {
 
   return {
     label: 'Working',
-    detail: 'Claude is still running — new chunks will appear in the terminal below.',
+    detail: 'Still streaming — if this lasts many minutes after output stopped, check the API / proxy or set VITE_RUN_STREAM=0 for buffered /api/run.'
   };
 }

@@ -418,10 +418,20 @@ app.post('/api/run/stream', async (req, res) => {
   res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders?.();
 
+  const flushSse = () => {
+    try {
+      const flush = (res as express.Response & { flush?: () => void }).flush;
+      if (typeof flush === 'function') flush.call(res);
+    } catch {
+      /* ignore — not all Node / proxy stacks expose flush */
+    }
+  };
+
   const sse = (obj: unknown) => {
     if (res.writableEnded) return;
     try {
       res.write(`data: ${JSON.stringify(obj)}\n\n`);
+      flushSse();
     } catch {
       /* client gone */
     }
