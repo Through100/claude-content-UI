@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { mergePtyPlainArchive } from '../../shared/mergePtyPlainArchive';
+import { loadPtyPrettyArchive, savePtyPrettyArchive } from '../lib/ptyPrettyArchiveStorage';
 import {
   FileText,
   Terminal as TerminalIcon,
@@ -53,15 +55,44 @@ export default function ResultsView({
   const livePreRef = useRef<HTMLPreElement>(null);
   const prettyReportRef = useRef<HTMLDivElement>(null);
   const pdfAfterPrettySwitchRef = useRef(false);
-  const { ptyDisplayPlain } = usePtyBridge();
+  const { ptyDisplayPlain, ptyFullSnapshotPlain, ptySessionGeneration } = usePtyBridge();
 
-  /** Prefer live interactive PTY text when present so Pretty stays in sync with Logon. */
+  const [ptyMergedArchive, setPtyMergedArchive] = useState(() => loadPtyPrettyArchive(chatThreadKey));
+  const ptyArchiveAnchorRef = useRef('');
+
+  useEffect(() => {
+    const nextAnchor = `${chatThreadKey}|${ptySessionGeneration}`;
+    const keyOrSessionChanged = nextAnchor !== ptyArchiveAnchorRef.current;
+    ptyArchiveAnchorRef.current = nextAnchor;
+    setPtyMergedArchive((prev) => {
+      const base = keyOrSessionChanged ? loadPtyPrettyArchive(chatThreadKey) : prev;
+      return mergePtyPlainArchive(base, ptyFullSnapshotPlain);
+    });
+  }, [chatThreadKey, ptySessionGeneration, ptyFullSnapshotPlain]);
+
+  useEffect(() => {
+    if (!ptyMergedArchive.trim()) return;
+    const id = window.setTimeout(() => {
+      savePtyPrettyArchive(chatThreadKey, ptyMergedArchive);
+    }, 500);
+    return () => window.clearTimeout(id);
+  }, [chatThreadKey, ptyMergedArchive]);
+
+  /** Live PTY: merged archive (xterm line 0 + scrollback loss repair + per-topic localStorage). */
   const narrativeRaw = useMemo(() => {
-    if (ptyDisplayPlain.trim().length > 0) return ptyDisplayPlain;
+    const hasFreshPtyCapture =
+      ptyDisplayPlain.trim().length > 0 || ptyFullSnapshotPlain.trim().length > 0;
+    if (hasFreshPtyCapture) return ptyMergedArchive;
+    if (!result) return ptyMergedArchive.trim() ? ptyMergedArchive : '';
     return result?.rawOutput ?? '';
-  }, [ptyDisplayPlain, result?.rawOutput]);
+  }, [ptyDisplayPlain, ptyFullSnapshotPlain, ptyMergedArchive, result]);
 
-  const isLivePtyNarrative = ptyDisplayPlain.trim().length > 0;
+  const isLivePtyNarrative = useMemo(() => {
+    const live = ptyDisplayPlain.trim().length > 0 || ptyFullSnapshotPlain.trim().length > 0;
+    if (live) return true;
+    if (!result && ptyMergedArchive.trim().length > 0) return true;
+    return false;
+  }, [ptyDisplayPlain, ptyFullSnapshotPlain, result, ptyMergedArchive]);
 
   const liveActivity = useMemo(() => inferClaudeActivity(liveTerminal), [liveTerminal]);
 
@@ -330,6 +361,7 @@ function LivePtyRawMirror({ headlessStdout, headlessError }: LivePtyRawMirrorPro
     if (!host) return;
 
     const term = new Terminal({
+      scrollback: 50_000,
       theme: {
         background: '#030712',
         foreground: '#f3f4f6',
@@ -412,7 +444,9 @@ function LivePtyRawMirror({ headlessStdout, headlessError }: LivePtyRawMirrorPro
       </div>
       <p className="text-[11px] text-gray-500 px-4 py-2 bg-[#111] border-b border-gray-800 leading-relaxed">
         xterm.js fed from the same WebSocket PTY as Logon — type here or on Logon. <strong>From here only</strong>{' '}
-        resets this panel and Pretty Output from new output onward; it does not clear the Logon terminal scrollback.
+        resets this panel’s slice and the Raw byte buffer from new output onward; it does not clear Logon. Pretty
+        Output keeps a merged transcript (and your browser’s saved copy for this command + target) so earlier turns
+        usually remain scrollable.
         {mergeHeadless ? (
           <>
             {' '}
@@ -465,7 +499,9 @@ function PtyReplyPanel({ hasCompletedHeadlessRun = false }: { hasCompletedHeadle
       return;
     }
     sendToPty(appendEnter ? `${t}\r` : t);
-    setHint('Sent to the same PTY as Logon. Pretty Output and Raw View keep full scrollback — scroll up to see earlier turns.');
+    setHint(
+      'Sent to the same PTY as Logon. Pretty Output merges full-terminal text (and saves this topic in the browser) so earlier turns stay available — scroll up in Pretty or use Raw / Logon.'
+    );
     setText('');
   };
 
@@ -590,7 +626,11 @@ function PrettyOutputView({
         {rawOutput?.trim() ? (
           <>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-emerald-900/90 px-2 py-1.5 rounded-lg bg-emerald-50 border border-emerald-100">
-              <span>Live session — same PTY as Logon / Raw; scroll up for earlier turns.</span>
+              <span>
+                Live session — same PTY as Logon / Raw. Pretty merges the full buffer (line 0) so earlier turns stay
+                even if xterm scrollback trims the top; this topic is also saved in your browser (localStorage) for
+                reloads.
+              </span>
               <PtyNarrativeLiveBadge rawOutput={rawOutput} />
             </div>
             <PtyMessengerThread transcript={rawOutput} />

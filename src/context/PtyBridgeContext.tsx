@@ -30,10 +30,16 @@ export type PtyBridgeContextValue = {
   /** Re-read the registered xterm buffer into `ptyDisplayPlain` (call after `term.write`). */
   refreshPtyScreenSnapshot: () => void;
   /**
+   * Full xterm buffer from line 0 (for Pretty archive merge). Same refresh cadence as `ptyDisplayPlain`.
+   */
+  ptyFullSnapshotPlain: string;
+  /** Bumped when a new PTY WebSocket session starts so the UI can reset per-topic baselines. */
+  ptySessionGeneration: number;
+  /**
    * Dashboard-only: show only xterm lines from the current buffer row onward (same PTY; Logon unchanged).
    * Used by Raw “From here only”. Do not call before every keystroke — that would hide prior Pretty scrollback.
    */
-  clearLiveTranscript: () => void;
+  clearLiveTranscript: (opts?: { resetPrettySession?: boolean }) => void;
   /** Force an immediate snapshot read (e.g. session end). */
   flushLiveTranscriptNow: () => void;
   /** Current raw PTY byte capture (for mirror xterm replay). */
@@ -52,6 +58,8 @@ export function PtyBridgeProvider({ children }: { children: React.ReactNode }) {
   const transportRef = useRef<(text: string) => void>(noopTransport);
   const [ptySessionReady, setPtySessionReady] = useState(false);
   const [ptyDisplayPlain, setPtyDisplayPlain] = useState('');
+  const [ptyFullSnapshotPlain, setPtyFullSnapshotPlain] = useState('');
+  const [ptySessionGeneration, setPtySessionGeneration] = useState(0);
   const transcriptBuf = useRef('');
   const terminalRef = useRef<Terminal | null>(null);
   const serializeStartLineRef = useRef(0);
@@ -94,6 +102,7 @@ export function PtyBridgeProvider({ children }: { children: React.ReactNode }) {
       const t = terminalRef.current;
       if (!t) {
         setPtyDisplayPlain('');
+        setPtyFullSnapshotPlain('');
         return;
       }
       const n = t.buffer.active.length;
@@ -101,7 +110,9 @@ export function PtyBridgeProvider({ children }: { children: React.ReactNode }) {
         serializeStartLineRef.current = 0;
       }
       const plain = serializeXtermBufferPlain(t, serializeStartLineRef.current);
+      const full = serializeXtermBufferPlain(t, 0);
       setPtyDisplayPlain(plain);
+      setPtyFullSnapshotPlain(full);
     });
   }, []);
 
@@ -115,6 +126,7 @@ export function PtyBridgeProvider({ children }: { children: React.ReactNode }) {
           snapshotRafRef.current = null;
         }
         setPtyDisplayPlain('');
+        setPtyFullSnapshotPlain('');
         emitMirrorReset();
       } else {
         refreshPtyScreenSnapshot();
@@ -135,12 +147,16 @@ export function PtyBridgeProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const clearLiveTranscript = useCallback(() => {
+  const clearLiveTranscript = useCallback((opts?: { resetPrettySession?: boolean }) => {
     transcriptBuf.current = '';
     const t = terminalRef.current;
     serializeStartLineRef.current = t ? t.buffer.active.length : 0;
     setPtyDisplayPlain('');
+    setPtyFullSnapshotPlain('');
     emitMirrorReset();
+    if (opts?.resetPrettySession) {
+      setPtySessionGeneration((g) => g + 1);
+    }
     refreshPtyScreenSnapshot();
   }, [refreshPtyScreenSnapshot, emitMirrorReset]);
 
@@ -152,6 +168,7 @@ export function PtyBridgeProvider({ children }: { children: React.ReactNode }) {
     const t = terminalRef.current;
     if (!t) {
       setPtyDisplayPlain('');
+      setPtyFullSnapshotPlain('');
       return;
     }
     const n = t.buffer.active.length;
@@ -159,6 +176,7 @@ export function PtyBridgeProvider({ children }: { children: React.ReactNode }) {
       serializeStartLineRef.current = 0;
     }
     setPtyDisplayPlain(serializeXtermBufferPlain(t, serializeStartLineRef.current));
+    setPtyFullSnapshotPlain(serializeXtermBufferPlain(t, 0));
   }, []);
 
   const registerTransport = useCallback((fn: (text: string) => void) => {
@@ -180,6 +198,8 @@ export function PtyBridgeProvider({ children }: { children: React.ReactNode }) {
       registerTransport,
       setSessionConnected,
       ptyDisplayPlain,
+      ptyFullSnapshotPlain,
+      ptySessionGeneration,
       liveTranscript: ptyDisplayPlain,
       appendTerminalOutput,
       registerPtyTerminal,
@@ -196,6 +216,8 @@ export function PtyBridgeProvider({ children }: { children: React.ReactNode }) {
       registerTransport,
       setSessionConnected,
       ptyDisplayPlain,
+      ptyFullSnapshotPlain,
+      ptySessionGeneration,
       appendTerminalOutput,
       registerPtyTerminal,
       refreshPtyScreenSnapshot,
