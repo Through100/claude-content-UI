@@ -1,6 +1,5 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import remarkBreaks from 'remark-breaks';
 
 function stripAnsi(s: string): string {
   return s.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '');
@@ -90,12 +89,11 @@ const PROSE_CLASSES = [
   'prose-li:marker:text-indigo-400',
 ].join(' ');
 
-function MarkdownBody({ markdown, softLineBreaks = false }: { markdown: string; softLineBreaks?: boolean }) {
+function MarkdownBody({ markdown }: { markdown: string }) {
   const src = markdown.trim() || '\u00a0';
-  const plugins = softLineBreaks ? [remarkGfm, remarkBreaks] : [remarkGfm];
   return (
     <div className={`${PROSE_CLASSES} max-w-none`}>
-      <ReactMarkdown remarkPlugins={plugins}>{src}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{src}</ReactMarkdown>
     </div>
   );
 }
@@ -128,7 +126,7 @@ export function AuditMarkdown({ source, title = 'Full report' }: { source: strin
         </p>
       </div>
       <div className="px-6 py-6 md:px-8 md:py-8 overflow-x-auto custom-scrollbar">
-        {terminalLayout ? <TerminalPreBody text={text} /> : <MarkdownBody markdown={text} softLineBreaks />}
+        {terminalLayout ? <TerminalPreBody text={text} /> : <MarkdownBody markdown={text} />}
       </div>
     </section>
   );
