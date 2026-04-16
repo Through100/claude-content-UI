@@ -27,10 +27,25 @@ import { runBashAccountStatus, runBashCost, runBashUsage } from './usageShellPro
 import {
   BLOG_COMMANDS,
   buildBlogPrompt,
+  isLikelyHttpUrl,
   type BlogCommand,
   type HistoryItem,
   type RunResponse
 } from '../src/types';
+
+/** Nudge headless runs when the target is a URL so the model does not ask for interactive WebFetch / paste (no TTY). */
+function appendHeadlessHttpUrlHint(prompt: string, targetTrimmed: string): string {
+  if (!isLikelyHttpUrl(targetTrimmed)) return prompt;
+  if (['1', 'true', 'yes'].includes((process.env.CLAUDE_DISABLE_HTTP_TARGET_HINT ?? '').toLowerCase())) {
+    return prompt;
+  }
+  return (
+    `${prompt}\n\n` +
+    '[Dashboard headless: this run is non-interactive; the server already applies normal headless tool permission settings. ' +
+    'The target is an HTTP(S) URL — fetch it with WebFetch (or your environment’s URL/read tool) as soon as you need the content. ' +
+    'Do not ask the operator to grant WebFetch, choose numbered menu options, or paste the full article unless a fetch actually failed or the site blocked access.]'
+  );
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
@@ -228,7 +243,7 @@ function parseRunRequest(body: unknown): ParsedRunRequest {
   if (!cmd.targetOptional && !targetTrimmed) {
     return { ok: false as const, error: 'Target is required for this command' };
   }
-  const prompt = buildBlogPrompt(cmd, targetTrimmed);
+  const prompt = appendHeadlessHttpUrlHint(buildBlogPrompt(cmd, targetTrimmed), targetTrimmed);
   const rawModel = b.model;
   const model =
     typeof rawModel === 'string' && rawModel.trim() !== '' ? rawModel.trim() : 'haiku';
