@@ -657,6 +657,25 @@ function PrettyReport({
   rawOutput: string;
   narrativeSource?: 'pty' | 'headless';
 }) {
+  /** Live PTY Pretty tab = ChatGPT-style thread only (no scorecard / ## / audit sections). */
+  if (narrativeSource === 'pty') {
+    return (
+      <div className="space-y-3">
+        {rawOutput?.trim() ? (
+          <>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-emerald-900/90 px-2 py-1.5 rounded-lg bg-emerald-50 border border-emerald-100">
+              <span>Live session — same PTY as Logon / Raw; scroll up for earlier turns.</span>
+              <PtyNarrativeLiveBadge rawOutput={rawOutput} />
+            </div>
+            <PtyMessengerThread transcript={rawOutput} />
+          </>
+        ) : (
+          <p className="text-sm text-gray-500 px-1">No PTY output yet — open Logon or send a reply below.</p>
+        )}
+      </div>
+    );
+  }
+
   const scorecard = hasParsedScorecard(report);
   const bySev = issuesBySeverityOrLegacy(report);
   const findingTotal =
@@ -817,23 +836,12 @@ function PrettyReport({
 
       {rawOutput?.trim() ? (
         <div className="space-y-2">
-          {narrativeSource === 'pty' ? (
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-emerald-900/90 px-2 py-1.5 rounded-lg bg-emerald-50 border border-emerald-100">
-              <span>
-                Live interactive PTY — narrative matches Logon / Raw and refreshes as output arrives.
-              </span>
-              <PtyNarrativeLiveBadge rawOutput={rawOutput} />
-            </div>
-          ) : showAuditNarrativeCaption ? (
+          {showAuditNarrativeCaption ? (
             <p className="text-xs text-gray-400 px-1">
               Run finished in {(stats.durationMs / 1000).toFixed(1)}s — narrative below matches captured stdout/stderr.
             </p>
           ) : null}
-          {narrativeSource === 'pty' ? (
-            <PtyMessengerThread transcript={rawOutput} />
-          ) : (
-            <AuditMarkdownSections source={rawOutput} hidePageScoreCardNarrative={hidePageScoreCardNarrative} />
-          )}
+          <AuditMarkdownSections source={rawOutput} hidePageScoreCardNarrative={hidePageScoreCardNarrative} />
         </div>
       ) : (
         <p className="text-sm text-gray-500 px-1">No stdout/stderr was captured for this run.</p>
