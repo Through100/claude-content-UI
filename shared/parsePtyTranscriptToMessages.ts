@@ -16,6 +16,7 @@ export function isTrivialAssistantTail(text: string): boolean {
   const noise = (l: string) =>
     /^[─\-_\s|]+$/.test(l) ||
     /^\|\s*cost:/i.test(l) ||
+    /^\s*✻\s*(?:Undulating|Thinking|Bouncing|Pulsing|Compacting|Scribbling)[·….\s]*$/i.test(l) ||
     /^✻\s/.test(l) ||
     /^Reading\b/i.test(l) ||
     /^Listed\b/i.test(l) ||

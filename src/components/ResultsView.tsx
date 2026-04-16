@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { mergePtyPlainArchive } from '../../shared/mergePtyPlainArchive';
+import { sanitizePtyPrettyTranscript } from '../../shared/sanitizePtyPrettyTranscript';
 import { loadPtyPrettyArchive, savePtyPrettyArchive } from '../lib/ptyPrettyArchiveStorage';
 import {
   FileText,
@@ -620,18 +621,25 @@ function PrettyOutputView({
   chatHistoryTick?: number;
   chatThreadKey: string;
 }) {
+  /** Splash + spinner lines hidden here only; Logon / Raw stay full-fidelity. */
+  const ptyForPretty = useMemo(() => {
+    const s = sanitizePtyPrettyTranscript(ptyTranscript);
+    if (!s.trim() && ptyTranscript.trim()) return ptyTranscript;
+    return s;
+  }, [ptyTranscript]);
+
   const ptySection =
     ptyTranscript?.trim().length > 0 ? (
       <>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-emerald-900/90 px-2 py-1.5 rounded-lg bg-emerald-50 border border-emerald-100">
           <span>
-            Live session — same PTY as Logon / Raw. This view merges the full terminal buffer (line 0) into a growing
-            transcript for this command + target, saved in your browser, so earlier lines stay visible when the prompt
-            scrolls or xterm trims scrollback.
+            Live PTY (Pretty): hides the Claude Code welcome chrome and short “thinking” lines (e.g. ✻ Undulating…).
+            Full terminal stays in <strong>Logon</strong> / <strong>Raw</strong>. Merged buffer + local save per
+            command + target as before.
           </span>
-          <PtyNarrativeLiveBadge rawOutput={ptyTranscript} />
+          <PtyNarrativeLiveBadge rawOutput={ptyForPretty} />
         </div>
-        <PtyMessengerThread transcript={ptyTranscript} />
+        <PtyMessengerThread transcript={ptyForPretty} />
       </>
     ) : (
       <p className="text-sm text-gray-500 px-1">No PTY output yet — open Logon or send a reply below.</p>
