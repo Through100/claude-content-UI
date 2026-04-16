@@ -208,7 +208,7 @@ export default function ResultsView({
             chatHistoryTick={chatHistoryTick}
           />
         ) : null}
-        <PtyReplyPanel />
+        <PtyReplyPanel hasCompletedHeadlessRun={false} />
       </div>
     );
   }
@@ -291,7 +291,7 @@ export default function ResultsView({
         )}
       </AnimatePresence>
 
-      <PtyReplyPanel />
+      <PtyReplyPanel hasCompletedHeadlessRun />
     </div>
   );
 }
@@ -411,7 +411,8 @@ function LivePtyRawMirror({ headlessStdout, headlessError }: LivePtyRawMirrorPro
           <>
             {' '}
             The block below the divider is the most recent dashboard <code className="text-[10px] text-gray-400">claude -p</code>{' '}
-            stdout (not streamed into the PTY).
+            capture (read-only). Keystrokes in this terminal go to the interactive session only — they do not continue
+            that finished run.
           </>
         ) : null}
       </p>
@@ -441,7 +442,7 @@ function LivePtyRawMirror({ headlessStdout, headlessError }: LivePtyRawMirrorPro
   );
 }
 
-function PtyReplyPanel() {
+function PtyReplyPanel({ hasCompletedHeadlessRun = false }: { hasCompletedHeadlessRun?: boolean }) {
   const { sendToPty, ptySessionReady, clearLiveTranscript } = usePtyBridge();
   const [text, setText] = useState('');
   const [appendEnter, setAppendEnter] = useState(true);
@@ -471,11 +472,22 @@ function PtyReplyPanel() {
         <Send size={16} className="text-indigo-600 shrink-0" aria-hidden />
         Reply via interactive PTY
       </h4>
+      {hasCompletedHeadlessRun ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-2.5 text-xs text-amber-950 leading-relaxed">
+          <strong className="font-semibold">Headless vs PTY:</strong> Command Runner uses{' '}
+          <code className="text-[10px] bg-white/80 px-1 rounded">claude -p</code> — a new process per run that exits
+          when done, so there is <strong>no open stdin</strong> to send <code className="text-[10px]">1</code> back to
+          that transcript. The box below is a <strong>different</strong> interactive Claude (same WebSocket PTY as
+          Logon). To answer a multiple-choice prompt you saw in Pretty Output, either paste the full question plus your
+          choice into <strong>Logon</strong> / this PTY if you started that work there, or run the command again with
+          your selection in the target field.
+        </div>
+      ) : null}
       <p className="text-xs text-indigo-900/85 leading-relaxed">
-        Sends keystrokes to the <strong>same</strong> persistent PTY as Logon (not to the finished{' '}
-        <code className="bg-white/70 px-1 rounded text-[11px]">claude -p</code> run). <strong>Raw View</strong> is a
-        second xterm on the same PTY stream; <strong>Pretty Output</strong> follows that live text when the PTY has
-        output. Open <strong>Logon</strong> if you prefer the primary terminal layout.
+        Sends keystrokes to the <strong>same</strong> persistent PTY as Logon — not to any finished{' '}
+        <code className="bg-white/70 px-1 rounded text-[11px]">claude -p</code> run. <strong>Raw View</strong> mirrors
+        that PTY; <strong>Pretty Output</strong> can show the live PTY transcript when it has focus. Open{' '}
+        <strong>Logon</strong> for the primary terminal layout.
       </p>
       <textarea
         value={text}

@@ -16,7 +16,7 @@ export type LinearBlock =
   | { type: 'title'; text: string }
   | { type: 'heading'; level: 2 | 3; text: string }
   | { type: 'paragraph'; parts: InlinePart[] }
-  | { type: 'list'; items: InlinePart[][] }
+  | { type: 'list'; ordered?: boolean; items: InlinePart[][] }
   | { type: 'divider' }
   | { type: 'callout'; body: string }
   | { type: 'code'; lang?: string; body: string }
@@ -40,6 +40,8 @@ const H2 = /^##\s+(.*)$/;
 const H1_TITLE = /^#\s+(.*)$/;
 const BQUOTE = /^>\s?(.*)$/;
 const BULLET = /^(\s*)[-*]\s+(.*)$/;
+/** Numbered list: `1. **Item**` (must have content after the dot). */
+const ORDERED = /^(\s*)(\d+)\.\s+(.+)$/;
 const METADATA = /^\s*\*\*([^*]+)\*\*\s*:\s*(.*)$/;
 const FAQ_Q = /^\s*\*\*(Q\d+|Q)\s*:\s*(.+?)\*\*\s*(.*)$/;
 const FAQ_Q2 = /^\s*\*\*(Q\d+|Q)\s*:\s*\*\*\s*(.+)$/;
@@ -298,7 +300,22 @@ export function parseLinearBlocks(source: string): LinearBlock[] {
         items.push(parseInline((mm[2] ?? '').trim()));
         i++;
       }
-      blocks.push({ type: 'list', items });
+      blocks.push({ type: 'list', ordered: false, items });
+      continue;
+    }
+
+    const om = trimmed.match(ORDERED);
+    if (om) {
+      flush();
+      const items: InlinePart[][] = [];
+      while (i < lines.length) {
+        const L = lines[i];
+        const mm = L.trim().match(ORDERED);
+        if (!mm) break;
+        items.push(parseInline((mm[3] ?? '').trim()));
+        i++;
+      }
+      blocks.push({ type: 'list', ordered: true, items });
       continue;
     }
 

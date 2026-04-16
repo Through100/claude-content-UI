@@ -195,11 +195,22 @@ function CodeFenceBlock({ lang, body }: { lang?: string; body: string }) {
   );
 }
 
-function ListBlock({ items }: { items: InlinePart[][] }) {
+function ListBlock({ items, ordered }: { items: InlinePart[][]; ordered?: boolean }) {
+  if (ordered) {
+    return (
+      <ol className="list-decimal pl-6 space-y-2 text-[15px] leading-7 text-gray-800 marker:font-medium marker:text-gray-600">
+        {items.map((item, j) => (
+          <li key={j} className="pl-1">
+            {renderInlineParts(item, `oli-${j}`)}
+          </li>
+        ))}
+      </ol>
+    );
+  }
   return (
     <ul className="list-disc pl-5 space-y-1.5 text-[15px] leading-7 text-gray-800 marker:text-gray-400">
       {items.map((item, j) => (
-        <li key={j}>{renderInlineParts(item, `li-${j}`)}</li>
+        <li key={j}>{renderInlineParts(item, `uli-${j}`)}</li>
       ))}
     </ul>
   );
@@ -261,7 +272,7 @@ function SectionChildView({ child, index }: { child: SectionChild; index: number
         </p>
       );
     case 'list':
-      return <ListBlock key={k} items={child.items} />;
+      return <ListBlock key={k} items={child.items} ordered={child.ordered} />;
     case 'divider':
       return <hr key={k} className="my-4 border-0 border-t border-gray-200" />;
     case 'callout':

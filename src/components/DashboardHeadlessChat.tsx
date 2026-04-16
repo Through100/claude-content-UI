@@ -60,8 +60,10 @@ export default function DashboardHeadlessChat({ refreshKey }: Props) {
         <div>
           <h3 className="text-sm font-bold uppercase tracking-widest text-gray-500">Conversation</h3>
           <p className="text-xs text-gray-500 mt-0.5">
-            Each run is one exchange (your command on the right, Claude on the left). Pretty Output parses headings,
-            lists, and tags into one continuous layout.
+            Each run is one exchange (your command on the right, Claude on the left). Runs use{' '}
+            <code className="text-[10px] bg-gray-100 px-1 rounded">claude -p</code> (one-shot); replies like{' '}
+            <code className="text-[10px] bg-gray-100 px-1 rounded">1</code> go to the <strong>Logon / PTY</strong>{' '}
+            session below, not back into this finished output.
           </p>
         </div>
         <button
