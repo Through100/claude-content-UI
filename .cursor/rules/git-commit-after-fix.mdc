@@ -11,6 +11,7 @@ Unless the user explicitly says **not** to commit/push for **this** task (or say
 
 1. **Do not wait** for the user to type "commit and push" — when a fix, feature, doc update, or any requested change is **done** and the working tree has changes, **commit** with a clear message (what changed and why, in full sentences).
 2. **Push** to `origin` on the current branch (typically `main`) in the same turn when possible.
+3. If the user says only **commit** (or **ship** / **save to git**), interpret that as **commit and push** unless they say **no push** or **local only**.
 
 Run `npm run lint` (or the project’s usual check) before committing when the change touches code. If lint fails, fix first — do not push broken checks.
 
