@@ -13,6 +13,19 @@ import {
   type DashboardChatTurn
 } from './dashboardChatHistory';
 
+/** Stable compare so tiny whitespace / ZWSP differences do not bypass dedupe. */
+function normalizeTurnText(s: string): string {
+  return s
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '')
+    .replace(/[\u00a0\u200b\ufeff]/g, '')
+    .trim();
+}
+
+function turnSignature(user: string, assistant: string): string {
+  return `${normalizeTurnText(user)}::${normalizeTurnText(assistant)}`;
+}
+
 function ptyTurnsToUserAssistantPairs(turns: ChatTurn[]): { user: string; assistant: string }[] {
   const out: { user: string; assistant: string }[] = [];
   let i = 0;
@@ -86,6 +99,22 @@ export function syncPrettyPtyTranscriptToDashboardThread(threadKey: string, sani
   const headlessFirst = existingAll[0];
   pairs = skipHeadlessDuplicateLeadingPair(pairs, headlessFirst);
 
+  /** Same transcript often contains back-to-back identical ❯ blocks after merge/scrollback. */
+  const collapsedPairs: { user: string; assistant: string }[] = [];
+  let prevSig = '';
+  for (const p of pairs) {
+    const u0 = p.user.trim();
+    const b0 = stripEphemeralAssistantEdges(sanitizeRunOutputForChat(p.assistant));
+    if (!u0 || !b0.trim() || isTrivialAssistantTail(b0)) continue;
+    const sig0 = turnSignature(u0, b0);
+    if (sig0 === prevSig) continue;
+    prevSig = sig0;
+    collapsedPairs.push(p);
+  }
+  pairs = collapsedPairs;
+
+  const seenThisPass = new Set<string>();
+
   for (const p of pairs) {
     const u = p.user.trim();
     let body = sanitizeRunOutputForChat(p.assistant);
@@ -93,8 +122,12 @@ export function syncPrettyPtyTranscriptToDashboardThread(threadKey: string, sani
     if (!u) continue;
     if (!body.trim() || isTrivialAssistantTail(body)) continue;
 
+    const sig = turnSignature(u, body);
+    if (seenThisPass.has(sig)) continue;
+    seenThisPass.add(sig);
+
     const ex = loadDashboardChatHistory(threadKey);
-    if (ex.some((t) => t.user === u && t.assistant === body)) continue;
+    if (ex.some((t) => turnSignature(t.user, t.assistant) === sig)) continue;
 
     const last = ex[ex.length - 1];
     if (last && last.user === u) {

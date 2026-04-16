@@ -55,7 +55,7 @@ export function stripClaudeCodeSplashPrefix(text: string): string {
 /** Inline / full-line Claude Code “working” indicators (Undulating, Thinking, …). */
 export function stripPtyEphemeralLines(text: string): string {
   const spinner =
-    /(?:Undulating|Thinking|Bouncing|Pulsing|Compacting|Scribbling|Catapulting|Warping)/i;
+    /(?:Undulating|Thinking|Bouncing|Pulsing|Compacting|Scribbling|Catapulting|Warping|Drizzling|Twirling)/i;
   return text
     .split('\n')
     .map((line) => {
@@ -63,7 +63,7 @@ export function stripPtyEphemeralLines(text: string): string {
       if (!spinner.test(line)) return line;
       if (/✻/.test(line)) {
         let s = line.replace(
-          /\s*✻\s*(?:Undulating|Thinking|Bouncing|Pulsing|Compacting|Scribbling|Catapulting|Warping)[·….\s]*/gi,
+          /\s*✻\s*(?:Undulating|Thinking|Bouncing|Pulsing|Compacting|Scribbling|Catapulting|Warping|Drizzling|Twirling)[·….\s]*/gi,
           ''
         );
         s = s.replace(/^\s*⎿\s+/g, '').trimEnd();

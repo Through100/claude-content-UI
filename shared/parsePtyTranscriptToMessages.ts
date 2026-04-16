@@ -11,9 +11,17 @@ export function isPtyAssistantNoiseLine(line: string): boolean {
   if (/^\s*❯\s*$/.test(l)) return true;
   // Spinners: ✻, middle dot ·, bullet *, or bare “Catapulting…” style status.
   if (
-    /^\s*[✻·*⎿]?\s*(?:Undulating|Thinking|Bouncing|Pulsing|Compacting|Scribbling|Catapulting|Warping)[·….\s]*(?:\([^)]*\))?\s*$/i.test(
+    /^\s*[✻·*•⎿]?\s*(?:Undulating|Thinking|Bouncing|Pulsing|Compacting|Scribbling|Catapulting|Warping|Drizzling|Twirling)[·….\s]*(?:\([^)]*\))?\s*$/i.test(
       l
     )
+  ) {
+    return true;
+  }
+  // e.g. "* Drizzling… (17s · ↑ 635 tokens)" — usage footer on one line.
+  if (
+    /^\s*[·*•✻⎿]\s*\w+ing\b/i.test(l) &&
+    /\b\d+\s*tokens?\b/i.test(l) &&
+    (/\(\s*\d+s/i.test(l) || /↑\s*\d+/.test(l))
   ) {
     return true;
   }
