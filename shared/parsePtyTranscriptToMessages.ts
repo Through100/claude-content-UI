@@ -2,6 +2,46 @@ import { normalizeTeletypeLines, stripAnsi } from './stripAnsi';
 
 export type ChatTurn = { role: 'user' | 'assistant'; text: string; id: string };
 
+/** Footer / status-only assistant chunks (not a real reply yet / trailing UI noise). */
+export function isTrivialAssistantTail(text: string): boolean {
+  const t = text.replace(/\r/g, '').trim();
+  if (!t) return true;
+  const letters = (t.match(/[A-Za-z]/g) ?? []).length;
+  if (letters >= 6) return false;
+  const lines = t
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+  if (lines.length === 0) return true;
+  const noise = (l: string) =>
+    /^[─\-_\s|]+$/.test(l) ||
+    /^\|\s*cost:/i.test(l) ||
+    /^✻\s/.test(l) ||
+    /^Reading\b/i.test(l) ||
+    /^Listed\b/i.test(l) ||
+    /^Globbed\b/i.test(l) ||
+    // Empty `❯` prompt line (no user text yet) — otherwise footer-only blocks fail `every(noise)`.
+    /^\s*❯\s*$/.test(l);
+  return lines.every(noise);
+}
+
+/** Drop trailing assistant bubbles that are only cost lines / rules / spinner hints. */
+export function trimTrailingTrivialAssistantTurns(turns: ChatTurn[]): ChatTurn[] {
+  const out = [...turns];
+  while (out.length > 0) {
+    const last = out[out.length - 1];
+    if (last.role !== 'assistant' || !isTrivialAssistantTail(last.text)) break;
+    out.pop();
+  }
+  return out;
+}
+
+/** After the user sent a ❯ line, assistant reply not captured yet (or only noise so far). */
+export function isAwaitingPtyAssistantResponse(turns: ChatTurn[]): boolean {
+  const t = trimTrailingTrivialAssistantTurns(turns);
+  return t.length > 0 && t[t.length - 1].role === 'user';
+}
+
 /**
  * Split a PTY plain-text transcript into alternating assistant / user turns.
  * User lines are detected via the Claude Code prompt (`❯` at line start).
@@ -34,7 +74,11 @@ export function parsePtyTranscriptToMessages(raw: string): ChatTurn[] {
         out.push({ role: 'user', text: userLine, id: `u-${n++}` });
       }
       if (rest) {
-        out.push({ role: 'assistant', text: rest, id: `a-${n++}` });
+        if (!userLine && isTrivialAssistantTail(rest)) {
+          /* e.g. `❯` + whitespace then only rules / cost — no real user text */
+        } else {
+          out.push({ role: 'assistant', text: rest, id: `a-${n++}` });
+        }
       }
     } else {
       out.push({ role: 'assistant', text: part.trimEnd(), id: `a-${n++}` });

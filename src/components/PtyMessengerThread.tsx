@@ -1,24 +1,51 @@
 import React, { useEffect, useMemo, useRef } from 'react';
-import { parsePtyTranscriptToMessages } from '../../shared/parsePtyTranscriptToMessages';
+import { Loader2 } from 'lucide-react';
+import {
+  isAwaitingPtyAssistantResponse,
+  parsePtyTranscriptToMessages,
+  trimTrailingTrivialAssistantTurns
+} from '../../shared/parsePtyTranscriptToMessages';
 import PrettyOutputBody from './PrettyOutputBody';
 
 type PtyMessengerThreadProps = {
   transcript: string;
 };
 
+function PtyAssistantPending() {
+  return (
+    <div className="flex justify-start w-full">
+      <div className="w-full max-w-[min(100%,40rem)] md:max-w-[48rem] pr-2 md:pr-16">
+        <div className="rounded-2xl border border-indigo-100 bg-indigo-50/90 px-5 py-4 shadow-sm flex items-start gap-3 text-indigo-950">
+          <Loader2 className="h-5 w-5 animate-spin shrink-0 text-indigo-600 mt-0.5" aria-hidden />
+          <div>
+            <p className="text-sm font-semibold">Claude is responding…</p>
+            <p className="text-xs text-indigo-900/80 mt-1 leading-relaxed">
+              Waiting for the next lines on the live PTY. If this stays here, check <strong>Raw View</strong> or{' '}
+              <strong>Logon</strong> for the full terminal.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /**
  * ChatGPT-style thread: assistant on the left (markdown or plain), you on the right (pill).
+ * Shows a loading card when the last parsed turn is the user (assistant still thinking / not yet in buffer).
  */
 export default function PtyMessengerThread({ transcript }: PtyMessengerThreadProps) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const stickBottomRef = useRef(true);
-  const turns = useMemo(() => parsePtyTranscriptToMessages(transcript), [transcript]);
+  const turnsRaw = useMemo(() => parsePtyTranscriptToMessages(transcript), [transcript]);
+  const displayTurns = useMemo(() => trimTrailingTrivialAssistantTurns(turnsRaw), [turnsRaw]);
+  const showThinking = useMemo(() => isAwaitingPtyAssistantResponse(turnsRaw), [turnsRaw]);
 
   useEffect(() => {
     const el = scrollerRef.current;
     if (!el || !stickBottomRef.current) return;
     el.scrollTop = el.scrollHeight;
-  }, [transcript]);
+  }, [transcript, showThinking]);
 
   const onScroll = () => {
     const el = scrollerRef.current;
@@ -27,12 +54,29 @@ export default function PtyMessengerThread({ transcript }: PtyMessengerThreadPro
     stickBottomRef.current = gap < 120;
   };
 
-  if (turns.length === 0) {
+  const visibleTurns = useMemo(
+    () => displayTurns.filter((m) => m.role === 'user' || m.text.trim().length > 0),
+    [displayTurns]
+  );
+
+  if (visibleTurns.length === 0) {
     const fallback = transcript?.trim();
     if (!fallback) {
       return (
         <div className="rounded-2xl border border-dashed border-gray-200 bg-white px-4 py-10 text-center text-sm text-gray-500">
           No messages yet — use Logon or Raw, or send a reply below.
+        </div>
+      );
+    }
+    if (showThinking) {
+      return (
+        <div className="rounded-2xl border border-indigo-100 bg-white shadow-sm overflow-hidden">
+          <p className="text-xs text-indigo-800 px-4 py-3 border-b border-indigo-100 bg-indigo-50/60">
+            Live PTY — waiting for the assistant after your last line.
+          </p>
+          <div className="px-4 py-8 md:px-8 max-h-[min(75vh,720px)] overflow-y-auto bg-white">
+            <PtyAssistantPending />
+          </div>
         </div>
       );
     }
@@ -68,7 +112,7 @@ export default function PtyMessengerThread({ transcript }: PtyMessengerThreadPro
         aria-live="polite"
         aria-relevant="additions"
       >
-        {turns.map((m) =>
+        {visibleTurns.map((m) =>
           m.role === 'assistant' ? (
             <div key={m.id} className="flex justify-start w-full">
               <div className="w-full max-w-[min(100%,40rem)] md:max-w-[48rem] pr-2 md:pr-16">
@@ -87,6 +131,7 @@ export default function PtyMessengerThread({ transcript }: PtyMessengerThreadPro
             </div>
           )
         )}
+        {showThinking ? <PtyAssistantPending /> : null}
       </div>
     </section>
   );
