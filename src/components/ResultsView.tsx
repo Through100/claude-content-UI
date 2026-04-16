@@ -62,13 +62,27 @@ export default function ResultsView({
   /** Merged PTY transcript: grows with new terminal output and survives scrollback trimming; saved per topic. */
   const [ptyMergedArchive, setPtyMergedArchive] = useState(() => loadPtyPrettyArchive(chatThreadKey));
   const ptyArchiveAnchorRef = useRef('');
+  /** When the Logon WebSocket reconnects, avoid merging a long saved transcript with a short new buffer (Pretty would miss the first exchange). */
+  const ptyPrevSessionGenerationRef = useRef<number | null>(null);
 
   useEffect(() => {
     const nextAnchor = `${chatThreadKey}|${ptySessionGeneration}`;
-    const keyOrSessionChanged = nextAnchor !== ptyArchiveAnchorRef.current;
+    const anchorChanged = nextAnchor !== ptyArchiveAnchorRef.current;
     ptyArchiveAnchorRef.current = nextAnchor;
+
+    const prevGen = ptyPrevSessionGenerationRef.current;
+    const ptySessionRestarted = prevGen !== null && ptySessionGeneration !== prevGen;
+    ptyPrevSessionGenerationRef.current = ptySessionGeneration;
+
     setPtyMergedArchive((prev) => {
-      const base = keyOrSessionChanged ? loadPtyPrettyArchive(chatThreadKey) : prev;
+      let base: string;
+      if (ptySessionRestarted) {
+        base = '';
+      } else if (anchorChanged) {
+        base = loadPtyPrettyArchive(chatThreadKey);
+      } else {
+        base = prev;
+      }
       return mergePtyPlainArchive(base, ptyFullSnapshotPlain);
     });
   }, [chatThreadKey, ptySessionGeneration, ptyFullSnapshotPlain]);

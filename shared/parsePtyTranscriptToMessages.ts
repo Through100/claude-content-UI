@@ -9,9 +9,9 @@ export function isPtyAssistantNoiseLine(line: string): boolean {
   if (/^[─\-_\s|]+$/.test(l)) return true;
   if (/^\|\s*cost:/i.test(l)) return true;
   if (/^\s*❯\s*$/.test(l)) return true;
-  // Spinners: ✻, middle dot ·, bullet *, or bare “Catapulting…” style status.
+  // Spinners: ✻, ✶, middle dot ·, bullet *, or bare “Catapulting…” style status.
   if (
-    /^\s*[✻·*•⎿]?\s*(?:Undulating|Thinking|Bouncing|Pulsing|Compacting|Scribbling|Catapulting|Warping|Drizzling|Twirling|Cerebrating|Percolating|Simmering|Ruminating|Marinating|Brooding|Festooning|Moonwalking)[·….\s]*(?:\([^)]*\))?\s*$/i.test(
+    /^\s*[✻✶·*•⎿]?\s*(?:Undulating|Thinking|Bouncing|Pulsing|Compacting|Scribbling|Catapulting|Warping|Drizzling|Twirling|Cerebrating|Percolating|Simmering|Ruminating|Marinating|Brooding|Festooning|Moonwalking|Hashing)[·….\s]*(?:\([^)]*\))?\s*$/i.test(
       l
     )
   ) {
@@ -20,23 +20,27 @@ export function isPtyAssistantNoiseLine(line: string): boolean {
   // Claude Code invents new one-word “* Foobaring…” status lines often; keep tight to avoid real bullets.
   if (
     l.length < 140 &&
-    /^\s*[·*•✻⎿]\s*[A-Za-z]{4,26}ing\b(?:[·….]\s*)*(?:\([^)]*\))?\s*$/i.test(l) &&
+    /^\s*[·*•✻✶⎿]\s*[A-Za-z]{4,26}ing\b(?:[·….]\s*)*(?:\([^)]*\))?\s*$/i.test(l) &&
     !/\s(and|or|the|for|with|your|you|from|that|this)\s/i.test(l)
   ) {
     return true;
   }
   // e.g. "* Drizzling… (17s · ↑ 635 tokens)" — usage footer on one line.
   if (
-    /^\s*[·*•✻⎿]\s*\w+ing\b/i.test(l) &&
+    /^\s*[·*•✻✶⎿]\s*\w+ing\b/i.test(l) &&
     /\b\d+\s*tokens?\b/i.test(l) &&
     (/\(\s*\d+s/i.test(l) || /↑\s*\d+/.test(l))
   ) {
     return true;
   }
   if (/^\s*✻\s/.test(l) && l.length < 160) return true;
+  if (/^\s*✶\s/.test(l) && l.length < 160) return true;
   if (/\(thought for \d+s?\)/i.test(l) && l.length < 140) return true;
   // e.g. "> Thinking a bit longer... still working on it..."
   if (/^\s*>\s*Thinking\b/i.test(l) && l.length < 220) return true;
+  // Claude Code skill line + inline tip (still TUI chrome, not the answer body).
+  if (/^\s*●\s*Skill\s*\(/i.test(l) && l.length < 260) return true;
+  if (/Double-tap esc to rewind/i.test(l) && l.length < 220) return true;
   // Claude Code terminal widget hints (not model prose).
   if (/^\s*(?:⎿\s*)?L\s*Tip:/i.test(l)) return true;
   if (l.length < 240 && /\bDid you know\b/i.test(l) && /\bterminal\b/i.test(l)) return true;

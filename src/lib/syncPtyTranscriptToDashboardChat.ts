@@ -63,7 +63,6 @@ function ptyTurnsToUserAssistantPairs(turns: ChatTurn[]): { user: string; assist
   return out;
 }
 
-/** Drop the first PTY pair when it is clearly the initial `/blog …` exchange already mirrored by the headless turn. */
 /**
  * True when every non-empty line is PTY noise, spinners, or inline terminal tips
  * (so a duplicate `❯ same` block in the transcript is almost certainly TUI echo, not a second send).
