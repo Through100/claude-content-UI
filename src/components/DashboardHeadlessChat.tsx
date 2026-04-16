@@ -2,10 +2,12 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import {
   clearDashboardChatHistory,
+  DASHBOARD_CHATS_CHANGED_EVENT,
   DASHBOARD_CHATS_STORE_KEY,
   formatThreadKeyForDisplay,
   loadDashboardChatHistory,
-  type DashboardChatTurn
+  type DashboardChatTurn,
+  type DashboardChatsChangedDetail
 } from '../lib/dashboardChatHistory';
 import PrettyOutputBody from './PrettyOutputBody';
 
@@ -33,6 +35,16 @@ export default function DashboardHeadlessChat({ threadKey, refreshKey }: Props) 
     };
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
+  }, [threadKey]);
+
+  useEffect(() => {
+    const onLocal = (e: Event) => {
+      const d = (e as CustomEvent<DashboardChatsChangedDetail | undefined>).detail;
+      if (d?.threadKey && d.threadKey !== threadKey) return;
+      setTurns(loadDashboardChatHistory(threadKey));
+    };
+    window.addEventListener(DASHBOARD_CHATS_CHANGED_EVENT, onLocal);
+    return () => window.removeEventListener(DASHBOARD_CHATS_CHANGED_EVENT, onLocal);
   }, [threadKey]);
 
   useEffect(() => {
@@ -65,8 +77,9 @@ export default function DashboardHeadlessChat({ threadKey, refreshKey }: Props) 
           <h3 className="text-sm font-bold uppercase tracking-widest text-gray-500">Conversation</h3>
           <p className="text-xs text-gray-500 mt-0.5">
             One thread per <strong>command + target</strong> in Command Runner — changing the target switches here.
-            Runs use <code className="text-[10px] bg-gray-100 px-1 rounded">claude -p</code> (one-shot); PTY replies stay
-            on Logon below.
+            Runs use <code className="text-[10px] bg-gray-100 px-1 rounded">claude -p</code> (one-shot). Logon follow-ups
+            are merged into this thread automatically (same Pretty sanitizer as Live PTY); full raw stream stays in Logon /
+            Raw.
           </p>
           <p className="text-[11px] text-gray-600 mt-1 font-medium truncate" title={threadKey}>
             Topic: <span className="font-mono text-gray-800">{topicLabel}</span>

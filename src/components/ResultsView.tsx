@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { BLOG_COMMANDS, RunResponse } from '../types';
 import { formatChatThreadKey } from '../lib/dashboardChatHistory';
+import { syncPrettyPtyTranscriptToDashboardThread } from '../lib/syncPtyTranscriptToDashboardChat';
 import { motion, AnimatePresence } from 'motion/react';
 import { inferClaudeActivity } from '../../shared/inferClaudeActivity';
 import { downloadElementAsPdf } from '../utils/downloadReportPdf';
@@ -630,6 +631,15 @@ function PrettyOutputView({
     if (!s.trim() && ptyTranscript.trim()) return ptyTranscript;
     return s;
   }, [ptyTranscript]);
+
+  useEffect(() => {
+    if (prettyMode === 'headless') return;
+    if (!ptyTranscript?.trim()) return;
+    const id = window.setTimeout(() => {
+      syncPrettyPtyTranscriptToDashboardThread(chatThreadKey, ptyForPretty);
+    }, 750);
+    return () => window.clearTimeout(id);
+  }, [prettyMode, chatThreadKey, ptyForPretty, ptyTranscript]);
 
   const ptySection =
     ptyTranscript?.trim().length > 0 ? (

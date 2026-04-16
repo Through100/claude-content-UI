@@ -6,6 +6,11 @@ export const DASHBOARD_CHAT_STORAGE_KEY = 'claude-content-ui-dashboard-chat-v1';
 /** Single JSON object: all headless conversation threads keyed by `formatChatThreadKey`. */
 export const DASHBOARD_CHATS_STORE_KEY = 'claude-content-ui-dashboard-chats-v2';
 
+/** Same-tab refresh: `storage` events do not fire in the tab that wrote localStorage. */
+export const DASHBOARD_CHATS_CHANGED_EVENT = 'dashboard-chats-changed';
+
+export type DashboardChatsChangedDetail = { threadKey?: string };
+
 const MAX_TURNS_PER_THREAD = 50;
 const MAX_THREAD_KEYS = 80;
 
@@ -85,6 +90,14 @@ function saveStore(store: ChatsStoreV2): void {
     localStorage.setItem(DASHBOARD_CHATS_STORE_KEY, JSON.stringify(store));
   } catch {
     /* quota / private mode */
+  }
+}
+
+export function dispatchDashboardChatsChanged(detail?: DashboardChatsChangedDetail): void {
+  try {
+    window.dispatchEvent(new CustomEvent(DASHBOARD_CHATS_CHANGED_EVENT, { detail }));
+  } catch {
+    /* ignore */
   }
 }
 
@@ -168,6 +181,23 @@ export function appendDashboardChatTurn(user: string, assistant: string, threadK
   store.threads[threadKey] = list;
   pruneOldestThreads(store);
   saveStore(store);
+  dispatchDashboardChatsChanged({ threadKey });
+}
+
+export function updateLastDashboardAssistant(threadKey: string, assistant: string): void {
+  migrateLegacyFlatIfNeeded();
+  const store = loadStore();
+  const list = [...(store.threads[threadKey] ?? [])];
+  if (list.length === 0) return;
+  const body = sanitizeRunOutputForChat(assistant);
+  list[list.length - 1] = {
+    ...list[list.length - 1],
+    assistant: body,
+    at: Date.now()
+  };
+  store.threads[threadKey] = list;
+  saveStore(store);
+  dispatchDashboardChatsChanged({ threadKey });
 }
 
 /** Clear one thread, or the entire store when `threadKey` is omitted. */
@@ -176,11 +206,13 @@ export function clearDashboardChatHistory(threadKey?: string): void {
     if (threadKey === undefined) {
       localStorage.removeItem(DASHBOARD_CHATS_STORE_KEY);
       localStorage.removeItem(DASHBOARD_CHAT_STORAGE_KEY);
+      dispatchDashboardChatsChanged({});
       return;
     }
     const store = loadStore();
     delete store.threads[threadKey];
     saveStore(store);
+    dispatchDashboardChatsChanged({ threadKey });
   } catch {
     /* ignore */
   }
