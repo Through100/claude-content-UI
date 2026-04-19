@@ -17,6 +17,7 @@ import { formatChatThreadKey, sanitizeRunOutputForChat } from '../lib/dashboardC
 import { syncPrettyPtyTranscriptToDashboardThread } from '../lib/syncPtyTranscriptToDashboardChat';
 import { motion, AnimatePresence } from 'motion/react';
 import { inferClaudeActivity } from '../../shared/inferClaudeActivity';
+import { headlessOutputLooksLikeInteractivePermissionAsk } from '../../shared/headlessStalePermissionCue';
 import { downloadElementAsPdf } from '../utils/downloadReportPdf';
 import { apiService } from '../services/api';
 import { usePtyBridge } from '../context/PtyBridgeContext';
@@ -68,7 +69,7 @@ export default function ResultsView({
   const livePreRef = useRef<HTMLPreElement>(null);
   const prettyReportRef = useRef<HTMLDivElement>(null);
   const pdfAfterPrettySwitchRef = useRef(false);
-  const { ptyDisplayPlain, ptyFullSnapshotPlain, ptySessionGeneration } = usePtyBridge();
+  const { ptyDisplayPlain, ptyFullSnapshotPlain, ptySessionGeneration, ptySessionReady } = usePtyBridge();
 
   /** Merged PTY transcript: grows with new terminal output and survives scrollback trimming; saved per topic. */
   const [ptyMergedArchive, setPtyMergedArchive] = useState(() => loadPtyPrettyArchive(chatThreadKey));
@@ -413,6 +414,7 @@ export default function ResultsView({
                   chatThreadKey={chatThreadKey}
                   lastRunThreadMeta={lastRunThreadMeta}
                   headlessResult={result}
+                  ptySessionReady={ptySessionReady}
                 />
               )}
             </div>
@@ -649,8 +651,9 @@ function PtyReplyPanel({ hasCompletedHeadlessRun = false }: { hasCompletedHeadle
       ) : null}
       <p className="text-xs text-indigo-900/85 leading-relaxed">
         Sends keystrokes to the <strong>same</strong> persistent PTY as Logon — not to any finished{' '}
-        <code className="bg-white/70 px-1 rounded text-[11px]">claude -p</code> run. <strong>Raw View</strong> mirrors
-        that PTY; <strong>Pretty Output</strong> can show the live PTY transcript when it has focus. Open{' '}
+        <code className="bg-white/70 px-1 rounded text-[11px]">claude -p</code> run, so a WebFetch / permission question
+        shown only in that finished capture cannot be answered here. <strong>Raw View</strong> mirrors that PTY;{' '}
+        <strong>Pretty Output</strong> merges live PTY text (and may prepend the last headless block for context). Open{' '}
         <strong>Logon</strong> for the primary terminal layout.
       </p>
       <textarea
@@ -759,7 +762,8 @@ function PrettyOutputView({
   chatHistoryTick = 0,
   chatThreadKey,
   lastRunThreadMeta = null,
-  headlessResult = null
+  headlessResult = null,
+  ptySessionReady
 }: {
   prettyMode: PrettyOutputMode;
   ptyTranscript: string;
@@ -767,6 +771,8 @@ function PrettyOutputView({
   chatThreadKey: string;
   lastRunThreadMeta?: { threadKey: string; userSummary: string } | null;
   headlessResult?: RunResponse | null;
+  /** When `both`, used to explain WebFetch prompts vs a disconnected PTY. */
+  ptySessionReady?: boolean;
 }) {
   /** Splash + spinner lines hidden here only; Logon / Raw stay full-fidelity. */
   const ptyForPretty = useMemo(() => {
@@ -792,6 +798,14 @@ function PrettyOutputView({
     return prependDashboardRunAsPtyPlain(lastRunThreadMeta.userSummary, assistant, ptyForPretty);
   }, [prettyMode, headlessResult, lastRunThreadMeta, chatThreadKey, ptyForPretty]);
 
+  const showHeadlessPermissionReadOnlyCue = useMemo(() => {
+    if (prettyMode !== 'both' || !headlessResult) return false;
+    const cleaned = sanitizeRunOutputForChat(headlessResult.rawOutput ?? '').trim();
+    const err = headlessResult.error?.trim();
+    const blob = cleaned || err || '';
+    return headlessOutputLooksLikeInteractivePermissionAsk(blob);
+  }, [prettyMode, headlessResult]);
+
   useEffect(() => {
     if (prettyMode === 'headless') return;
     if (!ptyTranscript?.trim()) return;
@@ -815,6 +829,24 @@ function PrettyOutputView({
           </span>
           <PtyNarrativeLiveBadge rawOutput={ptyForDisplay} />
         </div>
+        {prettyMode === 'both' && showHeadlessPermissionReadOnlyCue ? (
+          <div className="rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-xs text-slate-800 leading-relaxed shadow-sm">
+            <strong className="text-slate-900">WebFetch / “pick an option” in the text above:</strong> the{' '}
+            <strong>first block</strong> is the finished{' '}
+            <code className="text-[10px] px-1 py-0.5 rounded bg-white border border-slate-200 font-mono">claude -p</code>{' '}
+            run. That process has <strong>already exited</strong>, so nothing in that block is clickable and you cannot
+            send <code className="text-[10px] px-1 rounded bg-white border border-slate-200 font-mono">1</code> back to
+            it. <strong>Re-run</strong> the command (the API adds a headless hint for HTTP targets), do the same job in{' '}
+            <strong>Logon</strong> for a real interactive session, or paste the article into <strong>Target</strong> when
+            that matches the command.
+            {ptySessionReady === false ? (
+              <span className="block mt-2 text-amber-900 font-medium">
+                Live PTY WebSocket is <strong>offline</strong> — open <strong>Logon</strong> and use{' '}
+                <strong>Restart</strong> if you see “process exited”; Reply below only works when the PTY is connected.
+              </span>
+            ) : null}
+          </div>
+        ) : null}
         <PtyMessengerThread transcript={ptyForDisplay} />
       </>
     ) : (
