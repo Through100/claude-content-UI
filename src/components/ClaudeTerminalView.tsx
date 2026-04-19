@@ -15,6 +15,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { PtyWelcomeNameScanner } from '../../shared/ptyWelcomeDetect';
 import {
+  inferPermissionMenuAffirmativeIndex,
   plainTextShowsClaudePermissionMenu,
   stripAnsiNormalizePtyMirror
 } from '../../shared/claudeCodePtyPermissionMenu';
@@ -175,7 +176,8 @@ export default function ClaudeTerminalView({
           import.meta.env.VITE_DISABLE_PTY_AUTO_OPTION_ONE !== '1'
         ) {
           permissionMenuAutoChoiceSent = true;
-          ws.send(JSON.stringify({ type: 'input', data: '1\r' }));
+          const choice = inferPermissionMenuAffirmativeIndex(plainNorm);
+          ws.send(JSON.stringify({ type: 'input', data: `${choice}\r` }));
         }
         return;
       }
