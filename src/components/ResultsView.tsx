@@ -310,7 +310,7 @@ export default function ResultsView({
             lastRunThreadMeta={lastRunThreadMeta}
           />
         ) : null}
-        <PtyReplyPanel hasCompletedHeadlessRun={false} />
+        <PtyReplyPanel />
       </div>
     );
   }
@@ -436,7 +436,7 @@ export default function ResultsView({
         )}
       </AnimatePresence>
 
-      {!isHistoryEmbed ? <PtyReplyPanel hasCompletedHeadlessRun /> : null}
+      {!isHistoryEmbed ? <PtyReplyPanel /> : null}
     </div>
   );
 }
@@ -609,7 +609,7 @@ function LivePtyRawMirror({ headlessStdout, headlessError, livePtyMirror = true 
   );
 }
 
-function PtyReplyPanel({ hasCompletedHeadlessRun = false }: { hasCompletedHeadlessRun?: boolean }) {
+function PtyReplyPanel() {
   const { sendToPty, ptySessionReady } = usePtyBridge();
   const [text, setText] = useState('');
   const [appendEnter, setAppendEnter] = useState(true);
@@ -626,9 +626,7 @@ function PtyReplyPanel({ hasCompletedHeadlessRun = false }: { hasCompletedHeadle
       return;
     }
     sendToPty(appendEnter ? `${t}\r` : t);
-    setHint(
-      'Sent to the same PTY as Logon. Pretty Output merges the full PTY buffer for this topic (saved in the browser) so earlier lines stay in the conversation — scroll up in Pretty or use Raw / Logon.'
-    );
+    setHint('Sent to the same PTY as Logon.');
     setText('');
   };
 
@@ -638,24 +636,6 @@ function PtyReplyPanel({ hasCompletedHeadlessRun = false }: { hasCompletedHeadle
         <Send size={16} className="text-indigo-600 shrink-0" aria-hidden />
         Reply via interactive PTY
       </h4>
-      {hasCompletedHeadlessRun ? (
-        <div className="rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-2.5 text-xs text-amber-950 leading-relaxed">
-          <strong className="font-semibold">Headless vs PTY:</strong> Command Runner uses{' '}
-          <code className="text-[10px] bg-white/80 px-1 rounded">claude -p</code> — a new process per run that exits
-          when done, so there is <strong>no open stdin</strong> to send <code className="text-[10px]">1</code> back to
-          that transcript. The box below is a <strong>different</strong> interactive Claude (same WebSocket PTY as
-          Logon). For the usual Web permission menu (Esc to cancel / Tab to amend), Logon auto-sends the best{' '}
-          <strong>Yes</strong> line once (often <strong>2</strong> when the remember / do-not-ask-again line is option 2). If you still see the menu in Pretty, paste your
-          choice here or in Logon, or run the command again with your selection in the target field.
-        </div>
-      ) : null}
-      <p className="text-xs text-indigo-900/85 leading-relaxed">
-        Sends keystrokes to the <strong>same</strong> persistent PTY as Logon — not to any finished{' '}
-        <code className="bg-white/70 px-1 rounded text-[11px]">claude -p</code> run, so a WebFetch / permission question
-        shown only in that finished capture cannot be answered here. <strong>Raw View</strong> mirrors that PTY;{' '}
-        <strong>Pretty Output</strong> merges live PTY text (and may prepend the last headless block for context). Open{' '}
-        <strong>Logon</strong> for the primary terminal layout.
-      </p>
       <textarea
         value={text}
         onChange={(e) => {
