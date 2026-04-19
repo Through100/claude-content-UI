@@ -642,9 +642,9 @@ function PtyReplyPanel({ hasCompletedHeadlessRun = false }: { hasCompletedHeadle
           <code className="text-[10px] bg-white/80 px-1 rounded">claude -p</code> — a new process per run that exits
           when done, so there is <strong>no open stdin</strong> to send <code className="text-[10px]">1</code> back to
           that transcript. The box below is a <strong>different</strong> interactive Claude (same WebSocket PTY as
-          Logon). To answer a multiple-choice prompt you saw in Pretty Output, either paste the full question plus your
-          choice into <strong>Logon</strong> / this PTY if you started that work there, or run the command again with
-          your selection in the target field.
+          Logon). For the usual Web permission menu (Esc to cancel / Tab to amend), Logon auto-sends{' '}
+          <strong>option 1</strong> once when it detects the prompt. If you still see the menu in Pretty, paste your
+          choice here or in Logon, or run the command again with your selection in the target field.
         </div>
       ) : null}
       <p className="text-xs text-indigo-900/85 leading-relaxed">

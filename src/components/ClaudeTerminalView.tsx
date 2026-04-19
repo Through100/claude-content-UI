@@ -14,6 +14,10 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { PtyWelcomeNameScanner } from '../../shared/ptyWelcomeDetect';
+import {
+  plainTextShowsClaudePermissionMenu,
+  stripAnsiNormalizePtyMirror
+} from '../../shared/claudeCodePtyPermissionMenu';
 import { usePtyBridge } from '../context/PtyBridgeContext';
 
 function wsUrl(): string {
@@ -100,6 +104,9 @@ export default function ClaudeTerminalView({
     const ws = new WebSocket(wsUrl());
     let sessionCreated = false;
     let destroyed = false;
+    /** Rolling recent PTY bytes (for detecting permission menus across chunk boundaries). */
+    let ptyRawMirror = '';
+    let permissionMenuAutoChoiceSent = false;
     const welcomeScanner = new PtyWelcomeNameScanner();
     let ptyHeaderEnded = false;
     const endPtyHeader = () => {
@@ -137,6 +144,8 @@ export default function ClaudeTerminalView({
 
       if (msg.type === 'created') {
         sessionCreated = true;
+        ptyRawMirror = '';
+        permissionMenuAutoChoiceSent = false;
         ptyBridgeRef.current.clearLiveTranscript({ resetPrettySession: true });
         ptyBridgeRef.current.setSessionConnected(true);
         if (initialInput && ws.readyState === WebSocket.OPEN) {
@@ -153,6 +162,21 @@ export default function ClaudeTerminalView({
         term.write(d);
         ptyBridgeRef.current.appendTerminalOutput(d);
         ptyBridgeRef.current.refreshPtyScreenSnapshot();
+
+        ptyRawMirror += d;
+        ptyRawMirror = ptyRawMirror.slice(-24_000);
+        const plainNorm = stripAnsiNormalizePtyMirror(ptyRawMirror);
+        if (!plainTextShowsClaudePermissionMenu(plainNorm)) {
+          permissionMenuAutoChoiceSent = false;
+        } else if (
+          !permissionMenuAutoChoiceSent &&
+          sessionCreated &&
+          ws.readyState === WebSocket.OPEN &&
+          import.meta.env.VITE_DISABLE_PTY_AUTO_OPTION_ONE !== '1'
+        ) {
+          permissionMenuAutoChoiceSent = true;
+          ws.send(JSON.stringify({ type: 'input', data: '1\r' }));
+        }
         return;
       }
 
