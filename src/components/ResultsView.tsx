@@ -814,11 +814,12 @@ function PrettyOutputView({
             <strong className="text-slate-900">WebFetch / “pick an option” in the text above:</strong> the{' '}
             <strong>first block</strong> is the finished{' '}
             <code className="text-[10px] px-1 py-0.5 rounded bg-white border border-slate-200 font-mono">claude -p</code>{' '}
-            run. That process has <strong>already exited</strong>, so nothing in that block is clickable and you cannot
-            send <code className="text-[10px] px-1 rounded bg-white border border-slate-200 font-mono">1</code> back to
-            it. <strong>Re-run</strong> the command (the API adds a headless hint for HTTP targets), do the same job in{' '}
-            <strong>Logon</strong> for a real interactive session, or paste the article into <strong>Target</strong> when
-            that matches the command.
+            run. That process has <strong>already ended</strong> — there is <strong>no approve button</strong> for that
+            block and you cannot grant WebFetch to it retroactively.{' '}
+            <strong>Where you can allow WebFetch:</strong> open <strong>Logon</strong> and answer the numbered{' '}
+            <strong>Fetch</strong> menu in the dark terminal (or type the same number in <strong>Reply below</strong> when
+            the menu is live). Or <strong>re-run</strong> the dashboard command, paste the article into <strong>Target</strong>, or
+            confirm the server is not disabling headless permissions (<code className="text-[10px] px-1 rounded bg-white border border-slate-200">CLAUDE_DISABLE_AUTO_PERMISSION_MODE</code>).
             {ptySessionReady === false ? (
               <span className="block mt-2 text-amber-900 font-medium">
                 Live PTY WebSocket is <strong>offline</strong> — open <strong>Logon</strong> and use{' '}
