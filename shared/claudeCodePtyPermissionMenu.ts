@@ -1,5 +1,17 @@
 import { normalizeTeletypeLines, stripAnsi } from './stripAnsi';
 
+/** Web / tool permission menu (Fetch + Esc to cancel footer) — must survive “trivial tail” / chrome filters for dashboard sync. */
+export function textContainsClaudePermissionMenu(text: string): boolean {
+  const t = (text || '').replace(/\r/g, '');
+  if (!/\bEsc to cancel\b/i.test(t) || !/\bTab to amend\b/i.test(t)) return false;
+  return (
+    /Do you want/i.test(t) ||
+    /\bClaude wants to fetch\b/i.test(t) ||
+    /^fetch\b/im.test(t) ||
+    /\bfetch content from\b/i.test(t)
+  );
+}
+
 /** Plain PTY text (ANSI stripped, teletype lines normalized) shows Claude Code’s numbered permission menu. */
 export function plainTextShowsClaudePermissionMenu(plainNormalized: string): boolean {
   const tail = plainNormalized.slice(-8000);

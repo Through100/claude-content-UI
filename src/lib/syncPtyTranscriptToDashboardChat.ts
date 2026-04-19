@@ -1,3 +1,4 @@
+import { textContainsClaudePermissionMenu } from '../../shared/claudeCodePtyPermissionMenu';
 import {
   isPtyAssistantNoiseLine,
   isTrivialAssistantTail,
@@ -29,6 +30,7 @@ function turnSignature(user: string, assistant: string): string {
 
 /** True when every non-empty line is PTY chrome (covers verbs we have not listed yet). */
 function assistantIsEphemeralNoiseOnly(raw: string): boolean {
+  if (textContainsClaudePermissionMenu(raw)) return false;
   const t = stripEphemeralAssistantEdges(sanitizeRunOutputForChat(raw)).trim();
   if (!t) return true;
   const lines = t.split('\n').map((l) => l.trim()).filter((l) => l.length > 0);
@@ -38,6 +40,13 @@ function assistantIsEphemeralNoiseOnly(raw: string): boolean {
 function ptyTurnsToUserAssistantPairs(turns: ChatTurn[]): { user: string; assistant: string }[] {
   const out: { user: string; assistant: string }[] = [];
   let i = 0;
+  const leadingChunks: string[] = [];
+  while (i < turns.length && turns[i].role === 'assistant') {
+    leadingChunks.push(turns[i].text);
+    i++;
+  }
+  let pendingLeadingAssistant = leadingChunks.join('\n\n').trimEnd();
+
   while (i < turns.length) {
     if (turns[i].role === 'assistant') {
       i++;
@@ -50,7 +59,11 @@ function ptyTurnsToUserAssistantPairs(turns: ChatTurn[]): { user: string; assist
       asst.push(turns[i].text);
       i++;
     }
-    const assistant = asst.join('\n\n').trimEnd();
+    let assistant = asst.join('\n\n').trimEnd();
+    if (pendingLeadingAssistant) {
+      assistant = [pendingLeadingAssistant, assistant].filter(Boolean).join('\n\n').trimEnd();
+      pendingLeadingAssistant = '';
+    }
     if (!user && assistant) {
       if (out.length > 0) {
         out[out.length - 1].assistant = [out[out.length - 1].assistant, assistant].filter(Boolean).join('\n\n');
@@ -60,6 +73,10 @@ function ptyTurnsToUserAssistantPairs(turns: ChatTurn[]): { user: string; assist
     if (!user && !assistant) continue;
     out.push({ user, assistant });
   }
+  if (pendingLeadingAssistant.trim() && out.length > 0) {
+    const last = out[out.length - 1];
+    last.assistant = [last.assistant, pendingLeadingAssistant].filter(Boolean).join('\n\n').trimEnd();
+  }
   return out;
 }
 
@@ -68,6 +85,7 @@ function ptyTurnsToUserAssistantPairs(turns: ChatTurn[]): { user: string; assist
  * (so a duplicate `❯ same` block in the transcript is almost certainly TUI echo, not a second send).
  */
 function assistantIsPtyChromeOrTipsOnly(raw: string): boolean {
+  if (textContainsClaudePermissionMenu(raw)) return false;
   const t = stripEphemeralAssistantEdges(sanitizeRunOutputForChat(raw)).trim();
   if (!t) return true;
   const lines = t

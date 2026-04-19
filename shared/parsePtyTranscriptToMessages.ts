@@ -1,3 +1,4 @@
+import { textContainsClaudePermissionMenu } from './claudeCodePtyPermissionMenu';
 import { normalizeTeletypeLines, stripAnsi } from './stripAnsi';
 
 export type ChatTurn = { role: 'user' | 'assistant'; text: string; id: string };
@@ -59,6 +60,7 @@ export function stripEphemeralAssistantEdges(text: string): string {
 export function isTrivialAssistantTail(text: string): boolean {
   const t = text.replace(/\r/g, '').trim();
   if (!t) return true;
+  if (textContainsClaudePermissionMenu(t)) return false;
   const lines = t
     .split('\n')
     .map((l) => l.trim())
