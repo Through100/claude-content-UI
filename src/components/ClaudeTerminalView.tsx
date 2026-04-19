@@ -194,7 +194,9 @@ export default function ClaudeTerminalView({
         ptyBridgeRef.current.setSessionConnected(false);
         ptyBridgeRef.current.flushLiveTranscriptNow();
         endPtyHeader();
-        term.writeln('\r\n\x1b[33m[Claude process exited — click Restart to reconnect]\x1b[0m');
+        term.writeln(
+          '\r\n\x1b[33m[Interactive terminal session ended — open Logon and click Restart for a new shell.]\x1b[0m\r\n\x1b[90m(This is only the live PTY; dashboard Command Runner / claude -p runs are separate.)\x1b[0m'
+        );
         setExited(true);
       }
     };

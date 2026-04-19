@@ -45,6 +45,10 @@ export function isPtyAssistantNoiseLine(line: string): boolean {
   // Claude Code terminal widget hints (not model prose).
   if (/^\s*(?:⎿\s*)?L\s*Tip:/i.test(l)) return true;
   if (l.length < 240 && /\bDid you know\b/i.test(l) && /\bterminal\b/i.test(l)) return true;
+  // Client-injected banners when the Logon WebSocket PTY session ends (not model output).
+  if (/^\[\s*Claude process exited/i.test(l)) return true;
+  if (/^\[\s*Connection closed\]/i.test(l)) return true;
+  if (/^\(\s*This is only the live PTY/i.test(l)) return true;
   return false;
 }
 
