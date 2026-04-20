@@ -6,6 +6,7 @@ import {
   trimTrailingTrivialAssistantTurns
 } from '../../shared/parsePtyTranscriptToMessages';
 import { extractPtyLiveFooterLine } from '../../shared/extractPtyLiveFooterLine';
+import { countPtyProceedPrompts } from '../../shared/claudeCodePtyPermissionMenu';
 import PtyAssistantBody from './PtyAssistantBody';
 
 type PtyMessengerThreadProps = {
@@ -20,7 +21,12 @@ type PtyMessengerThreadProps = {
    * match Raw; merged archive can lag on in-place CR redraws.
    */
   liveFooterPlainSource?: string;
-  lastManualInput?: { text: string; time: number } | null;
+  lastManualInput?: {
+    text: string;
+    time: number;
+    transcriptLenAtSend: number;
+    proceedCountAtSend: number;
+  } | null;
 };
 
 /** Re-run footer extraction on this cadence so the status bar catches buffer updates even if React skips a frame. */
@@ -126,6 +132,14 @@ export default function PtyMessengerThread({
     const base = displayTurns.filter((m) => m.role === 'user' || m.text.trim().length > 0);
     if (!lastManualInput) return base;
 
+    const hintPlain = awaitingHintSource ?? transcript;
+    if (countPtyProceedPrompts(hintPlain) > lastManualInput.proceedCountAtSend) {
+      return base;
+    }
+    if (hintPlain.length > lastManualInput.transcriptLenAtSend + 1800) {
+      return base;
+    }
+
     const lastUser = base.slice().reverse().find((m) => m.role === 'user');
     const naturallyEchoed = lastUser && lastUser.text.trim() === lastManualInput.text.trim();
 
@@ -133,7 +147,7 @@ export default function PtyMessengerThread({
       return [...base, { id: `manual-${lastManualInput.time}`, role: 'user' as const, text: lastManualInput.text }];
     }
     return base;
-  }, [displayTurns, lastManualInput]);
+  }, [displayTurns, lastManualInput, transcript, awaitingHintSource]);
 
   if (visibleTurns.length === 0) {
     const fallback = transcript?.trim();

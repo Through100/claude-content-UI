@@ -27,6 +27,12 @@ export function stripAnsiNormalizePtyMirror(raw: string): string {
   return normalizeTeletypeLines(stripAnsi(raw));
 }
 
+/** Count “Do you want to proceed?” in PTY text — increments usually mean a new permission ask after the last reply. */
+export function countPtyProceedPrompts(raw: string): number {
+  const t = stripAnsiNormalizePtyMirror(raw ?? '');
+  return (t.match(/Do you want to proceed\?/gi) ?? []).length;
+}
+
 /**
  * Which menu index to send for "affirm" — Claude Code often uses **2** for "Yes, and don't ask again" with **1** as a one-shot Yes.
  */

@@ -22,6 +22,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { stripAnsi } from '../../shared/stripAnsi';
 import { inferClaudeActivity } from '../../shared/inferClaudeActivity';
 import { headlessOutputLooksLikeInteractivePermissionAsk } from '../../shared/headlessStalePermissionCue';
+import { countPtyProceedPrompts } from '../../shared/claudeCodePtyPermissionMenu';
 import { downloadElementAsPdf } from '../utils/downloadReportPdf';
 import { apiService } from '../services/api';
 import { usePtyBridge } from '../context/PtyBridgeContext';
@@ -76,7 +77,12 @@ export default function ResultsView({
   const isHistoryEmbed = embedMode === 'history';
   const [activeTab, setActiveTab] = useState<'pretty' | 'raw'>('pretty');
   const [pdfExporting, setPdfExporting] = useState(false);
-  const [lastManualInput, setLastManualInput] = useState<{ text: string; time: number } | null>(null);
+  const [lastManualInput, setLastManualInput] = useState<{
+    text: string;
+    time: number;
+    transcriptLenAtSend: number;
+    proceedCountAtSend: number;
+  } | null>(null);
   const livePreRef = useRef<HTMLPreElement>(null);
   const prettyReportRef = useRef<HTMLDivElement>(null);
   const pdfAfterPrettySwitchRef = useRef(false);
@@ -117,6 +123,11 @@ export default function ResultsView({
     const id = window.setTimeout(() => savePtyPrettyArchive(chatThreadKey, ptyMergedArchive), 500);
     return () => window.clearTimeout(id);
   }, [isHistoryEmbed, chatThreadKey, ptyMergedArchive]);
+
+  useEffect(() => {
+    if (isHistoryEmbed) return;
+    setLastManualInput(null);
+  }, [isHistoryEmbed, chatThreadKey, ptySessionGeneration]);
 
   const hasFreshPtyCapture =
     !isHistoryEmbed &&
@@ -454,7 +465,14 @@ export default function ResultsView({
         <PtyReplyPanel
           warnHeadlessMenuReadOnly={replyPanelWarnHeadlessMenuReadOnly}
           warnWelcomeSplash={replyPanelWarnWelcomeSplash}
-          onReplySent={(text) => setLastManualInput({ text, time: Date.now() })}
+          onReplySent={(text) =>
+            setLastManualInput({
+              text,
+              time: Date.now(),
+              transcriptLenAtSend: ptyMergedArchive.length,
+              proceedCountAtSend: countPtyProceedPrompts(ptyMergedArchive)
+            })
+          }
         />
       ) : null}
     </div>
@@ -909,7 +927,12 @@ function PrettyOutputView({
   ptySessionReady?: boolean;
   ptySentAt?: number | null;
   isLoading?: boolean;
-  lastManualInput?: { text: string; time: number } | null;
+  lastManualInput?: {
+    text: string;
+    time: number;
+    transcriptLenAtSend: number;
+    proceedCountAtSend: number;
+  } | null;
 }) {
   /** Splash + spinner lines hidden here only; Logon / Raw stay full-fidelity. */
   const ptyForPretty = useMemo(() => {
