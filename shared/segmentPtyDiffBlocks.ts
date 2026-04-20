@@ -93,8 +93,14 @@ function isLikelyClaudePermissionMenuFooter(line: string): boolean {
   return /\bEsc to cancel\b/i.test(t) && /\bTab to amend\b/i.test(t);
 }
 
+/** Any single-line “Do you want to …?” used before numbered Yes/No rows (proceed, make this edit, run tool, …). */
+function isClaudeMenuQuestionLine(line: string): boolean {
+  const L = line ?? '';
+  return /Do you want to[^?\n]*\?/i.test(L);
+}
+
 /**
- * Split prose segments so Claude Code “Do you want to proceed / 1. Yes / Esc to cancel” blocks are not fed
+ * Split prose segments so Claude Code permission rows (`Do you want to …?`, `1. Yes`, `Esc to cancel`) are not fed
  * through markdown list rendering (which looked like an auto-sent user choice).
  */
 function splitProseMenuAndRest(prose: string): { kind: 'menu' | 'prose'; text: string }[] {
@@ -124,18 +130,31 @@ function splitProseMenuAndRest(prose: string): { kind: 'menu' | 'prose'; text: s
       break;
     }
 
-    let start = i;
-    let foundQuestion = false;
+    let questionLine = -1;
     for (let s = footerJ; s >= i; s--) {
-      if (/Do you want to proceed\?/i.test(lines[s] ?? '')) {
-        start = s;
-        foundQuestion = true;
+      if (isClaudeMenuQuestionLine(lines[s] ?? '')) {
+        questionLine = s;
         break;
       }
     }
-    if (!foundQuestion) {
+
+    let firstYesLine = -1;
+    for (let s = i; s < footerJ; s++) {
+      if (/^\s*(?:❯\s*|[>]\s*)?1\.\s+Yes\b/i.test(lines[s] ?? '')) {
+        firstYesLine = s;
+        break;
+      }
+    }
+
+    let start = i;
+    if (questionLine >= 0) {
+      start = questionLine;
+    } else if (firstYesLine >= 0) {
+      start = firstYesLine;
+    } else {
+      /** Legacy: numbered “Yes,” rows without a matched question line (comma required to avoid false positives). */
       for (let s = footerJ - 1; s >= i; s--) {
-        if (/^\s*(?:❯\s*)?\d+\.\s+Yes,/i.test(lines[s] ?? '')) {
+        if (/^\s*(?:❯\s*|[>]\s*)?\d+\.\s+Yes,/i.test(lines[s] ?? '')) {
           start = s;
           break;
         }
@@ -144,7 +163,8 @@ function splitProseMenuAndRest(prose: string): { kind: 'menu' | 'prose'; text: s
 
     const candidate = lines.slice(start, footerJ + 1).join('\n');
     const looksMenu =
-      /Do you want to proceed/i.test(candidate) || /^\s*(?:❯\s*)?\d+\.\s+Yes,/m.test(candidate);
+      /Do you want to[^?\n]*\?/i.test(candidate) ||
+      /^\s*(?:❯\s*|[>]\s*)?\d+\.\s+Yes\b/im.test(candidate);
 
     if (!looksMenu) {
       const buf: string[] = [];
