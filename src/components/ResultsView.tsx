@@ -903,8 +903,9 @@ function PrettyOutputView({
       <>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-emerald-900/90 px-2 py-1.5 rounded-lg bg-emerald-50 border border-emerald-100">
           <span>
-            Live PTY (Pretty): hides the Claude Code welcome chrome and short “thinking” lines (e.g. ✻ Undulating…).
-            Full terminal stays in <strong>Logon</strong> / <strong>Raw</strong>.             When a dashboard{' '}
+            Live PTY (Pretty): hides the Claude Code welcome chrome and short “thinking” lines (e.g. ✻ Undulating…);
+            the <strong>Claude is responding…</strong> chip still follows the raw stream so you are not stuck on a frozen
+            first bubble. Full terminal stays in <strong>Logon</strong> / <strong>Raw</strong>. When a dashboard{' '}
             <code className="text-[10px] font-mono bg-emerald-950/10 px-1 rounded">claude -p</code> run exists for this
             topic, that finished turn is appended <strong>after</strong> the live PTY transcript here (same order as real
             time) — the Logon PTY never contained that text, so follow-ups there do not see it unless you paste or
@@ -932,7 +933,7 @@ function PrettyOutputView({
             ) : null}
           </div>
         ) : null}
-        <PtyMessengerThread transcript={ptyForDisplay} />
+        <PtyMessengerThread transcript={ptyForDisplay} awaitingHintSource={ptyTranscript} />
       </>
     ) : (
       <p className="text-sm text-gray-500 px-1">No PTY output yet — open Logon or send a reply below.</p>

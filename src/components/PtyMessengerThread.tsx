@@ -9,6 +9,11 @@ import PtyAssistantBody from './PtyAssistantBody';
 
 type PtyMessengerThreadProps = {
   transcript: string;
+  /**
+   * Optional unsanitized PTY text (e.g. merged archive before Pretty sanitizer). Used only to decide
+   * whether to show “Claude is responding…” while spinners are stripped from `transcript`.
+   */
+  awaitingHintSource?: string;
 };
 
 function PtyAssistantPending() {
@@ -34,12 +39,19 @@ function PtyAssistantPending() {
  * ChatGPT-style thread: assistant on the left (markdown or plain), you on the right (pill).
  * Shows a loading card when the last parsed turn is the user (assistant still thinking / not yet in buffer).
  */
-export default function PtyMessengerThread({ transcript }: PtyMessengerThreadProps) {
+export default function PtyMessengerThread({ transcript, awaitingHintSource }: PtyMessengerThreadProps) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const stickBottomRef = useRef(true);
   const turnsRaw = useMemo(() => parsePtyTranscriptToMessages(transcript), [transcript]);
   const displayTurns = useMemo(() => trimTrailingTrivialAssistantTurns(turnsRaw), [turnsRaw]);
-  const showThinking = useMemo(() => isAwaitingPtyAssistantResponse(turnsRaw), [turnsRaw]);
+  const turnsForAwaiting = useMemo(
+    () => parsePtyTranscriptToMessages(awaitingHintSource ?? transcript),
+    [awaitingHintSource, transcript]
+  );
+  const showThinking = useMemo(
+    () => isAwaitingPtyAssistantResponse(turnsForAwaiting),
+    [turnsForAwaiting]
+  );
 
   useEffect(() => {
     const el = scrollerRef.current;
