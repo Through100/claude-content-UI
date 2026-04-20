@@ -16,6 +16,7 @@ import { BLOG_COMMANDS, RunResponse } from '../types';
 import { formatChatThreadKey, sanitizeRunOutputForChat } from '../lib/dashboardChatHistory';
 import { syncPrettyPtyTranscriptToDashboardThread } from '../lib/syncPtyTranscriptToDashboardChat';
 import { motion, AnimatePresence } from 'motion/react';
+import { stripAnsi } from '../../shared/stripAnsi';
 import { inferClaudeActivity } from '../../shared/inferClaudeActivity';
 import { headlessOutputLooksLikeInteractivePermissionAsk } from '../../shared/headlessStalePermissionCue';
 import { downloadElementAsPdf } from '../utils/downloadReportPdf';
@@ -299,7 +300,7 @@ export default function ResultsView({
             the live PTY stream below (same session as Logon).
           </p>
         </div>
-        <LivePtyRawMirror />
+        <LivePtyRawMirror mergedPtyPlain={ptyMergedArchive} />
         {ptyMergedArchive.trim() ? (
           <PrettyOutputView
             key={`pty-pretty-empty-run-${chatThreadKey}`}
@@ -428,6 +429,7 @@ export default function ResultsView({
             className="space-y-6"
           >
             <LivePtyRawMirror
+              mergedPtyPlain={ptyMergedArchive}
               headlessStdout={result.rawOutput ?? ''}
               headlessError={result.error ?? ''}
               livePtyMirror={!isHistoryEmbed}
@@ -442,6 +444,8 @@ export default function ResultsView({
 }
 
 type LivePtyRawMirrorProps = {
+  /** Same merged plain buffer Pretty uses (xterm serialize + localStorage); seeds Raw mirror when longer than byte replay. */
+  mergedPtyPlain?: string;
   /** When provided, last `claude -p` capture is shown below the PTY in the same card (no separate panel). */
   headlessStdout?: string;
   headlessError?: string;
@@ -449,7 +453,12 @@ type LivePtyRawMirrorProps = {
   livePtyMirror?: boolean;
 };
 
-function LivePtyRawMirror({ headlessStdout, headlessError, livePtyMirror = true }: LivePtyRawMirrorProps = {}) {
+function LivePtyRawMirror({
+  mergedPtyPlain = '',
+  headlessStdout,
+  headlessError,
+  livePtyMirror = true
+}: LivePtyRawMirrorProps = {}) {
   const mergeHeadless = headlessStdout !== undefined;
   const {
     clearLiveTranscript,
@@ -459,6 +468,8 @@ function LivePtyRawMirror({ headlessStdout, headlessError, livePtyMirror = true 
     subscribePtyMirrorReset
   } = usePtyBridge();
   const hostRef = useRef<HTMLDivElement>(null);
+  const mergedRef = useRef(mergedPtyPlain);
+  mergedRef.current = mergedPtyPlain;
 
   const headlessBody =
     headlessStdout?.trim() ||
@@ -492,7 +503,16 @@ function LivePtyRawMirror({ headlessStdout, headlessError, livePtyMirror = true 
 
     const replay = () => {
       const buf = peekPtyTranscriptBuffer();
-      if (buf) term.write(buf);
+      const merged = mergedRef.current ?? '';
+      const mergedT = stripAnsi(merged).trim();
+      const bufT = stripAnsi(buf).trim();
+      term.reset();
+      fitAddon.fit();
+      if (mergedT.length >= bufT.length && mergedT.length > 0) {
+        term.write(merged.endsWith('\n') ? merged : `${merged}\n`);
+      } else if (buf) {
+        term.write(buf);
+      }
     };
     replay();
 
@@ -500,8 +520,6 @@ function LivePtyRawMirror({ headlessStdout, headlessError, livePtyMirror = true 
       term.write(chunk);
     });
     const unsubReset = subscribePtyMirrorReset(() => {
-      term.reset();
-      fitAddon.fit();
       replay();
     });
 
@@ -564,10 +582,10 @@ function LivePtyRawMirror({ headlessStdout, headlessError, livePtyMirror = true 
       <p className="text-[11px] text-gray-500 px-4 py-2 bg-[#111] border-b border-gray-800 leading-relaxed">
         {livePtyMirror ? (
           <>
-            xterm.js fed from the same WebSocket PTY as Logon — type here or on Logon. <strong>From here only</strong>{' '}
-            resets this panel’s slice and the Raw byte buffer from new output onward; it does not clear Logon. Pretty
-            Output still keeps a merged transcript (and localStorage for this command + target) so earlier turns usually
-            stay scrollable there.
+            xterm.js fed from the same WebSocket PTY as Logon — type here or on Logon. The PTY area below prefers the
+            same <strong>merged plain transcript</strong> as Pretty (when it is longer than the byte replay buffer) so
+            Raw and Pretty usually match after reconnect. <strong>From here only</strong> clears the byte buffer and
+            resets this mirror; Pretty may still keep older merged lines until you start a new topic or session.
             {mergeHeadless ? (
               <>
                 {' '}
