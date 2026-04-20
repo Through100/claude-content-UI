@@ -22,7 +22,11 @@ import { motion, AnimatePresence } from 'motion/react';
 import { stripAnsi } from '../../shared/stripAnsi';
 import { inferClaudeActivity } from '../../shared/inferClaudeActivity';
 import { headlessOutputLooksLikeInteractivePermissionAsk } from '../../shared/headlessStalePermissionCue';
-import { countPtyProceedPrompts } from '../../shared/claudeCodePtyPermissionMenu';
+import {
+  countPtyProceedPrompts,
+  plainTextShowsClaudePermissionMenu,
+  stripAnsiNormalizePtyMirror
+} from '../../shared/claudeCodePtyPermissionMenu';
 import { downloadElementAsPdf } from '../utils/downloadReportPdf';
 import { apiService } from '../services/api';
 import { usePtyBridge } from '../context/PtyBridgeContext';
@@ -159,7 +163,10 @@ export default function ResultsView({
 
   /** Logon buffer tail looks like Claude Code’s idle welcome — “yes” has no pending question there. */
   const replyPanelWarnWelcomeSplash = useMemo(() => {
-    const tail = stripAnsi(`${ptyFullSnapshotPlain}\n${ptyDisplayPlain}`.slice(-8000)).toLowerCase();
+    const chunk = `${ptyFullSnapshotPlain}\n${ptyDisplayPlain}`.slice(-12000);
+    /** Welcome text can linger in scrollback while a live permission menu is at the tail — don’t warn then. */
+    if (plainTextShowsClaudePermissionMenu(stripAnsiNormalizePtyMirror(chunk))) return false;
+    const tail = stripAnsi(chunk).toLowerCase();
     if (tail.length < 120) return false;
     return (
       tail.includes('welcome back') &&
@@ -707,10 +714,18 @@ function PtyReplyPanel({
       setSending(false);
     };
 
-    /** One PTY write per submit: line + CR when “Append Enter” is on (avoids a second WS send for CR failing silently). */
+    /**
+     * Send text then CR in separate writes (same as dashboard Run). A single buffer with text plus CR often echoes
+     * but does not submit for Claude Code / Ink prompts (e.g. “yes”, “1”, long URLs).
+     */
     const deliverLine = (): boolean => {
       if (appendEnter && t.trim()) {
-        return sendToPty(`${t}\r`);
+        const ok = sendToPty(t);
+        if (!ok) return false;
+        window.setTimeout(() => {
+          void sendToPty('\r');
+        }, 100);
+        return true;
       }
       if (appendEnter && !t.trim()) {
         return sendToPty('\r');
