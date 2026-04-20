@@ -17,9 +17,9 @@ export function plainTextShowsClaudePermissionMenu(plainNormalized: string): boo
   const tail = plainNormalized.slice(-8000);
   if (!/\bEsc to cancel\b/i.test(tail) || !/\bTab to amend\b/i.test(tail)) return false;
   /** Require a numbered option line so we never auto-send on stray footer text alone (e.g. after a PTY restart). */
-  if (!/(^|\n)\s*\d+\.\s+\S/m.test(tail)) return false;
+  if (!/(^|\n)\s*(?:❯\s*)?\d+\.\s+\S/m.test(tail)) return false;
   return (
-    /Do you want to proceed\?/i.test(tail) || /(^|\n)\s*\d+\.\s+Yes,/im.test(tail) || /Yes, and don't ask again/i.test(tail)
+    /Do you want to proceed\?/i.test(tail) || /(^|\n)\s*(?:❯\s*)?\d+\.\s+Yes,/im.test(tail) || /Yes, and don't ask again/i.test(tail)
   );
 }
 
@@ -45,7 +45,7 @@ export function inferPermissionMenuAffirmativeIndex(plainNormalized: string): st
 
   const ranked: { n: number; line: string }[] = [];
   for (const line of slice.split('\n')) {
-    const m = line.trim().match(/^(\d+)\.\s+(.+)$/);
+    const m = line.trim().match(/^(?:❯\s*)?(\d+)\.\s+(.+)$/);
     if (!m) continue;
     const n = parseInt(m[1] ?? '', 10);
     const rest = (m[2] ?? '').trim();

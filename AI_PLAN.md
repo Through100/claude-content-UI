@@ -11,6 +11,7 @@
 - [x] Added support for `✽` and `Actioning` status patterns in PTY parsing.
 - [x] Enhanced `PtyAssistantPending` with an animated `✽` and live status capture.
 - [x] Fixed PTY permission auto-selection prompt dropping input by mimicking manual reply behavior (150ms delay between choice and carriage return \r).
+- [x] Fixed menu parser regex to tolerate the interactive `❯ ` cursor in the first menu option, preventing false "user text bubbles" and ensuring the auto-submit selects index 1.
 - [x] Verified build.
 
 ## To-Do

@@ -106,7 +106,7 @@ export function parsePtyTranscriptToMessages(raw: string): ChatTurn[] {
   if (!t) return [];
 
   const parts = t
-    .split(/(?=^\s*❯\s+)/m)
+    .split(/(?=^\s*❯\s+(?!\d+\.\s+))/m)
     .map((p) => p.replace(/^\n+/, '').trimEnd())
     .filter((p) => p.length > 0);
 

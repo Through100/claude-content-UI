@@ -135,7 +135,7 @@ function splitProseMenuAndRest(prose: string): { kind: 'menu' | 'prose'; text: s
     }
     if (!foundQuestion) {
       for (let s = footerJ - 1; s >= i; s--) {
-        if (/^\s*\d+\.\s+Yes,/i.test(lines[s] ?? '')) {
+        if (/^\s*(?:❯\s*)?\d+\.\s+Yes,/i.test(lines[s] ?? '')) {
           start = s;
           break;
         }
@@ -144,7 +144,7 @@ function splitProseMenuAndRest(prose: string): { kind: 'menu' | 'prose'; text: s
 
     const candidate = lines.slice(start, footerJ + 1).join('\n');
     const looksMenu =
-      /Do you want to proceed/i.test(candidate) || /^\s*\d+\.\s+Yes,/m.test(candidate);
+      /Do you want to proceed/i.test(candidate) || /^\s*(?:❯\s*)?\d+\.\s+Yes,/m.test(candidate);
 
     if (!looksMenu) {
       const buf: string[] = [];
