@@ -13,11 +13,16 @@ function isSubstantiveAssistantTailLine(line: string): boolean {
   return true;
 }
 
+/** Matches token counts in Claude Code footers, including Ink abbreviations like `1.2k tokens`. */
+function lineHasTokenCountFooter(t: string): boolean {
+  return /\b(?:\d{1,3}(?:\.\d+)?k|\d[\d,]*)\s*tokens?\b/i.test(t);
+}
+
 /** Claude Code one-line footer: timer + tokens + optional “thinking” (matches Raw TUI). */
 function isTokenTimerFooterLine(line: string): boolean {
   const t = line.trim();
   if (t.length < 14 || t.length > 420) return false;
-  if (!/\b\d+\s*tokens?\b/i.test(t)) return false;
+  if (!lineHasTokenCountFooter(t)) return false;
   if (!/\(\s*\d+[smh]/i.test(t)) return false;
   if (/\bthinking\b/i.test(t)) return true;
   if (/^\s*[·*•✻✶⎿✢✿✽]\s+\S+ing\b/i.test(t)) return true;
