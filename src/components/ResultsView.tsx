@@ -214,102 +214,109 @@ export default function ResultsView({
       headlessStreamPrimed && liveTerminal.trim().length === 0 && elapsedMs > 120_000;
 
     return (
-      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-8 md:p-12 flex flex-col items-stretch space-y-6 max-w-6xl mx-auto w-full">
-        <div className="flex flex-col items-center space-y-4">
-          <div className="relative">
-            <div className="w-16 h-16 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
-            <TerminalIcon className="absolute inset-0 m-auto text-indigo-600" size={24} />
-          </div>
-          <div className="text-center w-full max-w-xl mx-auto">
-            <h3 className="text-lg font-semibold text-gray-900">Executing blog command</h3>
-            <p className="text-sm text-gray-500">Live output from Claude appears below as it is produced.</p>
-            {loadingStartedAt != null && (
-              <p className="text-sm font-mono text-indigo-600 mt-3">Elapsed: {formatElapsed(loadingStartedAt)}</p>
-            )}
-
-            <div
-              className="mt-4 flex flex-col items-center gap-2 text-left w-full"
-              role="status"
-              aria-live="polite"
-              aria-atomic="true"
-            >
-              {liveActivity ? (
-                <div className="inline-flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 rounded-xl border border-indigo-100 bg-indigo-50/80 px-4 py-3 w-full max-w-lg">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="relative flex h-2.5 w-2.5 shrink-0">
-                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-indigo-400 opacity-40" />
-                      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-indigo-600" />
-                    </span>
-                    <span className="text-sm font-semibold text-indigo-950 truncate">{liveActivity.label}…</span>
-                  </div>
-                  {liveActivity.detail ? (
-                    <p
-                      className="text-xs text-indigo-900/75 leading-snug sm:border-l sm:border-indigo-200 sm:pl-3 sm:ml-0 line-clamp-2 sm:line-clamp-3 text-center sm:text-left break-words"
-                      title={liveActivity.detail}
-                    >
-                      {liveActivity.detail}
-                    </p>
-                  ) : null}
-                </div>
-              ) : headlessStreamPrimed ? (
-                <p className="text-sm text-gray-600">
-                  Server accepted the run — waiting for the first line of output from{' '}
-                  <code className="text-xs bg-gray-100 px-1 rounded">claude -p</code>…
-                </p>
-              ) : (
-                <p className="text-sm text-gray-500">Waiting for the response stream from the API…</p>
+      <>
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-8 md:p-12 flex flex-col items-stretch space-y-6 max-w-6xl mx-auto w-full">
+          <div className="flex flex-col items-center space-y-4">
+            <div className="relative">
+              <div className="w-16 h-16 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
+              <TerminalIcon className="absolute inset-0 m-auto text-indigo-600" size={24} />
+            </div>
+            <div className="text-center w-full max-w-xl mx-auto">
+              <h3 className="text-lg font-semibold text-gray-900">Executing blog command</h3>
+              <p className="text-sm text-gray-500">Live output from Claude appears below as it is produced.</p>
+              {loadingStartedAt != null && (
+                <p className="text-sm font-mono text-indigo-600 mt-3">Elapsed: {formatElapsed(loadingStartedAt)}</p>
               )}
-              {showNoSseYetHint ? (
-                <p className="text-xs text-amber-900/90 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 max-w-lg">
-                  No stream events yet. A reverse proxy often buffers server-sent events until the response ends. Try{' '}
-                  <code className="text-[10px] bg-white/80 px-1 rounded">VITE_RUN_STREAM=0</code> (rebuild) to use
-                  buffered <code className="text-[10px] bg-white/80 px-1 rounded">/api/run</code>, or inspect this
-                  request in the browser Network tab.
-                </p>
-              ) : null}
-              {showClaudeSilentHint ? (
-                <p className="text-xs text-amber-900/90 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 max-w-lg">
-                  The stream is alive but Claude has not printed anything for a long time. Check the API host logs
-                  (Docker: <code className="text-[10px] bg-white/80 px-1 rounded">docker logs</code>) for auth, network,
-                  or a stuck <code className="text-[10px] bg-white/80 px-1 rounded">claude</code> process.
-                </p>
-              ) : null}
-              {showLongRunHint ? (
-                <p className="text-xs text-amber-800/90 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 max-w-lg">
-                  Long blog skill runs can take several minutes. If the timer increases and the terminal scrolls, the
-                  run is still active. If the timer increases with an empty terminal, use the hints above.
-                </p>
-              ) : null}
-            </div>
 
-            <p className="text-xs text-gray-400 mt-4 max-w-lg mx-auto">
-              Uses <code className="bg-gray-100 px-1 rounded">/api/run/stream</code>. Ensure the API is reachable; set{' '}
-              <code className="bg-gray-100 px-1 rounded">VITE_RUN_STREAM=0</code> to fall back to buffered{' '}
-              <code className="bg-gray-100 px-1 rounded">/api/run</code> if your proxy buffers streaming.
-            </p>
+              <div
+                className="mt-4 flex flex-col items-center gap-2 text-left w-full"
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
+              >
+                {liveActivity ? (
+                  <div className="inline-flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 rounded-xl border border-indigo-100 bg-indigo-50/80 px-4 py-3 w-full max-w-lg">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="relative flex h-2.5 w-2.5 shrink-0">
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-indigo-400 opacity-40" />
+                        <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-indigo-600" />
+                      </span>
+                      <span className="text-sm font-semibold text-indigo-950 truncate">{liveActivity.label}…</span>
+                    </div>
+                    {liveActivity.detail ? (
+                      <p
+                        className="text-xs text-indigo-900/75 leading-snug sm:border-l sm:border-indigo-200 sm:pl-3 sm:ml-0 line-clamp-2 sm:line-clamp-3 text-center sm:text-left break-words"
+                        title={liveActivity.detail}
+                      >
+                        {liveActivity.detail}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : headlessStreamPrimed ? (
+                  <p className="text-sm text-gray-600">
+                    Server accepted the run — waiting for the first line of output from{' '}
+                    <code className="text-xs bg-gray-100 px-1 rounded">claude -p</code>…
+                  </p>
+                ) : (
+                  <p className="text-sm text-gray-500">Waiting for the response stream from the API…</p>
+                )}
+                {showNoSseYetHint ? (
+                  <p className="text-xs text-amber-900/90 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 max-w-lg">
+                    No stream events yet. A reverse proxy often buffers server-sent events until the response ends. Try{' '}
+                    <code className="text-[10px] bg-white/80 px-1 rounded">VITE_RUN_STREAM=0</code> (rebuild) to use
+                    buffered <code className="text-[10px] bg-white/80 px-1 rounded">/api/run</code>, or inspect this
+                    request in the browser Network tab.
+                  </p>
+                ) : null}
+                {showClaudeSilentHint ? (
+                  <p className="text-xs text-amber-900/90 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 max-w-lg">
+                    The stream is alive but Claude has not printed anything for a long time. Check the API host logs
+                    (Docker: <code className="text-[10px] bg-white/80 px-1 rounded">docker logs</code>) for auth, network,
+                    or a stuck <code className="text-[10px] bg-white/80 px-1 rounded">claude</code> process.
+                  </p>
+                ) : null}
+                {showLongRunHint ? (
+                  <p className="text-xs text-amber-800/90 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 max-w-lg">
+                    Long blog skill runs can take several minutes. If the timer increases and the terminal scrolls, the
+                    run is still active. If the timer increases with an empty terminal, use the hints above.
+                  </p>
+                ) : null}
+              </div>
+
+              <p className="text-xs text-gray-400 mt-4 max-w-lg mx-auto">
+                Uses <code className="bg-gray-100 px-1 rounded">/api/run/stream</code>. Ensure the API is reachable; set{' '}
+                <code className="bg-gray-100 px-1 rounded">VITE_RUN_STREAM=0</code> to fall back to buffered{' '}
+                <code className="bg-gray-100 px-1 rounded">/api/run</code> if your proxy buffers streaming.
+              </p>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-gray-800 bg-[#1e1e1e] overflow-hidden shadow-inner">
+            <div className="flex items-center justify-between px-4 py-2 bg-[#2d2d2d] border-b border-gray-800">
+              <div className="flex gap-1.5">
+                <div className="w-3 h-3 rounded-full bg-[#ff5f56]" />
+                <div className="w-3 h-3 rounded-full bg-[#ffbd2e]" />
+                <div className="w-3 h-3 rounded-full bg-[#27c93f]" />
+              </div>
+              <span className="text-[10px] font-mono text-gray-500 uppercase tracking-widest">Claude (live)</span>
+              <div className="w-12" />
+            </div>
+            <pre
+              ref={livePreRef}
+              className="p-4 md:p-6 text-xs md:text-sm font-mono text-gray-200 overflow-auto max-h-[min(55vh,520px)] min-h-[120px] leading-relaxed whitespace-pre-wrap break-words"
+            >
+              {liveTerminal.length > 0
+                ? liveTerminal
+                : 'Waiting for output from claude…\n'}
+            </pre>
           </div>
         </div>
-
-        <div className="rounded-2xl border border-gray-800 bg-[#1e1e1e] overflow-hidden shadow-inner">
-          <div className="flex items-center justify-between px-4 py-2 bg-[#2d2d2d] border-b border-gray-800">
-            <div className="flex gap-1.5">
-              <div className="w-3 h-3 rounded-full bg-[#ff5f56]" />
-              <div className="w-3 h-3 rounded-full bg-[#ffbd2e]" />
-              <div className="w-3 h-3 rounded-full bg-[#27c93f]" />
-            </div>
-            <span className="text-[10px] font-mono text-gray-500 uppercase tracking-widest">Claude (live)</span>
-            <div className="w-12" />
-          </div>
-          <pre
-            ref={livePreRef}
-            className="p-4 md:p-6 text-xs md:text-sm font-mono text-gray-200 overflow-auto max-h-[min(55vh,520px)] min-h-[120px] leading-relaxed whitespace-pre-wrap break-words"
-          >
-            {liveTerminal.length > 0
-              ? liveTerminal
-              : 'Waiting for output from claude…\n'}
-          </pre>
-        </div>
-      </div>
+        {/* Always show conversation thread during loading so user bubble + Thinking… spinner is visible */}
+        <DashboardHeadlessChat
+          threadKey={chatThreadKey}
+          refreshKey={chatHistoryTick}
+        />
+      </>
     );
   }
 
@@ -359,6 +366,11 @@ export default function ResultsView({
             lastRunThreadMeta={lastRunThreadMeta}
           />
         ) : null}
+        {/* Show conversation history even when result is null (e.g. after an error or before first run) */}
+        <DashboardHeadlessChat
+          threadKey={chatThreadKey}
+          refreshKey={chatHistoryTick}
+        />
         <PtyReplyPanel
           warnHeadlessMenuReadOnly={replyPanelWarnHeadlessMenuReadOnly}
           warnWelcomeSplash={replyPanelWarnWelcomeSplash}

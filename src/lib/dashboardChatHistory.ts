@@ -184,6 +184,43 @@ export function appendDashboardChatTurn(user: string, assistant: string, threadK
   dispatchDashboardChatsChanged({ threadKey });
 }
 
+/**
+ * Optimistically record the user turn before the run starts (assistant = '').
+ * Returns the turn id so the caller can fill in the assistant response later.
+ */
+export function appendDashboardChatTurnPending(user: string, threadKey: string): string {
+  migrateLegacyFlatIfNeeded();
+  const store = loadStore();
+  const id = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  const list = [...(store.threads[threadKey] ?? [])];
+  list.push({ id, user: user.trim(), assistant: '', at: Date.now() });
+  while (list.length > MAX_TURNS_PER_THREAD) {
+    list.shift();
+  }
+  store.threads[threadKey] = list;
+  pruneOldestThreads(store);
+  saveStore(store);
+  dispatchDashboardChatsChanged({ threadKey });
+  return id;
+}
+
+/** Fill in the assistant text for a specific turn id (companion to appendDashboardChatTurnPending). */
+export function updateDashboardChatTurnById(
+  threadKey: string,
+  id: string,
+  assistant: string
+): void {
+  migrateLegacyFlatIfNeeded();
+  const store = loadStore();
+  const list = [...(store.threads[threadKey] ?? [])];
+  const idx = list.findIndex((t) => t.id === id);
+  if (idx === -1) return;
+  list[idx] = { ...list[idx], assistant: sanitizeRunOutputForChat(assistant), at: Date.now() };
+  store.threads[threadKey] = list;
+  saveStore(store);
+  dispatchDashboardChatsChanged({ threadKey });
+}
+
 export function updateLastDashboardAssistant(threadKey: string, assistant: string): void {
   migrateLegacyFlatIfNeeded();
   const store = loadStore();

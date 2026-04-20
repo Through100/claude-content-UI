@@ -121,9 +121,19 @@ export default function DashboardHeadlessChat({ threadKey, refreshKey }: Props) 
               </div>
               <div className="flex justify-start w-full">
                 <div className="w-full max-w-[min(100%,42rem)] md:max-w-[52rem] pr-2 md:pr-12">
-                  <div className="rounded-2xl border border-gray-100 bg-white px-4 py-5 md:px-7 md:py-6 shadow-sm">
-                    <PrettyOutputBody text={t.assistant} />
-                  </div>
+                  {t.assistant ? (
+                    <div className="rounded-2xl border border-gray-100 bg-white px-4 py-5 md:px-7 md:py-6 shadow-sm">
+                      <PrettyOutputBody text={t.assistant} />
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 px-5 py-4 shadow-sm flex items-center gap-3">
+                      <span className="relative flex h-2.5 w-2.5 shrink-0">
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-indigo-400 opacity-50" />
+                        <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-indigo-600" />
+                      </span>
+                      <span className="text-sm text-indigo-800 animate-pulse font-medium">Thinking…</span>
+                    </div>
+                  )}
                 </div>
               </div>
             </React.Fragment>

@@ -9,7 +9,8 @@ import UsageView from './components/UsageView';
 import { apiService } from './services/api';
 import { BLOG_COMMANDS, RunResponse } from './types';
 import {
-  appendDashboardChatTurn,
+  appendDashboardChatTurnPending,
+  updateDashboardChatTurnById,
   formatChatThreadKey,
   formatRunUserSummary
 } from './lib/dashboardChatHistory';
@@ -119,6 +120,15 @@ export default function App() {
     setError(null);
     setLastRunThreadMeta(null);
     setHeadlessStreamPrimed(false);
+
+    // Compute thread key and user summary now (before async gap)
+    const userLine = formatRunUserSummary(commandKey, target, model);
+    const tk = formatChatThreadKey(commandKey, target);
+
+    // Optimistically show user bubble immediately — fills in assistant when done
+    const pendingTurnId = appendDashboardChatTurnPending(userLine, tk);
+    setChatHistoryTick((n) => n + 1);
+
     try {
       const response = await apiService.runBlogCommand(
         commandKey,
@@ -135,13 +145,11 @@ export default function App() {
         }
       );
       setResult(response);
-      const userLine = formatRunUserSummary(commandKey, target, model);
-      const tk = formatChatThreadKey(commandKey, target);
       setLastRunThreadMeta({ threadKey: tk, userSummary: userLine });
       const out = response.rawOutput?.trim() ?? '';
       const err = response.error?.trim() ?? '';
       const assistant = out || (err ? `Error: ${err}` : '') || '(no output captured)';
-      appendDashboardChatTurn(userLine, assistant, tk);
+      updateDashboardChatTurnById(tk, pendingTurnId, assistant);
       setChatHistoryTick((n) => n + 1);
       if (!response.success && response.error) {
         setError(response.error);
@@ -149,7 +157,11 @@ export default function App() {
     } catch (err) {
       console.error('Failed to run blog command:', err);
       const msg = err instanceof Error ? err.message : String(err);
-      setError(msg || 'The backend terminal environment is unreachable or returned an error.');
+      const errMsg = msg || 'The backend terminal environment is unreachable or returned an error.';
+      setError(errMsg);
+      // Update pending turn with the error so the conversation shows what happened
+      updateDashboardChatTurnById(tk, pendingTurnId, `Error: ${errMsg}`);
+      setChatHistoryTick((n) => n + 1);
     } finally {
       setIsLoading(false);
       setRunStartedAt(null);
