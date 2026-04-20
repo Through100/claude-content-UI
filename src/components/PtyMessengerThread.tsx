@@ -26,8 +26,8 @@ function extractLiveStatus(raw: string) {
   
   for (let i = lines.length - 1; i >= Math.max(0, lines.length - 20); i--) {
     const l = lines[i].trim();
-    if (/^\s*[·*•✻✶⎿]\s*[A-Za-z]+ing(?:_|\b)/i.test(l) || /\b\d+\s*tokens?.*\bthinking\b/i.test(l)) {
-      spinner = l.replace(/^\s*[·*•✻✶⎿]\s*/, '').trim();
+    if (/^\s*[·*•✻✶⎿✢✿]\s*[A-Za-z]+ing(?:_|\b)/i.test(l) || /\b\d+\s*tokens?.*\bthinking\b/i.test(l)) {
+      spinner = l.replace(/^\s*[·*•✻✶⎿✢✿]\s*/, '').trim();
       
       // Look ahead up to 2 lines for a tip
       for (let j = 1; j <= 2; j++) {
