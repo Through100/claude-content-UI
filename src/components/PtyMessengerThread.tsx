@@ -6,6 +6,7 @@ import {
   trimTrailingTrivialAssistantTurns
 } from '../../shared/parsePtyTranscriptToMessages';
 import PtyAssistantBody from './PtyAssistantBody';
+import { stripAnsi } from '../../shared/stripAnsi';
 
 type PtyMessengerThreadProps = {
   transcript: string;
@@ -17,16 +18,45 @@ type PtyMessengerThreadProps = {
   lastManualInput?: { text: string; time: number } | null;
 };
 
-function PtyAssistantPending() {
+function extractLiveStatus(raw: string) {
+  const plain = stripAnsi(raw).replace(/\r\n/g, '\n');
+  const lines = plain.split('\n');
+  let spinner = '';
+  let tip = '';
+  
+  for (let i = lines.length - 1; i >= Math.max(0, lines.length - 20); i--) {
+    const l = lines[i].trim();
+    if (/^\s*[·*•✻✶⎿]\s*[A-Za-z]+ing(?:_|\b)/i.test(l) || /\b\d+\s*tokens?.*\bthinking\b/i.test(l)) {
+      spinner = l.replace(/^\s*[·*•✻✶⎿]\s*/, '').trim();
+      
+      // Look ahead up to 2 lines for a tip
+      for (let j = 1; j <= 2; j++) {
+        if (i + j < lines.length) {
+          const l2 = lines[i + j].trim();
+          if (/^(?:⎿\s*)?(?:L|└)\s*Tip:/i.test(l2)) {
+            tip = l2.replace(/^(?:⎿\s*)?(?:L|└)\s*/, '');
+            break;
+          }
+        }
+      }
+      return { spinner, tip };
+    }
+  }
+  return null;
+}
+
+function PtyAssistantPending({ liveStatus }: { liveStatus?: { spinner: string; tip: string } | null }) {
   return (
     <div className="flex justify-start w-full">
       <div className="w-full max-w-[min(100%,40rem)] md:max-w-[48rem] pr-2 md:pr-16">
         <div className="rounded-2xl border border-indigo-100 bg-indigo-50/90 px-5 py-4 shadow-sm flex items-start gap-3 text-indigo-950">
           <Loader2 className="h-5 w-5 animate-spin shrink-0 text-indigo-600 mt-0.5" aria-hidden />
-          <div>
-            <p className="text-sm font-semibold">Executing...</p>
-            <p className="text-xs text-indigo-900/80 mt-1 leading-relaxed">
-              Waiting for the next lines from the interactive session.
+          <div className="min-w-0">
+            <p className="text-sm font-semibold truncate" title={liveStatus?.spinner || "Executing..."}>
+              {liveStatus?.spinner || "Executing..."}
+            </p>
+            <p className="text-xs text-indigo-900/80 mt-1 leading-relaxed break-words">
+              {liveStatus?.tip || "Waiting for the next lines from the interactive session."}
             </p>
           </div>
         </div>
@@ -52,6 +82,11 @@ export default function PtyMessengerThread({ transcript, awaitingHintSource, las
     () => isAwaitingPtyAssistantResponse(turnsForAwaiting),
     [turnsForAwaiting]
   );
+  
+  const liveStatus = useMemo(() => {
+    if (!showThinking) return null;
+    return extractLiveStatus(awaitingHintSource ?? transcript);
+  }, [showThinking, awaitingHintSource, transcript]);
 
   useEffect(() => {
     const el = scrollerRef.current;
@@ -97,7 +132,7 @@ export default function PtyMessengerThread({ transcript, awaitingHintSource, las
             Live PTY — waiting for the assistant after your last line.
           </p>
           <div className="px-4 py-8 md:px-8 max-h-[min(75vh,720px)] overflow-y-auto bg-white">
-            <PtyAssistantPending />
+            <PtyAssistantPending liveStatus={liveStatus} />
           </div>
         </div>
       );
@@ -153,7 +188,7 @@ export default function PtyMessengerThread({ transcript, awaitingHintSource, las
             </div>
           )
         )}
-        {showThinking ? <PtyAssistantPending /> : null}
+        {showThinking ? <PtyAssistantPending liveStatus={liveStatus} /> : null}
       </div>
     </section>
   );
