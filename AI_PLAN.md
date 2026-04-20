@@ -10,6 +10,7 @@
 - [x] Provided explanation to the user.
 - [x] Added support for `✽` and `Actioning` status patterns in PTY parsing.
 - [x] Enhanced `PtyAssistantPending` with an animated `✽` and live status capture.
+- [x] Fixed PTY permission auto-selection prompt dropping input by mimicking manual reply behavior (150ms delay between choice and carriage return \r).
 - [x] Verified build.
 
 ## To-Do

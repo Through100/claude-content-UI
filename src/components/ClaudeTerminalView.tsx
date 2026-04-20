@@ -194,10 +194,20 @@ export default function ClaudeTerminalView({
         ) {
           permissionMenuAutoChoiceSent = true;
           const choice = inferPermissionMenuAffirmativeIndex(plainNorm);
-          console.log(`[claude-seo-ui] Auto-choosing permission option "${choice}" for menu in PTY.`);
+          console.log(`[claude-seo-ui] Auto-choosing permission option "${choice}" for menu in PTY in 500ms.`);
           // Send the number + CR. If Claude is in raw mode waiting for one key, 
           // the '1' satisfies it and the '\r' is usually ignored or consumed by the next prompt.
-          ws.send(JSON.stringify({ type: 'input', data: `${choice}\r` }));
+          // Add delay so CLI buffers can flush/ready the prompt before processing input
+          setTimeout(() => {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: 'input', data: String(choice) }));
+              setTimeout(() => {
+                if (ws.readyState === WebSocket.OPEN) {
+                  ws.send(JSON.stringify({ type: 'input', data: '\r' }));
+                }
+              }, 150);
+            }
+          }, 500);
         }
         return;
       }
