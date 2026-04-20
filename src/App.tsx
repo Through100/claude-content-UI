@@ -112,6 +112,9 @@ export default function App() {
     ptySentAtRef.current = now;
   }, [ptySessionReady, sendToPty, clearLiveTranscript]);
 
+  const ptyIsProcessing = ptySentAt != null && (Date.now() - ptySentAt < 45000); // 45s timeout for the "Executing" hint
+
+
   return (
     <Layout
       activeView={activeView}
@@ -174,7 +177,13 @@ export default function App() {
                 <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest">Conversation</h3>
                 <div className="flex-1 h-px bg-gray-100"></div>
               </div>
-              <ResultsView result={null} chatThreadKey={chatThreadKey} ptySentAt={ptySentAt} />
+              <ResultsView 
+                result={null} 
+                isLoading={ptyIsProcessing} 
+                loadingStartedAt={ptySentAt}
+                chatThreadKey={chatThreadKey} 
+                ptySentAt={ptySentAt} 
+              />
             </div>
           </motion.div>
         ) : activeView === 'history' ? (

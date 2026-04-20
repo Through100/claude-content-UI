@@ -211,13 +211,10 @@ export default function ResultsView({
     el.scrollTop = el.scrollHeight;
   }, [liveTerminal]);
 
-  if (isLoading) {
-    const elapsedMs = loadingStartedAt != null ? Date.now() - loadingStartedAt : 0;
-    const showLongRunHint = elapsedMs > 40_000;
-    const showNoSseYetHint = !headlessStreamPrimed && elapsedMs > 60_000;
-    const showClaudeSilentHint =
-      headlessStreamPrimed && liveTerminal.trim().length === 0 && elapsedMs > 120_000;
+  const ptyTranscriptTrimmed = (ptyFullSnapshotPlain + ptyDisplayPlain).trim();
+  const showBigSpinner = isLoading && !ptySessionReady && !ptyTranscriptTrimmed;
 
+  if (showBigSpinner) {
     return (
       <>
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-8 md:p-12 flex flex-col items-stretch space-y-6 max-w-6xl mx-auto w-full">
@@ -886,20 +883,22 @@ function PrettyOutputView({
     return () => window.clearTimeout(id);
   }, [prettyMode, chatThreadKey, ptyForPretty, ptyTranscript]);
 
-  /** Show a brief "waiting for Claude" banner after sending and before any PTY output arrives. */
-  const showSentWaiting = ptySentAt != null && !ptyForDisplay.trim();
+  // Show the temporary banner if we just sent a command and the assistant hasn't replied with any real text yet.
+  // We keep it visible for at least 15 seconds or until something appears in the pretty transcript.
+  const isRecentSent = ptySentAt != null && (Date.now() - ptySentAt < 15000);
+  const showSentWaiting = isRecentSent && (!ptyForDisplay.trim() || ptyForDisplay.trim() === ptyTranscript.trim());
 
   const emptySection = showSentWaiting ? (
-    <div className="rounded-2xl border border-indigo-100 bg-indigo-50/70 px-5 py-6 flex items-start gap-4 shadow-sm">
-      <span className="relative flex h-3 w-3 shrink-0 mt-1">
+    <div className="rounded-2xl border border-indigo-100 bg-indigo-50/70 px-5 py-6 flex items-start gap-4 shadow-sm animate-pulse">
+      <div className="relative flex h-3 w-3 shrink-0 mt-1">
         <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-indigo-400 opacity-50" />
         <span className="relative inline-flex h-3 w-3 rounded-full bg-indigo-600" />
-      </span>
+      </div>
       <div>
         <p className="text-sm font-semibold text-indigo-950">Executing...</p>
         <p className="text-xs text-indigo-800/80 mt-1 leading-relaxed">
-          Output will appear here as Claude responds. You can also watch the live stream in{' '}
-          <strong>Raw View</strong> or <strong>Logon</strong>.
+          Claude is processing your command in the interactive session. 
+          Real-time updates are visible in <strong>Raw View</strong>.
         </p>
       </div>
     </div>
@@ -908,6 +907,7 @@ function PrettyOutputView({
       No conversation yet — run a command above, or type in <strong>Logon</strong> / <strong>Reply via PTY</strong> below.
     </div>
   );
+
 
   const ptySection =
     ptyForDisplay.trim().length > 0 ? (
