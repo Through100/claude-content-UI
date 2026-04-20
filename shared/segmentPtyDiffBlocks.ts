@@ -90,7 +90,7 @@ export function segmentDiffAndProse(raw: string): { kind: 'diff' | 'prose'; text
 /** Claude Code permission / multi-choice footer (Pretty markdown was turning `1. Yes…` into a fake “reply”). */
 function isLikelyClaudePermissionMenuFooter(line: string): boolean {
   const t = line.replace(/\r$/, '');
-  return /\bEsc to cancel\b/i.test(t) && /\bTab to (?:amend|edit|change)\b/i.test(t);
+  return /\bEsc to cancel\b/i.test(t) && /\bTab to amend\b/i.test(t);
 }
 
 /** Any single-line “Do you want to …?” used before numbered Yes/No rows (proceed, make this edit, run tool, …). */
