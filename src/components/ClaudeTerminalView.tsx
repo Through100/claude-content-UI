@@ -77,6 +77,14 @@ export default function ClaudeTerminalView({
   const ptyBridge = usePtyBridge();
   const ptyBridgeRef = useRef(ptyBridge);
   ptyBridgeRef.current = ptyBridge;
+  const [ws, setWs] = useState<WebSocket | null>(null);
+
+  // Allow parent to trigger direct input (e.g. Run button)
+  useEffect(() => {
+    if (initialInput && ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'input', data: initialInput }));
+    }
+  }, [initialInput, ws]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -102,7 +110,10 @@ export default function ClaudeTerminalView({
     fitAddon.fit();
     ptyBridgeRef.current.registerPtyTerminal(term);
 
-    const ws = new WebSocket(wsUrl());
+    const socket = new WebSocket(wsUrl());
+    setWs(socket);
+    const ws = socket;
+
     let sessionCreated = false;
     let destroyed = false;
     /** Rolling recent PTY bytes (for detecting permission menus across chunk boundaries). */
