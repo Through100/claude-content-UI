@@ -73,8 +73,9 @@ export function isTrivialAssistantTail(text: string): boolean {
   const toolEcho = (l: string) =>
     /^Reading\b/i.test(l) || /^Listed\b/i.test(l) || /^Globbed\b/i.test(l);
   if (lines.every((l) => isPtyAssistantNoiseLine(l) || toolEcho(l))) return true;
+  // Previously this was < 6; but short replies like "Ok." or "Done." were being hidden.
   const letters = (t.match(/[A-Za-z]/g) ?? []).length;
-  return letters < 6;
+  return letters < 1;
 }
 
 /** Drop trailing assistant bubbles that are only cost lines / rules / spinner hints. */
