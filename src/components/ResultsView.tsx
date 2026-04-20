@@ -654,7 +654,7 @@ function PtyReplyPanel({
 
   const handleSend = () => {
     const t = text.trim();
-    if (!t) {
+    if (!t && !appendEnter) {
       setHint({ message: 'Type a reply first.', type: 'info' });
       return;
     }
@@ -771,7 +771,7 @@ function PtyReplyPanel({
 }
 
 /** Shows a short “Receiving…” pulse while PTY narrative text is changing. */
-function PtyNarrativeLiveBadge({ rawOutput }: { rawOutput: string }) {
+function PtyNarrativeLiveBadge({ rawOutput, executing }: { rawOutput: string; executing: boolean }) {
   const [receiving, setReceiving] = useState(false);
   const timerRef = useRef<number | null>(null);
   const prevOutRef = useRef<string | null>(null);
@@ -786,7 +786,7 @@ function PtyNarrativeLiveBadge({ rawOutput }: { rawOutput: string }) {
     timerRef.current = window.setTimeout(() => {
       timerRef.current = null;
       setReceiving(false);
-    }, 900);
+    }, 1200);
     return () => {
       if (timerRef.current != null) {
         window.clearTimeout(timerRef.current);
@@ -795,15 +795,18 @@ function PtyNarrativeLiveBadge({ rawOutput }: { rawOutput: string }) {
     };
   }, [rawOutput]);
 
+  const showPulse = receiving || executing;
+  const label = receiving ? 'Receiving…' : executing ? 'Claude is Thinking…' : 'Live';
+
   return (
     <span className="inline-flex items-center gap-1.5 shrink-0 text-[11px] font-semibold text-emerald-900">
-      {receiving ? (
+      {showPulse ? (
         <>
           <span className="relative flex h-2 w-2" aria-hidden>
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-60" />
             <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-600" />
           </span>
-          <span className="tabular-nums animate-pulse">Receiving…</span>
+          <span className="tabular-nums animate-pulse">{label}</span>
         </>
       ) : (
         <span className="text-emerald-800/85">Live</span>
@@ -811,6 +814,7 @@ function PtyNarrativeLiveBadge({ rawOutput }: { rawOutput: string }) {
     </span>
   );
 }
+
 
 type PrettyOutputMode = 'headless' | 'pty' | 'both';
 
@@ -839,7 +843,8 @@ function PrettyOutputView({
   lastRunThreadMeta = null,
   headlessResult = null,
   ptySessionReady,
-  ptySentAt = null
+  ptySentAt = null,
+  isLoading = false
 }: {
   prettyMode: PrettyOutputMode;
   ptyTranscript: string;
@@ -849,6 +854,7 @@ function PrettyOutputView({
   headlessResult?: RunResponse | null;
   ptySessionReady?: boolean;
   ptySentAt?: number | null;
+  isLoading?: boolean;
 }) {
   /** Splash + spinner lines hidden here only; Logon / Raw stay full-fidelity. */
   const ptyForPretty = useMemo(() => {
@@ -919,7 +925,7 @@ function PrettyOutputView({
             <strong>Logon</strong> / <strong>Raw</strong>. Type replies directly in the <strong>Reply</strong> panel
             below — Claude will see them in the same session.
           </span>
-          <PtyNarrativeLiveBadge rawOutput={ptyForDisplay} />
+          <PtyNarrativeLiveBadge rawOutput={ptyForDisplay} executing={isLoading} />
         </div>
         <PtyMessengerThread transcript={ptyForDisplay} awaitingHintSource={ptyTranscript} />
       </>
