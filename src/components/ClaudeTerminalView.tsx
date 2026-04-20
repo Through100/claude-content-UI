@@ -147,7 +147,8 @@ export default function ClaudeTerminalView({
         sessionCreated = true;
         ptyRawMirror = '';
         permissionMenuAutoChoiceSent = false;
-        ptyBridgeRef.current.clearLiveTranscript({ resetPrettySession: true });
+        // Don't call clearLiveTranscript here; App.tsx handles it for new runs.
+        // Calling it here while the parent is also updating state can lead to render loops.
         ptyBridgeRef.current.setSessionConnected(true);
         if (initialInput && ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: 'input', data: initialInput }));
