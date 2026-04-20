@@ -32,6 +32,8 @@ export function isPtyAssistantNoiseLine(line: string): boolean {
     /\b\d+\s*tokens?\b/i.test(l) &&
     (/\(\s*\d+s/i.test(l) || /↑\s*\d+/.test(l) || /↓\s*\d+/.test(l))
   ) {
+    /** Same shape as Ink live status bar — keep in Pretty (footer / thread), not “assistant noise”. */
+    if (/·\s*[↓↑]\s*[\d,.]/i.test(l) && /\(\s*\d+[smh]/i.test(l) && l.length < 220) return false;
     return true;
   }
   if (/^\s*[·*•✻✶⎿✢✿✽]\s*\w+ing\b/i.test(l) && l.length < 160) return true;
