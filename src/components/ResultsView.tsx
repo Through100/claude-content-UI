@@ -846,6 +846,13 @@ function appendDashboardRunAsPtyPlain(ptyHead: string, userSummary: string, assi
   return `${head}\n\n${runBlock}`;
 }
 
+function PrettyOutputView({
+  prettyMode,
+  ptyTranscript,
+  chatHistoryTick = 0,
+  chatThreadKey,
+  lastRunThreadMeta = null,
+  headlessResult = null,
   ptySessionReady,
   ptySentAt = null,
   isLoading = false,
