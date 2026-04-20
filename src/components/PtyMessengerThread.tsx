@@ -14,6 +14,7 @@ type PtyMessengerThreadProps = {
    * whether to show “Claude is responding…” while spinners are stripped from `transcript`.
    */
   awaitingHintSource?: string;
+  lastManualInput?: { text: string; time: number } | null;
 };
 
 function PtyAssistantPending() {
@@ -38,7 +39,7 @@ function PtyAssistantPending() {
  * ChatGPT-style thread: assistant on the left (markdown or plain), you on the right (pill).
  * Shows a loading card when the last parsed turn is the user (assistant still thinking / not yet in buffer).
  */
-export default function PtyMessengerThread({ transcript, awaitingHintSource }: PtyMessengerThreadProps) {
+export default function PtyMessengerThread({ transcript, awaitingHintSource, lastManualInput }: PtyMessengerThreadProps) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const stickBottomRef = useRef(true);
   const turnsRaw = useMemo(() => parsePtyTranscriptToMessages(transcript), [transcript]);
@@ -65,10 +66,20 @@ export default function PtyMessengerThread({ transcript, awaitingHintSource }: P
     stickBottomRef.current = gap < 120;
   };
 
-  const visibleTurns = useMemo(
-    () => displayTurns.filter((m) => m.role === 'user' || m.text.trim().length > 0),
-    [displayTurns]
-  );
+  const visibleTurns = useMemo(() => {
+    const base = displayTurns.filter((m) => m.role === 'user' || m.text.trim().length > 0);
+    if (!lastManualInput) return base;
+    
+    // If the manual input was already naturally echoed by the terminal, we don't append it again.
+    const lastUser = base.slice().reverse().find((m) => m.role === 'user');
+    const naturallyEchoed = lastUser && lastUser.text.trim() === lastManualInput.text.trim();
+    
+    // Show the optimistic bubble for recent inputs (30s) or indefinitely as the last action.
+    if (!naturallyEchoed && Date.now() - lastManualInput.time < 45000) {
+      return [...base, { id: `manual-${lastManualInput.time}`, role: 'user', text: lastManualInput.text }];
+    }
+    return base;
+  }, [displayTurns, lastManualInput]);
 
   if (visibleTurns.length === 0) {
     const fallback = transcript?.trim();

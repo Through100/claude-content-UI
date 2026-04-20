@@ -76,6 +76,7 @@ export default function ResultsView({
   const isHistoryEmbed = embedMode === 'history';
   const [activeTab, setActiveTab] = useState<'pretty' | 'raw'>('pretty');
   const [pdfExporting, setPdfExporting] = useState(false);
+  const [lastManualInput, setLastManualInput] = useState<{ text: string; time: number } | null>(null);
   const livePreRef = useRef<HTMLPreElement>(null);
   const prettyReportRef = useRef<HTMLDivElement>(null);
   const pdfAfterPrettySwitchRef = useRef(false);
@@ -419,6 +420,8 @@ export default function ResultsView({
                   headlessResult={result}
                   ptySessionReady={ptySessionReady}
                   ptySentAt={ptySentAt}
+                  isLoading={isLoading}
+                  lastManualInput={lastManualInput}
                 />
               )}
             </div>
@@ -445,6 +448,7 @@ export default function ResultsView({
         <PtyReplyPanel
           warnHeadlessMenuReadOnly={replyPanelWarnHeadlessMenuReadOnly}
           warnWelcomeSplash={replyPanelWarnWelcomeSplash}
+          onReplySent={(text) => setLastManualInput({ text, time: Date.now() })}
         />
       ) : null}
     </div>
@@ -639,8 +643,8 @@ function LivePtyRawMirror({
 type PtyReplyPanelProps = {
   /** Finished headless output in Pretty looks like a Fetch/permission ask — Reply still targets the live PTY only. */
   warnHeadlessMenuReadOnly?: boolean;
-  /** Live buffer tail matches Claude Code welcome splash — no pending numbered menu there. */
   warnWelcomeSplash?: boolean;
+  onReplySent?: (text: string) => void;
 };
 
 function PtyReplyPanel({
@@ -674,10 +678,13 @@ function PtyReplyPanel({
       sendToPty(t);
       if (appendEnter && t.trim()) {
         setTimeout(() => sendToPty('\r'), 100);
+      if (appendEnter && t.trim()) {
+        setTimeout(() => sendToPty('\r'), 100);
       } else if (appendEnter && !t.trim()) {
         sendToPty('\r');
       }
       setHint({ message: 'Sent to the interactive PTY.', type: 'success' });
+      onReplySent?.(t);
       setText('');
       // Auto-clear success hint after a few seconds
       setTimeout(() => setHint(h => h?.type === 'success' ? null : h), 4000);
@@ -841,16 +848,10 @@ function appendDashboardRunAsPtyPlain(ptyHead: string, userSummary: string, assi
   return `${head}\n\n${runBlock}`;
 }
 
-function PrettyOutputView({
-  prettyMode,
-  ptyTranscript,
-  chatHistoryTick = 0,
-  chatThreadKey,
-  lastRunThreadMeta = null,
-  headlessResult = null,
   ptySessionReady,
   ptySentAt = null,
-  isLoading = false
+  isLoading = false,
+  lastManualInput = null
 }: {
   prettyMode: PrettyOutputMode;
   ptyTranscript: string;
@@ -861,6 +862,7 @@ function PrettyOutputView({
   ptySessionReady?: boolean;
   ptySentAt?: number | null;
   isLoading?: boolean;
+  lastManualInput?: { text: string; time: number } | null;
 }) {
   /** Splash + spinner lines hidden here only; Logon / Raw stay full-fidelity. */
   const ptyForPretty = useMemo(() => {
@@ -896,7 +898,8 @@ function PrettyOutputView({
   }, [prettyMode, chatThreadKey, ptyForPretty, ptyTranscript]);
 
   // Show the temporary banner if we're in a loading state and the assistant hasn't replied with any real text yet.
-  const showSentWaiting = isLoading && (!ptyForDisplay.trim() || ptyForDisplay.trim() === ptyTranscript.trim());
+  const isRecentSent = ptySentAt != null && Date.now() - ptySentAt < 15000;
+  const showSentWaiting = isLoading && isRecentSent && (!ptyForDisplay.trim() || ptyForDisplay.trim() === ptyTranscript.trim());
   const isPtyActivelyExecuting = useMemo(() => {
     if (!ptyTranscript.trim()) return isLoading;
     return isAwaitingPtyAssistantResponse(parsePtyTranscriptToMessages(ptyTranscript));
@@ -936,7 +939,7 @@ function PrettyOutputView({
           </span>
           <PtyNarrativeLiveBadge rawOutput={ptyForDisplay} executing={isPtyActivelyExecuting} />
         </div>
-        <PtyMessengerThread transcript={ptyForDisplay} awaitingHintSource={ptyTranscript} />
+        <PtyMessengerThread transcript={ptyForDisplay} awaitingHintSource={ptyTranscript} lastManualInput={lastManualInput} />
       </>
     ) : (
       emptySection
