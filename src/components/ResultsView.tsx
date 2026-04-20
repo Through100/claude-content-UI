@@ -17,6 +17,7 @@ import {
 import { BLOG_COMMANDS, RunResponse } from '../types';
 import { formatChatThreadKey, sanitizeRunOutputForChat } from '../lib/dashboardChatHistory';
 import { syncPrettyPtyTranscriptToDashboardThread } from '../lib/syncPtyTranscriptToDashboardChat';
+import { isAwaitingPtyAssistantResponse, parsePtyTranscriptToMessages } from '../../shared/parsePtyTranscriptToMessages';
 import { motion, AnimatePresence } from 'motion/react';
 import { stripAnsi } from '../../shared/stripAnsi';
 import { inferClaudeActivity } from '../../shared/inferClaudeActivity';
