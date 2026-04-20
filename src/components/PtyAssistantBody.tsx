@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { segmentPtyAssistantDisplayBlocks } from '../../shared/segmentPtyDiffBlocks';
+import { normalizeAsciiTableForPretty } from '../../shared/normalizeAsciiTableForPretty';
 import PrettyOutputBody from './PrettyOutputBody';
 
 /** Renders Live PTY assistant text: diffs / ASCII pipe grids as monospace pre, everything else as Pretty markdown. */
@@ -56,8 +57,11 @@ export default function PtyAssistantBody({ text }: { text: string }) {
             <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-600 bg-slate-100/95 border-b border-slate-200">
               Table (fixed width)
             </div>
-            <pre className="m-0 max-h-[min(70vh,680px)] overflow-auto px-3 py-3 text-[11px] sm:text-[12px] leading-[1.4] font-mono text-slate-900 whitespace-pre">
-              {p.text}
+            <pre
+              className="m-0 max-h-[min(70vh,680px)] overflow-x-auto px-3 py-3 text-[12px] leading-[1.35] font-mono text-slate-900 whitespace-pre break-normal [overflow-wrap:normal] tracking-normal select-text"
+              style={{ fontVariantLigatures: 'none', fontFeatureSettings: '"liga" 0, "calt" 0' }}
+            >
+              {normalizeAsciiTableForPretty(p.text)}
             </pre>
           </div>
         ) : (
