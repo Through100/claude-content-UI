@@ -420,6 +420,7 @@ export default function ResultsView({
                   lastRunThreadMeta={lastRunThreadMeta}
                   headlessResult={result}
                   ptySessionReady={ptySessionReady}
+                  ptySentAt={ptySentAt}
                 />
               )}
             </div>
