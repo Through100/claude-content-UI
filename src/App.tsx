@@ -112,8 +112,8 @@ export default function App() {
     ptySentAtRef.current = now;
   }, [ptySessionReady, sendToPty, clearLiveTranscript]);
 
-  const ptyIsProcessing = ptySentAt != null && (Date.now() - ptySentAt < 45000); // 45s timeout for the "Executing" hint
-
+  // We determine if PTY is actively processing inside ResultsView based on the transcript.
+  const ptyIsProcessing = ptySentAt != null;
 
   return (
     <Layout

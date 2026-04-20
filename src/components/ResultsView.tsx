@@ -889,10 +889,13 @@ function PrettyOutputView({
     return () => window.clearTimeout(id);
   }, [prettyMode, chatThreadKey, ptyForPretty, ptyTranscript]);
 
-  // Show the temporary banner if we just sent a command and the assistant hasn't replied with any real text yet.
-  // We keep it visible for at least 15 seconds or until something appears in the pretty transcript.
-  const isRecentSent = ptySentAt != null && (Date.now() - ptySentAt < 15000);
-  const showSentWaiting = isRecentSent && (!ptyForDisplay.trim() || ptyForDisplay.trim() === ptyTranscript.trim());
+  // Show the temporary banner if we're in a loading state and the assistant hasn't replied with any real text yet.
+  const showSentWaiting = isLoading && (!ptyForDisplay.trim() || ptyForDisplay.trim() === ptyTranscript.trim());
+  const isPtyActivelyExecuting = useMemo(() => {
+    if (!ptyTranscript.trim()) return isLoading;
+    return isAwaitingPtyAssistantResponse(parsePtyTranscriptToMessages(ptyTranscript));
+  }, [ptyTranscript, isLoading]);
+
 
   const emptySection = showSentWaiting ? (
     <div className="rounded-2xl border border-indigo-100 bg-indigo-50/70 px-5 py-6 flex items-start gap-4 shadow-sm animate-pulse">
@@ -925,7 +928,7 @@ function PrettyOutputView({
             <strong>Logon</strong> / <strong>Raw</strong>. Type replies directly in the <strong>Reply</strong> panel
             below — Claude will see them in the same session.
           </span>
-          <PtyNarrativeLiveBadge rawOutput={ptyForDisplay} executing={isLoading} />
+          <PtyNarrativeLiveBadge rawOutput={ptyForDisplay} executing={isPtyActivelyExecuting} />
         </div>
         <PtyMessengerThread transcript={ptyForDisplay} awaitingHintSource={ptyTranscript} />
       </>
