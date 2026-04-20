@@ -678,8 +678,6 @@ function PtyReplyPanel({
       sendToPty(t);
       if (appendEnter && t.trim()) {
         setTimeout(() => sendToPty('\r'), 100);
-      if (appendEnter && t.trim()) {
-        setTimeout(() => sendToPty('\r'), 100);
       } else if (appendEnter && !t.trim()) {
         sendToPty('\r');
       }
