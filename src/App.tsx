@@ -38,7 +38,7 @@ export default function App() {
       }
     } catch {
       apiOk = false;
-      setTerminalWsEnabled(false);
+      // Keep previous terminalWsEnabled state rather than aggressively unmounting the terminal on every API hiccup.
     }
     let email: string | null = null;
     try {

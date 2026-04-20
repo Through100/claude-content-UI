@@ -10,7 +10,9 @@ import {
   Download,
   FileDown,
   Send,
-  FileCode
+  FileCode,
+  Loader2,
+  AlertCircle
 } from 'lucide-react';
 import { BLOG_COMMANDS, RunResponse } from '../types';
 import { formatChatThreadKey, sanitizeRunOutputForChat } from '../lib/dashboardChatHistory';
@@ -713,44 +715,64 @@ function PtyReplyPanel({
   const { sendToPty, ptySessionReady } = usePtyBridge();
   const [text, setText] = useState('');
   const [appendEnter, setAppendEnter] = useState(true);
-  const [hint, setHint] = useState<string | null>(null);
+  const [hint, setHint] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const [sending, setSending] = useState(false);
 
   const handleSend = () => {
     const t = text.trim();
     if (!t) {
-      setHint('Type a reply first (e.g. answers to Claude’s questions).');
+      setHint({ message: 'Type a reply first.', type: 'info' });
       return;
     }
     if (!ptySessionReady) {
-      setHint('PTY is not ready yet. Wait for the session to connect, or open Logon and check the terminal.');
+      setHint({
+        message: 'PTY is not ready (Connecting…). Wait for the dot in the header to turn green.',
+        type: 'error'
+      });
       return;
     }
-    sendToPty(appendEnter ? `${t}\r` : t);
-    setHint('Sent to the same PTY as Logon.');
-    setText('');
+    
+    setSending(true);
+    setHint(null);
+    
+    try {
+      sendToPty(appendEnter ? `${t}\r` : t);
+      setHint({ message: 'Sent to the interactive PTY.', type: 'success' });
+      setText('');
+      // Auto-clear success hint after a few seconds
+      setTimeout(() => setHint(h => h?.type === 'success' ? null : h), 4000);
+    } catch (err) {
+      setHint({ message: `Failed to send: ${String(err)}`, type: 'error' });
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
-    <div className="rounded-2xl border border-indigo-200 bg-indigo-50/50 p-5 space-y-3">
+    <div className="rounded-2xl border border-indigo-200 bg-indigo-50/50 p-5 space-y-3 shadow-inner">
       <h4 className="text-sm font-bold text-indigo-950 flex items-center gap-2">
         <Send size={16} className="text-indigo-600 shrink-0" aria-hidden />
         Reply via interactive PTY
       </h4>
-      {warnHeadlessMenuReadOnly ? (
-        <p className="text-xs text-amber-950 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 leading-relaxed">
-          Pretty may still show a <strong>finished</strong> <code className="text-[10px] px-1 rounded bg-white/80">claude -p</code>{' '}
-          Fetch / permission block (read-only). <strong>Send to PTY</strong> goes to the <strong>live</strong> session in
-          Logon — not that finished run. Open <strong>Logon</strong> and answer only if a <strong>numbered</strong> tool
-          menu is visible there; otherwise describe your task instead of “yes please”.
-        </p>
-      ) : null}
-      {warnWelcomeSplash ? (
-        <p className="text-xs text-slate-800 bg-slate-100 border border-slate-200 rounded-lg px-3 py-2 leading-relaxed">
-          The live PTY buffer looks like <strong>Welcome back</strong> (idle home). Claude has no pending question yet,
-          so short replies like “yes” will confuse it. Paste your goal, or switch to <strong>Logon</strong> and wait until
-          a real prompt appears.
-        </p>
-      ) : null}
+      
+      {warnHeadlessMenuReadOnly && (
+        <div className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex items-start gap-2">
+          <AlertCircle size={14} className="shrink-0 mt-0.5 text-amber-600" />
+          <p className="leading-relaxed">
+            The finished <strong>Fetch</strong> block above is read-only. Answer only if a <strong>live numbered menu</strong> is visible in the bubble below (or the terminal in Logon).
+          </p>
+        </div>
+      )}
+
+      {warnWelcomeSplash && (
+        <div className="text-xs text-slate-800 bg-white border border-slate-200 rounded-lg px-3 py-2 flex items-start gap-2">
+          <TerminalIcon size={14} className="shrink-0 mt-0.5 text-slate-500" />
+          <p className="leading-relaxed">
+            PTY is idling at <strong>Welcome back</strong>. Short replies like “yes” will be ignored. Describe your goal or switch to <strong>Logon</strong>.
+          </p>
+        </div>
+      )}
+
       <textarea
         value={text}
         onChange={(e) => {
@@ -759,9 +781,10 @@ function PtyReplyPanel({
         }}
         rows={4}
         spellCheck={false}
-        placeholder="e.g. Answers: 1) Beginners 2) How-to guide 3) ~2000 words 4) Markdown"
+        placeholder="e.g. '1' (Yes), '2' (Yes, and don't ask again), or 'Explain how...'"
         className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none resize-y font-mono"
       />
+      
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <label className="flex items-center gap-2 text-xs font-medium text-indigo-900 cursor-pointer select-none">
           <input
@@ -772,23 +795,43 @@ function PtyReplyPanel({
           />
           Append Enter (↵) after text
         </label>
+        
         <button
           type="button"
           onClick={handleSend}
-          disabled={!ptySessionReady}
-          className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
+          disabled={!ptySessionReady || sending}
+          className="inline-flex items-center justify-center gap-2 px-6 py-2 rounded-xl text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm active:scale-95"
         >
-          <Send size={16} aria-hidden />
+          {sending ? (
+            <Loader2 size={16} className="animate-spin" />
+          ) : (
+            <Send size={16} aria-hidden />
+          )}
           Send to PTY
         </button>
       </div>
-      {!ptySessionReady ? (
-        <p className="text-xs text-amber-900 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
-          Waiting for the PTY WebSocket session (starts automatically when the app loads). If this persists, open{' '}
-          <strong>Logon</strong> and confirm the terminal is not showing an error.
+
+      <AnimatePresence>
+        {hint && (
+          <motion.p
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className={`text-xs font-medium px-1 ${
+              hint.type === 'error' ? 'text-red-600' : hint.type === 'success' ? 'text-emerald-600' : 'text-indigo-800'
+            }`}
+          >
+            {hint.message}
+          </motion.p>
+        )}
+      </AnimatePresence>
+
+      {!ptySessionReady && !sending && (
+        <p className="text-xs text-amber-700 bg-amber-50/50 rounded-lg px-3 py-2 border border-amber-100">
+          PTY Connecting… Open <strong>Logon</strong> to check the terminal state. 
+          Sending input requires an active WebSocket.
         </p>
-      ) : null}
-      {hint ? <p className="text-xs text-indigo-800 font-medium">{hint}</p> : null}
+      )}
     </div>
   );
 }
