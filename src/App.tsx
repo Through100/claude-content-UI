@@ -1,4 +1,4 @@
-import React, { useState, useReducer, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Layout, { type HeaderSessionSnapshot } from './components/Layout';
 import SeoCommandForm from './components/SeoCommandForm';
 import ResultsView from './components/ResultsView';
@@ -7,13 +7,9 @@ import AccountView from './components/AccountView';
 import LogonView from './components/LogonView';
 import UsageView from './components/UsageView';
 import { apiService } from './services/api';
-import { BLOG_COMMANDS, RunResponse } from './types';
-import {
-  appendDashboardChatTurnPending,
-  updateDashboardChatTurnById,
-  formatChatThreadKey,
-  formatRunUserSummary
-} from './lib/dashboardChatHistory';
+import { BLOG_COMMANDS, buildBlogPrompt } from './types';
+import { formatChatThreadKey } from './lib/dashboardChatHistory';
+import { usePtyBridge } from './context/PtyBridgeContext';
 import { AlertCircle, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -50,7 +46,7 @@ export default function App() {
       const raw = acc.statusSnapshot?.email?.trim() ?? '';
       if (raw.includes('@')) email = raw;
     } catch {
-      /* leave null — e.g. API down or /status parse failed */
+      /* leave null */
     }
     setHeaderSession((prev) => ({
       apiReachable: apiOk,
@@ -85,89 +81,52 @@ export default function App() {
       document.removeEventListener('visibilitychange', onVis);
     };
   }, [refreshHeaderSession]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [runStartedAt, setRunStartedAt] = useState<number | null>(null);
-  const [, tickLoading] = useReducer((n: number) => n + 1, 0);
-  const [result, setResult] = useState<RunResponse | null>(null);
+
+  // ── PTY-based interactive run ─────────────────────────────────────────────
+  const { sendToPty, clearLiveTranscript, ptySessionReady } = usePtyBridge();
+
   const [error, setError] = useState<string | null>(null);
-  const [liveTerminal, setLiveTerminal] = useState('');
-  const [chatHistoryTick, setChatHistoryTick] = useState(0);
   const [chatThreadKey, setChatThreadKey] = useState(() => formatChatThreadKey(BLOG_COMMANDS[0].key, ''));
-  /** Lets Live PTY Pretty append the latest dashboard run for the same command + target (PTY buffer never sees `claude -p`). */
-  const [lastRunThreadMeta, setLastRunThreadMeta] = useState<{
-    threadKey: string;
-    userSummary: string;
-  } | null>(null);
-  /** True once SSE delivers run_accepted or keepalive — distinguishes proxy buffering from a silent Claude process. */
-  const [headlessStreamPrimed, setHeadlessStreamPrimed] = useState(false);
+  /** Timestamp of the last command sent to PTY; drives the "Claude is processing…" hint in Pretty Output. */
+  const [ptySentAt, setPtySentAt] = useState<number | null>(null);
+  const ptySentAtRef = useRef<number | null>(null);
 
   const onRunnerSessionChange = useCallback((commandKey: string, target: string) => {
     setChatThreadKey(formatChatThreadKey(commandKey, target));
-    setResult(null);
-    setLastRunThreadMeta(null);
   }, []);
 
-  useEffect(() => {
-    if (!isLoading || runStartedAt == null) return;
-    const id = window.setInterval(() => tickLoading(), 1000);
-    return () => window.clearInterval(id);
-  }, [isLoading, runStartedAt]);
-
-  const handleRun = async (commandKey: string, target: string, model?: string) => {
-    setIsLoading(true);
-    setRunStartedAt(Date.now());
-    setLiveTerminal('');
+  /**
+   * Instead of calling claude -p, we send the command text to the live PTY.
+   * This keeps the full conversation context, so Claude can answer follow-ups
+   * (e.g. "yes" to approve a rewrite plan) without losing context.
+   */
+  const handleRun = useCallback((commandKey: string, target: string) => {
     setError(null);
-    setLastRunThreadMeta(null);
-    setHeadlessStreamPrimed(false);
 
-    // Compute thread key and user summary now (before async gap)
-    const userLine = formatRunUserSummary(commandKey, target, model);
-    const tk = formatChatThreadKey(commandKey, target);
-
-    // Optimistically show user bubble immediately — fills in assistant when done
-    const pendingTurnId = appendDashboardChatTurnPending(userLine, tk);
-    setChatHistoryTick((n) => n + 1);
-
-    try {
-      const response = await apiService.runBlogCommand(
-        commandKey,
-        target,
-        model,
-        (_ch, text) => {
-          if (text.length > 0) setHeadlessStreamPrimed(true);
-          setLiveTerminal(prev => prev + text);
-        },
-        (ev) => {
-          if (ev.type === 'run_accepted' || ev.type === 'keepalive') {
-            setHeadlessStreamPrimed(true);
-          }
-        }
-      );
-      setResult(response);
-      setLastRunThreadMeta({ threadKey: tk, userSummary: userLine });
-      const out = response.rawOutput?.trim() ?? '';
-      const err = response.error?.trim() ?? '';
-      const assistant = out || (err ? `Error: ${err}` : '') || '(no output captured)';
-      updateDashboardChatTurnById(tk, pendingTurnId, assistant);
-      setChatHistoryTick((n) => n + 1);
-      if (!response.success && response.error) {
-        setError(response.error);
-      }
-    } catch (err) {
-      console.error('Failed to run blog command:', err);
-      const msg = err instanceof Error ? err.message : String(err);
-      const errMsg = msg || 'The backend terminal environment is unreachable or returned an error.';
-      setError(errMsg);
-      // Update pending turn with the error so the conversation shows what happened
-      updateDashboardChatTurnById(tk, pendingTurnId, `Error: ${errMsg}`);
-      setChatHistoryTick((n) => n + 1);
-    } finally {
-      setIsLoading(false);
-      setRunStartedAt(null);
-      setLiveTerminal('');
+    if (!ptySessionReady) {
+      setError('PTY session is not connected yet. Open the Logon tab to start the terminal, then try again.');
+      return;
     }
-  };
+
+    const cmd = BLOG_COMMANDS.find((c) => c.key === commandKey);
+    if (!cmd) {
+      setError(`Unknown command key: ${commandKey}`);
+      return;
+    }
+
+    const prompt = buildBlogPrompt(cmd, target);
+
+    // Clear the PTY "from here" so Pretty Output starts a fresh conversation window
+    clearLiveTranscript({ resetPrettySession: true });
+
+    // Send the slash-command to the live PTY session
+    sendToPty(`${prompt}\r`);
+
+    // Record the send time so ResultsView can show a "sent — waiting for Claude" hint
+    const now = Date.now();
+    setPtySentAt(now);
+    ptySentAtRef.current = now;
+  }, [ptySessionReady, sendToPty, clearLiveTranscript]);
 
   return (
     <Layout
@@ -191,11 +150,11 @@ export default function App() {
             <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
               <div>
                 <h2 className="text-3xl font-bold text-gray-900 tracking-tight">Blog Command Center</h2>
-                <p className="text-gray-500 mt-1">Run the blog skill (/blog …) via Claude Code in your project workdir.</p>
+                <p className="text-gray-500 mt-1">Run the blog skill (/blog …) via the interactive Claude session.</p>
               </div>
               <div className="flex items-center gap-2 text-xs font-bold text-gray-400 uppercase tracking-widest bg-white px-4 py-2 rounded-xl border border-gray-100 shadow-sm">
-                <span className="w-2 h-2 bg-green-500 rounded-full"></span>
-                Terminal: AlmaLinux 9 / Docker
+                <span className={`w-2 h-2 rounded-full ${ptySessionReady ? 'bg-green-500' : 'bg-amber-400 animate-pulse'}`}></span>
+                {ptySessionReady ? 'PTY Connected' : 'PTY Connecting…'}
               </div>
             </div>
 
@@ -212,10 +171,10 @@ export default function App() {
                     <AlertCircle className="text-red-600" size={20} />
                   </div>
                   <div className="flex-1">
-                    <h4 className="text-sm font-bold text-red-900">Execution Failed</h4>
+                    <h4 className="text-sm font-bold text-red-900">Failed to Send Command</h4>
                     <p className="text-sm text-red-700 mt-1">{error}</p>
                   </div>
-                  <button 
+                  <button
                     onClick={() => setError(null)}
                     className="text-red-400 hover:text-red-600 transition-colors"
                   >
@@ -229,25 +188,21 @@ export default function App() {
             <SeoCommandForm
               onRun={handleRun}
               onSessionChange={onRunnerSessionChange}
-              isLoading={isLoading}
+              isLoading={false}
             />
 
-            {/* Results Section */}
+            {/* Results Section — PTY-driven, always interactive */}
             <div className="space-y-4">
               <div className="flex items-center gap-2">
-                <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest">Run results</h3>
+                <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest">Conversation</h3>
                 <div className="flex-1 h-px bg-gray-100"></div>
               </div>
               <ResultsView
-              result={result}
-              isLoading={isLoading}
-              loadingStartedAt={runStartedAt}
-              liveTerminal={liveTerminal}
-              headlessStreamPrimed={headlessStreamPrimed}
-              chatHistoryTick={chatHistoryTick}
-              chatThreadKey={chatThreadKey}
-              lastRunThreadMeta={lastRunThreadMeta}
-            />
+                result={null}
+                isLoading={false}
+                chatThreadKey={chatThreadKey}
+                ptySentAt={ptySentAt}
+              />
             </div>
           </motion.div>
         ) : activeView === 'history' ? (

@@ -42,10 +42,12 @@ interface ResultsViewProps {
   chatHistoryTick?: number;
   /** Headless Pretty conversation thread = blog command key + target (matches Command Runner). */
   chatThreadKey?: string;
-  /** Latest finished Command Runner line + thread key so Live PTY Pretty can show the `claude -p` turn (not in the xterm buffer). */
+  /** Latest finished Command Runner line + thread key so Live PTY Pretty can show the turn (not in the xterm buffer). */
   lastRunThreadMeta?: { threadKey: string; userSummary: string } | null;
-  /** History detail: show saved `rawOutput` in Pretty/Raw without binding to the live Logon PTY. */
+  /** History detail: show saved rawOutput in Pretty/Raw without binding to the live Logon PTY. */
   embedMode?: 'live' | 'history';
+  /** Date.now() when the last command was sent to PTY; used to show a brief waiting hint. */
+  ptySentAt?: number | null;
 }
 
 function formatElapsed(startedAt: number) {
@@ -65,7 +67,8 @@ export default function ResultsView({
   chatHistoryTick = 0,
   chatThreadKey = formatChatThreadKey(BLOG_COMMANDS[0].key, ''),
   lastRunThreadMeta = null,
-  embedMode = 'live'
+  embedMode = 'live',
+  ptySentAt = null
 }: ResultsViewProps) {
   const isHistoryEmbed = embedMode === 'history';
   const [activeTab, setActiveTab] = useState<'pretty' | 'raw'>('pretty');
@@ -858,7 +861,8 @@ function PrettyOutputView({
   chatThreadKey,
   lastRunThreadMeta = null,
   headlessResult = null,
-  ptySessionReady
+  ptySessionReady,
+  ptySentAt = null
 }: {
   prettyMode: PrettyOutputMode;
   ptyTranscript: string;
@@ -866,8 +870,8 @@ function PrettyOutputView({
   chatThreadKey: string;
   lastRunThreadMeta?: { threadKey: string; userSummary: string } | null;
   headlessResult?: RunResponse | null;
-  /** When `both`, used to explain WebFetch prompts vs a disconnected PTY. */
   ptySessionReady?: boolean;
+  ptySentAt?: number | null;
 }) {
   /** Splash + spinner lines hidden here only; Logon / Raw stay full-fidelity. */
   const ptyForPretty = useMemo(() => {
@@ -893,14 +897,6 @@ function PrettyOutputView({
     return appendDashboardRunAsPtyPlain(ptyForPretty, lastRunThreadMeta.userSummary, assistant);
   }, [prettyMode, headlessResult, lastRunThreadMeta, chatThreadKey, ptyForPretty]);
 
-  const showHeadlessPermissionReadOnlyCue = useMemo(() => {
-    if (prettyMode !== 'both' || !headlessResult) return false;
-    const cleaned = sanitizeRunOutputForChat(headlessResult.rawOutput ?? '').trim();
-    const err = headlessResult.error?.trim();
-    const blob = cleaned || err || '';
-    return headlessOutputLooksLikeInteractivePermissionAsk(blob);
-  }, [prettyMode, headlessResult]);
-
   useEffect(() => {
     if (prettyMode === 'headless') return;
     if (!ptyTranscript?.trim()) return;
@@ -910,55 +906,50 @@ function PrettyOutputView({
     return () => window.clearTimeout(id);
   }, [prettyMode, chatThreadKey, ptyForPretty, ptyTranscript]);
 
+  /** Show a brief "waiting for Claude" banner after sending and before any PTY output arrives. */
+  const showSentWaiting = ptySentAt != null && !ptyForDisplay.trim();
+
+  const emptySection = showSentWaiting ? (
+    <div className="rounded-2xl border border-indigo-100 bg-indigo-50/70 px-5 py-6 flex items-start gap-4 shadow-sm">
+      <span className="relative flex h-3 w-3 shrink-0 mt-1">
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-indigo-400 opacity-50" />
+        <span className="relative inline-flex h-3 w-3 rounded-full bg-indigo-600" />
+      </span>
+      <div>
+        <p className="text-sm font-semibold text-indigo-950">Command sent — Claude is starting…</p>
+        <p className="text-xs text-indigo-800/80 mt-1 leading-relaxed">
+          Output will appear here as Claude responds. You can also watch the live stream in{' '}
+          <strong>Raw View</strong> or <strong>Logon</strong>.
+        </p>
+      </div>
+    </div>
+  ) : (
+    <div className="rounded-2xl border border-dashed border-gray-200 bg-white px-4 py-10 text-center text-sm text-gray-500">
+      No conversation yet — run a command above, or type in <strong>Logon</strong> / <strong>Reply via PTY</strong> below.
+    </div>
+  );
+
   const ptySection =
     ptyForDisplay.trim().length > 0 ? (
       <>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-emerald-900/90 px-2 py-1.5 rounded-lg bg-emerald-50 border border-emerald-100">
           <span>
-            Live PTY (Pretty): hides the Claude Code welcome chrome and short “thinking” lines (e.g. ✻ Undulating…);
-            the <strong>Claude is responding…</strong> chip still follows the raw stream so you are not stuck on a frozen
-            first bubble. Full terminal stays in <strong>Logon</strong> / <strong>Raw</strong>. When a dashboard{' '}
-            <code className="text-[10px] font-mono bg-emerald-950/10 px-1 rounded">claude -p</code> run exists for this
-            topic, that finished turn is appended <strong>after</strong> the live PTY transcript here (same order as real
-            time) — the Logon PTY never contained that text, so follow-ups there do not see it unless you paste or
-            restate. Merged buffer + local save per
-            command + target as before.
+            <strong>Interactive PTY (Pretty)</strong>: splash lines and spinner text are hidden here; the{' '}
+            <strong>Claude is responding…</strong> chip follows the raw stream. Full terminal in{' '}
+            <strong>Logon</strong> / <strong>Raw</strong>. Type replies directly in the <strong>Reply</strong> panel
+            below — Claude will see them in the same session.
           </span>
           <PtyNarrativeLiveBadge rawOutput={ptyForDisplay} />
         </div>
-        {prettyMode === 'both' && showHeadlessPermissionReadOnlyCue ? (
-          <div className="rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-xs text-slate-800 leading-relaxed shadow-sm">
-            <strong className="text-slate-900">WebFetch / “pick an option” in the text above:</strong> the{' '}
-            <strong>first block</strong> is the finished{' '}
-            <code className="text-[10px] px-1 py-0.5 rounded bg-white border border-slate-200 font-mono">claude -p</code>{' '}
-            run. That process has <strong>already ended</strong> — there is <strong>no approve button</strong> for that
-            block and you cannot grant WebFetch to it retroactively.{' '}
-            <strong>Where you can allow WebFetch:</strong> open <strong>Logon</strong> and answer the numbered{' '}
-            <strong>Fetch</strong> menu in the dark terminal (or type the same number in <strong>Reply below</strong> when
-            the menu is live). Or <strong>re-run</strong> the dashboard command, paste the article into <strong>Target</strong>, or
-            confirm the server is not disabling headless permissions (<code className="text-[10px] px-1 rounded bg-white border border-slate-200">CLAUDE_DISABLE_AUTO_PERMISSION_MODE</code>).
-            {ptySessionReady === false ? (
-              <span className="block mt-2 text-amber-900 font-medium">
-                Live PTY WebSocket is <strong>offline</strong> — open <strong>Logon</strong> and use{' '}
-                <strong>Restart</strong> if you see “process exited”; Reply below only works when the PTY is connected.
-              </span>
-            ) : null}
-          </div>
-        ) : null}
         <PtyMessengerThread transcript={ptyForDisplay} awaitingHintSource={ptyTranscript} />
       </>
     ) : (
-      <p className="text-sm text-gray-500 px-1">No PTY output yet — open Logon or send a reply below.</p>
+      emptySection
     );
 
   if (prettyMode === 'headless') {
     return <DashboardHeadlessChat threadKey={chatThreadKey} refreshKey={chatHistoryTick} />;
   }
 
-  if (prettyMode === 'pty') {
-    return <div className="space-y-3">{ptySection}</div>;
-  }
-
-  /** Headless turn is merged into Live PTY Pretty (after PTY text); no separate Conversation card here. */
   return <div className="space-y-3">{ptySection}</div>;
 }
