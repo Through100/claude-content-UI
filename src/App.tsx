@@ -88,12 +88,47 @@ export default function App() {
   const [chatThreadKey, setChatThreadKey] = useState(() => formatChatThreadKey(BLOG_COMMANDS[0].key, ''));
   const [ptySentAt, setPtySentAt] = useState<number | null>(null);
   const ptySentAtRef = useRef<number | null>(null);
+  /** Latest merged Pretty transcript (ResultsView); read synchronously before clearing for the next Run. */
+  const ptyMergedCaptureRef = useRef<() => string>(() => '');
+  /** Metadata for the Command Runner turn currently accumulating in the PTY (saved when the next Run starts or tab hides). */
+  const lastPtyHistoryMetaRef = useRef<{ commandKey: string; target: string; startedAt: string } | null>(null);
+  const recordedPtyHistoryStartsRef = useRef<Set<string>>(new Set());
+
+  const tryAppendPtyConversationToHistory = useCallback(async () => {
+    const prev = lastPtyHistoryMetaRef.current;
+    if (!prev || recordedPtyHistoryStartsRef.current.has(prev.startedAt)) return;
+    const merged = (ptyMergedCaptureRef.current?.() ?? '').trim();
+    if (merged.length < 120) return;
+    const finishedAt = new Date().toISOString();
+    try {
+      await apiService.appendPtyHistoryRun({
+        commandKey: prev.commandKey,
+        target: prev.target,
+        rawOutput: merged,
+        startedAt: prev.startedAt,
+        finishedAt
+      });
+      recordedPtyHistoryStartsRef.current.add(prev.startedAt);
+    } catch (e) {
+      console.warn('[claude-content-ui] PTY history append failed:', e);
+    }
+  }, []);
+
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState !== 'hidden') return;
+      void tryAppendPtyConversationToHistory();
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, [tryAppendPtyConversationToHistory]);
 
   const onRunnerSessionChange = useCallback((commandKey: string, target: string) => {
     setChatThreadKey(formatChatThreadKey(commandKey, target));
   }, []);
 
-  const handleRun = useCallback((commandKey: string, target: string) => {
+  const handleRun = useCallback(
+    (commandKey: string, target: string) => {
     setError(null);
     if (!ptySessionReady) {
       setError('PTY session is not connected yet. Open the Logon tab to start the terminal, then try again.');
@@ -104,6 +139,7 @@ export default function App() {
       setError(`Unknown command key: ${commandKey}`);
       return;
     }
+    void tryAppendPtyConversationToHistory();
     const prompt = buildBlogPrompt(cmd, target);
     clearLiveTranscript({ resetPrettySession: true });
     /** Send prompt then CR on a timer: one combined write often echoes the line but never submits for long /blog … URLs. */
@@ -135,7 +171,14 @@ export default function App() {
     const now = Date.now();
     setPtySentAt(now);
     ptySentAtRef.current = now;
-  }, [ptySessionReady, sendToPty, clearLiveTranscript]);
+    lastPtyHistoryMetaRef.current = {
+      commandKey,
+      target: target.trim(),
+      startedAt: new Date().toISOString()
+    };
+  },
+  [ptySessionReady, sendToPty, clearLiveTranscript, tryAppendPtyConversationToHistory]
+  );
 
   // We determine if PTY is actively processing inside ResultsView based on the transcript.
   const ptyIsProcessing = ptySentAt != null;
@@ -207,7 +250,8 @@ export default function App() {
                 isLoading={ptyIsProcessing} 
                 loadingStartedAt={ptySentAt}
                 chatThreadKey={chatThreadKey} 
-                ptySentAt={ptySentAt} 
+                ptySentAt={ptySentAt}
+                ptyMergedCaptureRef={ptyMergedCaptureRef}
               />
             </div>
           </motion.div>

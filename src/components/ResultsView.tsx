@@ -57,6 +57,8 @@ interface ResultsViewProps {
   embedMode?: 'live' | 'history';
   /** Date.now() when the last command was sent to PTY; used to show a brief waiting hint. */
   ptySentAt?: number | null;
+  /** Parent reads merged Pretty PTY transcript before the next Run (server History for interactive sessions). */
+  ptyMergedCaptureRef?: React.MutableRefObject<() => string>;
 }
 
 function formatElapsed(startedAt: number) {
@@ -77,7 +79,8 @@ export default function ResultsView({
   chatThreadKey = formatChatThreadKey(BLOG_COMMANDS[0].key, ''),
   lastRunThreadMeta = null,
   embedMode = 'live',
-  ptySentAt = null
+  ptySentAt = null,
+  ptyMergedCaptureRef
 }: ResultsViewProps) {
   const isHistoryEmbed = embedMode === 'history';
   const [activeTab, setActiveTab] = useState<'pretty' | 'raw'>('pretty');
@@ -128,6 +131,11 @@ export default function ResultsView({
     const id = window.setTimeout(() => savePtyPrettyArchive(chatThreadKey, ptyMergedArchive), 500);
     return () => window.clearTimeout(id);
   }, [isHistoryEmbed, chatThreadKey, ptyMergedArchive]);
+
+  useEffect(() => {
+    if (isHistoryEmbed || !ptyMergedCaptureRef) return;
+    ptyMergedCaptureRef.current = () => ptyMergedArchive;
+  }, [isHistoryEmbed, ptyMergedArchive, ptyMergedCaptureRef]);
 
   useEffect(() => {
     if (isHistoryEmbed) return;

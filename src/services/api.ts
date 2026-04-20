@@ -232,6 +232,26 @@ export const apiService = {
     return parseJson<GroupedHistory[]>(res);
   },
 
+  /** Append one interactive PTY run (dashboard) to server History — same file as headless `/api/run`. */
+  async appendPtyHistoryRun(payload: {
+    commandKey: string;
+    target: string;
+    rawOutput: string;
+    startedAt: string;
+    finishedAt: string;
+  }): Promise<void> {
+    const res = await fetch(`${apiBase()}/api/history/pty`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      keepalive: true
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => '');
+      throw new Error(t || `History append failed (${res.status})`);
+    }
+  },
+
   async getModels(): Promise<ModelOption[]> {
     const res = await fetch(`${apiBase()}/api/models`);
     if (!res.ok) {

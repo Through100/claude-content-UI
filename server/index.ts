@@ -445,6 +445,88 @@ app.get('/api/history', async (_req, res) => {
   }
 });
 
+type PtyHistoryAppendBody = {
+  commandKey: string;
+  target: string;
+  rawOutput: string;
+  startedAt: string;
+  finishedAt: string;
+};
+
+function parsePtyHistoryAppend(
+  body: unknown
+): { ok: true; data: PtyHistoryAppendBody } | { ok: false; error: string } {
+  if (!body || typeof body !== 'object') {
+    return { ok: false as const, error: 'Invalid JSON body' };
+  }
+  const b = body as Record<string, unknown>;
+  const commandKeyRaw = b.commandKey;
+  if (typeof commandKeyRaw !== 'string' || !commandKeyRaw.trim()) {
+    return { ok: false as const, error: 'commandKey is required' };
+  }
+  if (typeof b.target !== 'string') {
+    return { ok: false as const, error: 'target is required' };
+  }
+  if (typeof b.rawOutput !== 'string') {
+    return { ok: false as const, error: 'rawOutput is required' };
+  }
+  if (typeof b.startedAt !== 'string' || typeof b.finishedAt !== 'string') {
+    return { ok: false as const, error: 'startedAt and finishedAt must be ISO strings' };
+  }
+  const cmd = BLOG_COMMANDS.find((c) => c.key === commandKeyRaw.trim());
+  if (!cmd) return { ok: false as const, error: 'Unknown commandKey' };
+  const targetTrimmed = b.target.trim();
+  if (!cmd.targetOptional && !targetTrimmed) {
+    return { ok: false as const, error: 'Target is required for this command' };
+  }
+  const maxOut = 4_000_000;
+  if (b.rawOutput.length > maxOut) {
+    return { ok: false as const, error: `rawOutput exceeds ${maxOut} characters` };
+  }
+  return {
+    ok: true as const,
+    data: {
+      commandKey: cmd.key,
+      target: targetTrimmed,
+      rawOutput: b.rawOutput,
+      startedAt: b.startedAt,
+      finishedAt: b.finishedAt
+    }
+  };
+}
+
+/** Persists interactive PTY sessions (dashboard Command Runner) into the same History store as headless `/api/run`. */
+app.post('/api/history/pty', async (req, res) => {
+  const parsed = parsePtyHistoryAppend(req.body);
+  if (parsed.ok === false) {
+    res.status(400).json({ error: parsed.error });
+    return;
+  }
+  const { data } = parsed;
+  const t0 = new Date(data.startedAt).getTime();
+  const t1 = new Date(data.finishedAt).getTime();
+  const durationMs = Math.max(0, Number.isFinite(t1 - t0) ? t1 - t0 : 0);
+  const cmd = BLOG_COMMANDS.find((c) => c.key === data.commandKey)!;
+  const parsedReport = parseSeoOutput(data.rawOutput);
+  try {
+    await appendHistoryItem({
+      id: randomUUID(),
+      timestamp: data.startedAt,
+      commandKey: cmd.key,
+      commandLabel: cmd.label,
+      target: data.target,
+      status: 'success',
+      durationMs,
+      rawOutput: data.rawOutput,
+      parsedReport
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('[claude-seo-ui] POST /api/history/pty:', e);
+    res.status(500).json({ error: String(e) });
+  }
+});
+
 app.get('/api/usage', async (_req, res) => {
   try {
     res.json(await runCombinedUsageProbes());

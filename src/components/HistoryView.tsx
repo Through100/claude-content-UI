@@ -36,7 +36,12 @@ export default function HistoryView() {
         setIsLoading(false);
       }
     };
-    fetchHistory();
+    void fetchHistory();
+    const onFocus = () => {
+      void fetchHistory();
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
   }, []);
 
   const toggleGroup = (target: string) => {
