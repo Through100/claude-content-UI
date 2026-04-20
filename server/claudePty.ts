@@ -184,6 +184,13 @@ export function createPtySession(opts: {
     finish(127);
   });
 
+  // Handle stream errors to avoid process crashes on ECONNRESET
+  child.stdout?.on('error', () => {});
+  child.stderr?.on('error', () => {});
+  child.stdin?.on('error', () => {});
+  const resizePipe = (child.stdio as (NodeJS.WritableStream | null)[])[3];
+  if (resizePipe) resizePipe.on('error', () => {});
+
   child.stdout?.on('data', (buf: Buffer) => {
     session.lastActivity = Date.now();
     const chunk = utf8Decoder.write(buf);

@@ -156,6 +156,10 @@ export function watchClaudeProcess(
     child.on('error', onError);
     child.on('close', onClose);
 
+    // Prevent process crash on stream errors (e.g. ECONNRESET)
+    child.stdout?.on('error', () => {});
+    child.stderr?.on('error', () => {});
+
     child.stdout?.on('data', (c: Buffer) => {
       const t = c.toString('utf8');
       stdout += t;
