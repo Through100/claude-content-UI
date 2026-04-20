@@ -89,8 +89,36 @@ export function segmentDiffAndProse(raw: string): { kind: 'diff' | 'prose'; text
 
 /** Claude Code permission / multi-choice footer (Pretty markdown was turning `1. Yes…` into a fake “reply”). */
 function isLikelyClaudePermissionMenuFooter(line: string): boolean {
-  const t = line.replace(/\r$/, '');
-  return /\bEsc to cancel\b/i.test(t) && /\bTab to amend\b/i.test(t);
+  const t = (line ?? '').replace(/\r$/, '').trim();
+  /** Long “tips” paragraphs can mention both phrases — real footers are one short Ink line. */
+  if (t.length > 120) return false;
+  return /\bEsc to cancel\b/i.test(t) && /\bTab to (?:amend|edit|change)\b/i.test(t);
+}
+
+/**
+ * Fetch / tool consent often ends at the last numbered option without an Esc/Tab footer line in the buffer.
+ * Returns the line index of that last `1./2./3.` row, or -1.
+ */
+function findNumberedConsentMenuFooterJ(
+  lines: string[],
+  i: number,
+  windowEnd: number,
+  anchor: RegExp
+): number {
+  for (let j = i; j < windowEnd; j++) {
+    const t = (lines[j] ?? '').trim();
+    if (!anchor.test(t)) continue;
+    const maxK = Math.min(lines.length, j + 30);
+    let sawYes1 = false;
+    let lastNum = -1;
+    for (let k = j; k < maxK; k++) {
+      const u = (lines[k] ?? '').trim();
+      if (/^\s*(?:❯\s*|[>]\s*)?1\.\s+Yes\b/i.test(u)) sawYes1 = true;
+      if (/^\s*(?:❯\s*|[>]\s*)?\d+\.\s+\S/m.test(u)) lastNum = k;
+    }
+    if (sawYes1 && lastNum >= j) return lastNum;
+  }
+  return -1;
 }
 
 /** Any single-line “Do you want to …?” used before numbered Yes/No rows (proceed, make this edit, run tool, …). */
@@ -117,12 +145,18 @@ function splitProseMenuAndRest(prose: string): { kind: 'menu' | 'prose'; text: s
 
   while (i < n) {
     let footerJ = -1;
-    const windowEnd = Math.min(n, i + 80);
+    const windowEnd = Math.min(n, i + 500);
     for (let j = i; j < windowEnd; j++) {
       if (isLikelyClaudePermissionMenuFooter(lines[j] ?? '')) {
         footerJ = j;
         break;
       }
+    }
+    if (footerJ < 0) {
+      footerJ = findNumberedConsentMenuFooterJ(lines, i, windowEnd, /\bDo you want to allow\b/i);
+    }
+    if (footerJ < 0) {
+      footerJ = findNumberedConsentMenuFooterJ(lines, i, windowEnd, /\bDo you want to proceed\b/i);
     }
     if (footerJ < 0) {
       const rest = lines.slice(i).join('\n');
@@ -164,6 +198,7 @@ function splitProseMenuAndRest(prose: string): { kind: 'menu' | 'prose'; text: s
     const candidate = lines.slice(start, footerJ + 1).join('\n');
     const looksMenu =
       /Do you want to[^?\n]*\?/i.test(candidate) ||
+      /\bDo you want to allow\b/i.test(candidate) ||
       /^\s*(?:❯\s*|[>]\s*)?\d+\.\s+Yes\b/im.test(candidate);
 
     if (!looksMenu) {

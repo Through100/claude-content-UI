@@ -3,7 +3,14 @@ import { normalizeTeletypeLines, stripAnsi } from './stripAnsi';
 /** Web / tool permission menu (Fetch + Esc to cancel footer) — must survive “trivial tail” / chrome filters for dashboard sync. */
 export function textContainsClaudePermissionMenu(text: string): boolean {
   const t = (text || '').replace(/\r/g, '');
-  if (!/\bEsc to cancel\b/i.test(t) || !/\bTab to amend\b/i.test(t)) return false;
+  /** Fetch consent often omits the Esc/Tab chrome line in the same PTY capture as the numbered choices. */
+  if (
+    /\bDo you want to allow\b/i.test(t) &&
+    /^\s*(?:❯\s*|[>]\s*)?1\.\s+Yes\b/im.test(t)
+  ) {
+    return true;
+  }
+  if (!/\bEsc to cancel\b/i.test(t) || !/\bTab to (?:amend|edit|change)\b/i.test(t)) return false;
   return (
     /Do you want/i.test(t) ||
     /\bClaude wants to fetch\b/i.test(t) ||
@@ -15,7 +22,7 @@ export function textContainsClaudePermissionMenu(text: string): boolean {
 /** Plain PTY text (ANSI stripped, teletype lines normalized) shows Claude Code’s numbered permission menu. */
 export function plainTextShowsClaudePermissionMenu(plainNormalized: string): boolean {
   const tail = plainNormalized.slice(-8000);
-  if (!/\bEsc to cancel\b/i.test(tail) || !/\bTab to amend\b/i.test(tail)) return false;
+  if (!/\bEsc to cancel\b/i.test(tail) || !/\bTab to (?:amend|edit|change)\b/i.test(tail)) return false;
   /** Require a numbered option line so we never auto-send on stray footer text alone (e.g. after a PTY restart). */
   if (!/(^|\n)\s*(?:(?:❯|[>])\s*)?\d+\.\s+\S/m.test(tail)) return false;
   return (
