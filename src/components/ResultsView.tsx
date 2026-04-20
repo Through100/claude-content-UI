@@ -127,6 +127,28 @@ export default function ResultsView({
     return 'headless';
   }, [hasFreshPtyCapture, hasHeadlessRunCapture]);
 
+  const headlessBlobForPermissionCue = useMemo(() => {
+    const out = sanitizeRunOutputForChat(result?.rawOutput ?? '').trim();
+    const err = result?.error?.trim();
+    return out || (err ? `Error: ${err}` : '') || '';
+  }, [result?.rawOutput, result?.error]);
+
+  /** Pretty shows a finished run that looks like an interactive Fetch ask — Reply below still hits the *live* PTY only. */
+  const replyPanelWarnHeadlessMenuReadOnly = useMemo(
+    () => prettyMode === 'both' && headlessOutputLooksLikeInteractivePermissionAsk(headlessBlobForPermissionCue),
+    [prettyMode, headlessBlobForPermissionCue]
+  );
+
+  /** Logon buffer tail looks like Claude Code’s idle welcome — “yes” has no pending question there. */
+  const replyPanelWarnWelcomeSplash = useMemo(() => {
+    const tail = stripAnsi(`${ptyFullSnapshotPlain}\n${ptyDisplayPlain}`.slice(-8000)).toLowerCase();
+    if (tail.length < 120) return false;
+    return (
+      tail.includes('welcome back') &&
+      (tail.includes('no recent activity') || tail.includes('tips for getting started'))
+    );
+  }, [ptyFullSnapshotPlain, ptyDisplayPlain]);
+
   /** Headless capture plus live PTY transcript so workspace files mentioned only in interactive mode still get top download links. */
   const artifactPaths = useMemo(() => {
     const headless = [result?.rawOutput ?? '', result?.error ?? ''].filter(Boolean).join('\n\n');
@@ -337,7 +359,10 @@ export default function ResultsView({
             lastRunThreadMeta={lastRunThreadMeta}
           />
         ) : null}
-        <PtyReplyPanel />
+        <PtyReplyPanel
+          warnHeadlessMenuReadOnly={replyPanelWarnHeadlessMenuReadOnly}
+          warnWelcomeSplash={replyPanelWarnWelcomeSplash}
+        />
       </div>
     );
   }
@@ -464,7 +489,12 @@ export default function ResultsView({
         )}
       </AnimatePresence>
 
-      {!isHistoryEmbed ? <PtyReplyPanel /> : null}
+      {!isHistoryEmbed ? (
+        <PtyReplyPanel
+          warnHeadlessMenuReadOnly={replyPanelWarnHeadlessMenuReadOnly}
+          warnWelcomeSplash={replyPanelWarnWelcomeSplash}
+        />
+      ) : null}
     </div>
   );
 }
@@ -617,7 +647,8 @@ function LivePtyRawMirror({
                 {' '}
                 The <strong>first</strong> block (when present) is the latest dashboard{' '}
                 <code className="text-[10px] text-gray-400">claude -p</code> capture (read-only). The dark terminal below
-                is the live PTY only.
+                is the live PTY only. If Logon just restarted at <strong>Welcome back</strong>, only what you type in
+                Logon / Raw (live tail) applies — generic “yes” does not answer the gray read-only block above.
               </>
             ) : null}
           </>
@@ -653,7 +684,17 @@ function LivePtyRawMirror({
   );
 }
 
-function PtyReplyPanel() {
+type PtyReplyPanelProps = {
+  /** Finished headless output in Pretty looks like a Fetch/permission ask — Reply still targets the live PTY only. */
+  warnHeadlessMenuReadOnly?: boolean;
+  /** Live buffer tail matches Claude Code welcome splash — no pending numbered menu there. */
+  warnWelcomeSplash?: boolean;
+};
+
+function PtyReplyPanel({
+  warnHeadlessMenuReadOnly = false,
+  warnWelcomeSplash = false
+}: PtyReplyPanelProps) {
   const { sendToPty, ptySessionReady } = usePtyBridge();
   const [text, setText] = useState('');
   const [appendEnter, setAppendEnter] = useState(true);
@@ -680,6 +721,21 @@ function PtyReplyPanel() {
         <Send size={16} className="text-indigo-600 shrink-0" aria-hidden />
         Reply via interactive PTY
       </h4>
+      {warnHeadlessMenuReadOnly ? (
+        <p className="text-xs text-amber-950 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 leading-relaxed">
+          Pretty may still show a <strong>finished</strong> <code className="text-[10px] px-1 rounded bg-white/80">claude -p</code>{' '}
+          Fetch / permission block (read-only). <strong>Send to PTY</strong> goes to the <strong>live</strong> session in
+          Logon — not that finished run. Open <strong>Logon</strong> and answer only if a <strong>numbered</strong> tool
+          menu is visible there; otherwise describe your task instead of “yes please”.
+        </p>
+      ) : null}
+      {warnWelcomeSplash ? (
+        <p className="text-xs text-slate-800 bg-slate-100 border border-slate-200 rounded-lg px-3 py-2 leading-relaxed">
+          The live PTY buffer looks like <strong>Welcome back</strong> (idle home). Claude has no pending question yet,
+          so short replies like “yes” will confuse it. Paste your goal, or switch to <strong>Logon</strong> and wait until
+          a real prompt appears.
+        </p>
+      ) : null}
       <textarea
         value={text}
         onChange={(e) => {
