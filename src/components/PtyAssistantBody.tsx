@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { segmentPtyAssistantDisplayBlocks } from '../../shared/segmentPtyDiffBlocks';
 import PrettyOutputBody from './PrettyOutputBody';
 
-/** Renders Live PTY assistant text: terminal diffs as monospace pre, everything else as Pretty markdown. */
+/** Renders Live PTY assistant text: diffs / ASCII pipe grids as monospace pre, everything else as Pretty markdown. */
 export default function PtyAssistantBody({ text }: { text: string }) {
   const parts = useMemo(() => segmentPtyAssistantDisplayBlocks(text), [text]);
 
@@ -45,6 +45,18 @@ export default function PtyAssistantBody({ text }: { text: string }) {
               <code className="text-[10px] bg-amber-200/70 px-1 rounded">VITE_DISABLE_PTY_AUTO_OPTION_ONE=1</code>.
             </p>
             <pre className="m-0 max-h-[min(40vh,420px)] overflow-auto px-3 py-3 text-[11px] sm:text-[12px] leading-[1.45] font-mono text-amber-950 whitespace-pre">
+              {p.text}
+            </pre>
+          </div>
+        ) : p.kind === 'grid' ? (
+          <div
+            key={`g-${idx}`}
+            className="rounded-xl border border-slate-200 bg-slate-50/95 overflow-hidden shadow-sm"
+          >
+            <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-600 bg-slate-100/95 border-b border-slate-200">
+              Table (fixed width)
+            </div>
+            <pre className="m-0 max-h-[min(70vh,680px)] overflow-auto px-3 py-3 text-[11px] sm:text-[12px] leading-[1.4] font-mono text-slate-900 whitespace-pre">
               {p.text}
             </pre>
           </div>

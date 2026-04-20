@@ -4,6 +4,16 @@
  * rows into one paragraph with `\\n`; browsers keep the newline, but many wrapped fragments read as
  * missing spaces (`alreadya previous…`). Join **likely** wrap continuations with a single space.
  */
+function countPipes(s: string): number {
+  return (s.match(/\|/g) ?? []).length;
+}
+
+/** `+---+---+` style TUI table rules (often no `|`). */
+function isAsciiBoxGridSeparatorLine(s: string): boolean {
+  const t = s.trim();
+  return t.length >= 6 && /^[+\-|:\s]+$/.test(t) && /\+/.test(t) && /-/.test(t);
+}
+
 function isMarkdownOrTableLine(s: string): boolean {
   const t = s.trimStart();
   return (
@@ -14,6 +24,8 @@ function isMarkdownOrTableLine(s: string): boolean {
     /^>\s/.test(t) ||
     /^```/.test(t) ||
     /^\|/.test(t) ||
+    countPipes(s) >= 2 ||
+    isAsciiBoxGridSeparatorLine(s) ||
     /^[│┌├└┐┘┬┴┼]/.test(t) ||
     /^[─═━┄┅]{4,}\s*$/.test(t) ||
     /^[\s\-]{3,}$/.test(t)

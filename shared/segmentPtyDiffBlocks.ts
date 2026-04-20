@@ -165,16 +165,139 @@ function splitProseMenuAndRest(prose: string): { kind: 'menu' | 'prose'; text: s
   return out;
 }
 
+function countPipes(s: string): number {
+  return (s.match(/\|/g) ?? []).length;
+}
+
+function isAsciiBoxGridSeparatorLine(s: string): boolean {
+  const t = (s ?? '').trim();
+  return t.length >= 6 && /^[+\-|:\s]+$/.test(t) && /\+/.test(t) && /-/.test(t);
+}
+
+function atAsciiGridBlockStart(line: string): boolean {
+  const s = line ?? '';
+  if (!s.trim()) return false;
+  if (isAsciiBoxGridSeparatorLine(s)) return true;
+  const t = s.trimStart();
+  if (/^[┌├└]/.test(t)) return true;
+  return t.startsWith('|') && countPipes(s) >= 2;
+}
+
+function isAsciiGridTableLine(s: string): boolean {
+  if (!(s ?? '').trim()) return false;
+  if (isAsciiBoxGridSeparatorLine(s)) return true;
+  const t = (s ?? '').trimStart();
+  if (/^[│┌├└┐┘┬┴┼]/.test(t)) return true;
+  return countPipes(s) >= 2;
+}
+
+/** Notes column often wraps as a long indented run without a leading `|` on continuations. */
+function isLikelyAsciiGridCellWrapLine(line: string, prevNonBlank: string): boolean {
+  if (!(line ?? '').trim()) return false;
+  if (isAsciiGridTableLine(line)) return false;
+  if (countPipes(prevNonBlank) < 2) return false;
+  return /^\s{6,}\S/.test(line) && line.length < 260;
+}
+
+/**
+ * Split prose so TUI / ASCII pipe grids render as monospace blocks in Pretty (same alignment as Raw).
+ */
+function splitProseAsciiGridBlocks(prose: string): { kind: 'grid' | 'prose'; text: string }[] {
+  const lines = prose.replace(/\r\n/g, '\n').split('\n');
+  const n = lines.length;
+  const out: { kind: 'grid' | 'prose'; text: string }[] = [];
+
+  const flushProse = (buf: string[]) => {
+    const joined = buf.join('\n');
+    if (joined.trim()) out.push({ kind: 'prose', text: joined });
+    buf.length = 0;
+  };
+
+  const skipEmpty = (from: number) => {
+    let j = from;
+    while (j < n && !(lines[j] ?? '').trim()) j++;
+    return j;
+  };
+
+  let i = 0;
+  while (i < n) {
+    if (!atAsciiGridBlockStart(lines[i] ?? '')) {
+      const proseBuf: string[] = [];
+      while (i < n && !atAsciiGridBlockStart(lines[i] ?? '')) {
+        proseBuf.push(lines[i] ?? '');
+        i++;
+      }
+      flushProse(proseBuf);
+      continue;
+    }
+
+    const start = i;
+    let j = start + 1;
+    let prevNonBlank = lines[start] ?? '';
+
+    while (j < n) {
+      const cur = lines[j] ?? '';
+      if (!cur.trim()) {
+        const nextJ = skipEmpty(j);
+        if (nextJ >= n) break;
+        const nextLine = lines[nextJ] ?? '';
+        if (!isAsciiGridTableLine(nextLine) && !isLikelyAsciiGridCellWrapLine(nextLine, prevNonBlank)) {
+          break;
+        }
+        j = nextJ;
+        continue;
+      }
+      if (isAsciiGridTableLine(cur)) {
+        prevNonBlank = cur;
+        j++;
+        continue;
+      }
+      if (isLikelyAsciiGridCellWrapLine(cur, prevNonBlank)) {
+        j++;
+        continue;
+      }
+      break;
+    }
+
+    const gridText = lines.slice(start, j).join('\n');
+    const nonempty = gridText.split('\n').filter((ln) => ln.trim());
+    const ok =
+      gridText.trim().length > 0 &&
+      nonempty.length >= 2 &&
+      (/\+[-+]+\+/.test(gridText) || countPipes(gridText) >= 3 || /[┌└├┐┘]/.test(gridText));
+
+    if (!ok) {
+      /** Do not drop lines when the block looked like a grid but failed validation (e.g. too short). */
+      flushProse(lines.slice(start, j));
+      i = j;
+      continue;
+    }
+
+    out.push({ kind: 'grid', text: gridText });
+    i = j;
+  }
+
+  return out;
+}
+
 /** Diff chunks + prose chunks, with permission menus peeled out of prose (monospace like diffs). */
-export function segmentPtyAssistantDisplayBlocks(raw: string): { kind: 'diff' | 'menu' | 'prose'; text: string }[] {
+export function segmentPtyAssistantDisplayBlocks(
+  raw: string
+): { kind: 'diff' | 'menu' | 'prose' | 'grid'; text: string }[] {
   const coarse = segmentDiffAndProse(raw);
-  const out: { kind: 'diff' | 'menu' | 'prose'; text: string }[] = [];
+  const out: { kind: 'diff' | 'menu' | 'prose' | 'grid'; text: string }[] = [];
   for (const c of coarse) {
     if (c.kind === 'diff') {
       out.push(c);
       continue;
     }
-    out.push(...splitProseMenuAndRest(c.text));
+    for (const m of splitProseMenuAndRest(c.text)) {
+      if (m.kind === 'menu') {
+        out.push(m);
+        continue;
+      }
+      out.push(...splitProseAsciiGridBlocks(m.text));
+    }
   }
   return out;
 }
