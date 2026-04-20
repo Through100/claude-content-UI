@@ -106,7 +106,32 @@ export default function App() {
     }
     const prompt = buildBlogPrompt(cmd, target);
     clearLiveTranscript({ resetPrettySession: true });
-    sendToPty(`${prompt}\r`);
+    /** Send prompt then CR on a timer: one combined write often echoes the line but never submits for long /blog … URLs. */
+    const scheduleEnter = () => {
+      window.setTimeout(() => {
+        void sendToPty('\r');
+      }, 100);
+    };
+    const ok = sendToPty(prompt);
+    if (ok) {
+      scheduleEnter();
+    } else {
+      requestAnimationFrame(() => {
+        if (sendToPty(prompt)) {
+          scheduleEnter();
+        } else {
+          window.setTimeout(() => {
+            if (sendToPty(prompt)) {
+              scheduleEnter();
+            } else {
+              setError(
+                'Could not send the command to the PTY. Open Logon, wait until the terminal shows Connected, then try Run again.'
+              );
+            }
+          }, 120);
+        }
+      });
+    }
     const now = Date.now();
     setPtySentAt(now);
     ptySentAtRef.current = now;
