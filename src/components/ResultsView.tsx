@@ -766,18 +766,21 @@ function PtyNarrativeLiveBadge({ rawOutput }: { rawOutput: string }) {
 
 type PrettyOutputMode = 'headless' | 'pty' | 'both';
 
-/** Synthesize a PTY-shaped transcript so Pretty uses the same `❯` parser as Logon-only lines. */
-function prependDashboardRunAsPtyPlain(userSummary: string, assistantRaw: string, ptyTail: string): string {
+/**
+ * Append the latest Command Runner (`claude -p`) turn after the live PTY transcript so Pretty order matches
+ * real time (PTY first, then dashboard run). Auto-scroll stays at the bottom, so prepending hid new output above.
+ */
+function appendDashboardRunAsPtyPlain(ptyHead: string, userSummary: string, assistantRaw: string): string {
   const u = userSummary.replace(/\r\n/g, '\n').trim();
   const a = assistantRaw.replace(/\r\n/g, '\n').trim();
-  const headParts: string[] = [];
-  if (u) headParts.push(`❯ ${u}`);
-  if (a) headParts.push(a);
-  const head = headParts.join('\n\n');
-  const tail = ptyTail.replace(/\r\n/g, '\n').trim();
-  if (!head) return tail;
-  if (!tail) return head;
-  return `${head}\n\n${tail}`;
+  const runParts: string[] = [];
+  if (u) runParts.push(`❯ ${u}`);
+  if (a) runParts.push(a);
+  const runBlock = runParts.join('\n\n');
+  const head = ptyHead.replace(/\r\n/g, '\n').trim();
+  if (!runBlock) return head;
+  if (!head) return runBlock;
+  return `${head}\n\n${runBlock}`;
 }
 
 function PrettyOutputView({
@@ -805,7 +808,7 @@ function PrettyOutputView({
     return s;
   }, [ptyTranscript]);
 
-  /** Command Runner output is not in the Logon xterm; prepend it here when both panes are shown for this topic. */
+  /** Command Runner output is not in the Logon xterm; append it after PTY here when both panes are shown for this topic. */
   const ptyForDisplay = useMemo(() => {
     if (
       prettyMode !== 'both' ||
@@ -819,7 +822,7 @@ function PrettyOutputView({
     const err = headlessResult.error?.trim();
     const assistant = cleaned || (err ? `Error: ${err}` : '') || '(no output captured)';
     if (!assistant.trim() && !lastRunThreadMeta.userSummary.trim()) return ptyForPretty;
-    return prependDashboardRunAsPtyPlain(lastRunThreadMeta.userSummary, assistant, ptyForPretty);
+    return appendDashboardRunAsPtyPlain(ptyForPretty, lastRunThreadMeta.userSummary, assistant);
   }, [prettyMode, headlessResult, lastRunThreadMeta, chatThreadKey, ptyForPretty]);
 
   const showHeadlessPermissionReadOnlyCue = useMemo(() => {
@@ -847,8 +850,9 @@ function PrettyOutputView({
             Live PTY (Pretty): hides the Claude Code welcome chrome and short “thinking” lines (e.g. ✻ Undulating…).
             Full terminal stays in <strong>Logon</strong> / <strong>Raw</strong>.             When a dashboard{' '}
             <code className="text-[10px] font-mono bg-emerald-950/10 px-1 rounded">claude -p</code> run exists for this
-            topic, its first turn is prepended here for reading only — the interactive Logon PTY does not see that text,
-            so replies there start without that context unless you paste or restate it. Merged buffer + local save per
+            topic, that finished turn is appended <strong>after</strong> the live PTY transcript here (same order as real
+            time) — the Logon PTY never contained that text, so follow-ups there do not see it unless you paste or
+            restate. Merged buffer + local save per
             command + target as before.
           </span>
           <PtyNarrativeLiveBadge rawOutput={ptyForDisplay} />
@@ -886,6 +890,6 @@ function PrettyOutputView({
     return <div className="space-y-3">{ptySection}</div>;
   }
 
-  /** Headless turn is prepended into Live PTY Pretty above; no separate Conversation card here. */
+  /** Headless turn is merged into Live PTY Pretty (after PTY text); no separate Conversation card here. */
   return <div className="space-y-3">{ptySection}</div>;
 }

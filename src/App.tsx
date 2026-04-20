@@ -92,7 +92,7 @@ export default function App() {
   const [liveTerminal, setLiveTerminal] = useState('');
   const [chatHistoryTick, setChatHistoryTick] = useState(0);
   const [chatThreadKey, setChatThreadKey] = useState(() => formatChatThreadKey(BLOG_COMMANDS[0].key, ''));
-  /** Lets Live PTY Pretty prepend the latest dashboard run for the same command + target (PTY buffer never sees `claude -p`). */
+  /** Lets Live PTY Pretty append the latest dashboard run for the same command + target (PTY buffer never sees `claude -p`). */
   const [lastRunThreadMeta, setLastRunThreadMeta] = useState<{
     threadKey: string;
     userSummary: string;
