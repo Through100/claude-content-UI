@@ -26,8 +26,9 @@ function extractLiveStatus(raw: string) {
   
   for (let i = lines.length - 1; i >= Math.max(0, lines.length - 20); i--) {
     const l = lines[i].trim();
-    if (/^\s*[·*•✻✶⎿✢✿]\s*[A-Za-z]+ing(?:_|\b)/i.test(l) || /\b\d+\s*tokens?.*\bthinking\b/i.test(l)) {
-      spinner = l.replace(/^\s*[·*•✻✶⎿✢✿]\s*/, '').trim();
+    // Support symbols: ·, *, •, ✻, ✶, ⎿, ✢, ✿, ✽
+    if (/^\s*[·*•✻✶⎿✢✿✽]\s*[A-Za-z]+ing(?:_|\b)/i.test(l) || /\b\d+\s*tokens?.*\bthinking\b/i.test(l)) {
+      spinner = l.replace(/^\s*[·*•✻✶⎿✢✿✽]\s*/, '').trim();
       
       // Look ahead up to 2 lines for a tip
       for (let j = 1; j <= 2; j++) {
@@ -49,13 +50,18 @@ function PtyAssistantPending({ liveStatus }: { liveStatus?: { spinner: string; t
   return (
     <div className="flex justify-start w-full">
       <div className="w-full max-w-[min(100%,40rem)] md:max-w-[48rem] pr-2 md:pr-16">
-        <div className="rounded-2xl border border-indigo-100 bg-indigo-50/90 px-5 py-4 shadow-sm flex items-start gap-3 text-indigo-950">
-          <Loader2 className="h-5 w-5 animate-spin shrink-0 text-indigo-600 mt-0.5" aria-hidden />
+        <div className="rounded-2xl border border-indigo-100 bg-indigo-50/90 px-5 py-4 shadow-sm flex items-start gap-4 text-indigo-950">
+          <div className="flex flex-col items-center shrink-0 mt-0.5">
+            <span className="text-xl leading-none animate-spin-slow text-indigo-600 select-none" style={{ animationDuration: '3s' }}>
+              ✽
+            </span>
+            <Loader2 className="h-3 w-3 animate-spin text-indigo-400 mt-1" aria-hidden />
+          </div>
           <div className="min-w-0">
-            <p className="text-sm font-semibold truncate" title={liveStatus?.spinner || "Executing..."}>
+            <p className="text-sm font-bold tracking-tight text-indigo-950" title={liveStatus?.spinner || "Executing..."}>
               {liveStatus?.spinner || "Executing..."}
             </p>
-            <p className="text-xs text-indigo-900/80 mt-1 leading-relaxed break-words">
+            <p className="text-xs font-medium text-indigo-900/70 mt-1.5 leading-relaxed break-words">
               {liveStatus?.tip || "Waiting for the next lines from the interactive session."}
             </p>
           </div>

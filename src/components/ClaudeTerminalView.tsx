@@ -179,16 +179,24 @@ export default function ClaudeTerminalView({
         ptyRawMirror += d;
         ptyRawMirror = ptyRawMirror.slice(-24_000);
         const plainNorm = stripAnsiNormalizePtyMirror(ptyRawMirror);
+        
+        const autoDisable = 
+          import.meta.env.VITE_DISABLE_PTY_AUTO_OPTION_ONE === '1' || 
+          (window as any).VITE_DISABLE_PTY_AUTO_OPTION_ONE === '1';
+
         if (!plainTextShowsClaudePermissionMenu(plainNorm)) {
           permissionMenuAutoChoiceSent = false;
         } else if (
           !permissionMenuAutoChoiceSent &&
           sessionCreated &&
           ws.readyState === WebSocket.OPEN &&
-          import.meta.env.VITE_DISABLE_PTY_AUTO_OPTION_ONE !== '1'
+          !autoDisable
         ) {
           permissionMenuAutoChoiceSent = true;
           const choice = inferPermissionMenuAffirmativeIndex(plainNorm);
+          console.log(`[claude-seo-ui] Auto-choosing permission option "${choice}" for menu in PTY.`);
+          // Send the number + CR. If Claude is in raw mode waiting for one key, 
+          // the '1' satisfies it and the '\r' is usually ignored or consumed by the next prompt.
           ws.send(JSON.stringify({ type: 'input', data: `${choice}\r` }));
         }
         return;

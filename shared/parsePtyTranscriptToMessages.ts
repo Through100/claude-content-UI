@@ -10,9 +10,9 @@ export function isPtyAssistantNoiseLine(line: string): boolean {
   if (/^[─\-_\s|]+$/.test(l)) return true;
   if (/^\|\s*cost:/i.test(l)) return true;
   if (/^\s*❯\s*$/.test(l)) return true;
-  // Spinners: ✻, ✶, middle dot ·, bullet *, or bare “Catapulting…” style status.
+  // Spinners: ✽, ✻, ✶, middle dot ·, bullet *, or bare “Catapulting…” style status.
   if (
-    /^\s*[✻✶·*•⎿✢✿]?\s*(?:Undulating|Thinking|Bouncing|Pulsing|Compacting|Scribbling|Catapulting|Warping|Drizzling|Twirling|Cerebrating|Percolating|Simmering|Ruminating|Marinating|Brooding|Festooning|Moonwalking|Hashing|Propagating)[·….\s]*(?:\([^)]*\))?\s*$/i.test(
+    /^\s*[✽✻✶·*•⎿✢✿]?\s*(?:Undulating|Thinking|Bouncing|Pulsing|Compacting|Scribbling|Catapulting|Warping|Drizzling|Twirling|Cerebrating|Percolating|Simmering|Ruminating|Marinating|Brooding|Festooning|Moonwalking|Hashing|Propagating|Actioning)[·….\s]*(?:\([^)]*\))?\s*$/i.test(
       l
     )
   ) {
@@ -34,9 +34,7 @@ export function isPtyAssistantNoiseLine(line: string): boolean {
   ) {
     return true;
   }
-  if (/^\s*✻\s/.test(l) && l.length < 160) return true;
-  if (/^\s*✶\s/.test(l) && l.length < 160) return true;
-  if (/^\s*✢\s/.test(l) && l.length < 160) return true;
+  if (/^\s*[·*•✻✶⎿✢✿✽]\s*\w+ing\b/i.test(l) && l.length < 160) return true;
   if (/\(thought for \d+s?\)/i.test(l) && l.length < 140) return true;
   // e.g. "> Thinking a bit longer... still working on it..."
   if (/^\s*>\s*Thinking\b/i.test(l) && l.length < 220) return true;

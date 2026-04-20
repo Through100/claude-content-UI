@@ -87,7 +87,7 @@ const LINE_MATCHERS: Matcher[] = [
   { label: 'Editing files', test: (l) => /\bwriting\b|\bedit(?:ing)?\b|\bwrote\b|\bapply_patch\b/i.test(l) },
   {
     label: 'Thinking',
-    test: (l) => /thinking|reasoning|extended\s+think|[✻✦•]\s*think/i.test(l),
+    test: (l) => /actioning|thinking|reasoning|extended\s+think|[✻✦•✽]\s*(?:think|actioning)/i.test(l),
   },
   { label: 'Improvising', test: (l) => /improvis/i.test(l) },
   { label: 'Searching', test: (l) => /\bsearching\b|\bgrep\b|\bglob\b|semantic\s+search|ripgrep|\brg\b/i.test(l) },
