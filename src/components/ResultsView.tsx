@@ -649,7 +649,8 @@ type PtyReplyPanelProps = {
 
 function PtyReplyPanel({
   warnHeadlessMenuReadOnly = false,
-  warnWelcomeSplash = false
+  warnWelcomeSplash = false,
+  onReplySent
 }: PtyReplyPanelProps) {
   const { sendToPty, ptySessionReady } = usePtyBridge();
   const [text, setText] = useState('');
