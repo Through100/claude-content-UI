@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import {
   isAwaitingPtyAssistantResponse,
@@ -22,6 +22,9 @@ type PtyMessengerThreadProps = {
   liveFooterPlainSource?: string;
   lastManualInput?: { text: string; time: number } | null;
 };
+
+/** Re-run footer extraction on this cadence so the status bar catches buffer updates even if React skips a frame. */
+const PRETTY_FOOTER_POLL_MS = 4000;
 
 /** Raw TUI-style footer (timer, tokens, thinking) — same line family as Logon / Raw. */
 function TerminalLiveFooterBar({ text }: { text: string }) {
@@ -76,6 +79,7 @@ export default function PtyMessengerThread({
 }: PtyMessengerThreadProps) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const stickBottomRef = useRef(true);
+  const [footerPollTick, setFooterPollTick] = useState(0);
   const turnsRaw = useMemo(() => parsePtyTranscriptToMessages(transcript), [transcript]);
   const displayTurns = useMemo(() => trimTrailingTrivialAssistantTurns(turnsRaw), [turnsRaw]);
   const turnsForAwaiting = useMemo(
@@ -91,7 +95,17 @@ export default function PtyMessengerThread({
     liveFooterPlainSource && liveFooterPlainSource.trim().length > 0
       ? liveFooterPlainSource
       : (awaitingHintSource ?? transcript);
-  const liveFooterLine = useMemo(() => extractPtyLiveFooterLine(footerPlainSource), [footerPlainSource]);
+  const liveFooterLine = useMemo(
+    () => extractPtyLiveFooterLine(footerPlainSource),
+    [footerPlainSource, footerPollTick]
+  );
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setFooterPollTick((n) => n + 1);
+    }, PRETTY_FOOTER_POLL_MS);
+    return () => window.clearInterval(id);
+  }, []);
 
   const showActivityRow = showThinking || Boolean(liveFooterLine);
 
