@@ -106,7 +106,8 @@ export default function App() {
     }
     const prompt = buildBlogPrompt(cmd, target);
     clearLiveTranscript({ resetPrettySession: true });
-    sendToPty(`${prompt}\r\n`);
+    sendToPty(prompt);
+    setTimeout(() => sendToPty('\r'), 100);
     const now = Date.now();
     setPtySentAt(now);
     ptySentAtRef.current = now;
