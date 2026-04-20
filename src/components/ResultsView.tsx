@@ -316,71 +316,7 @@ export default function ResultsView({
             </pre>
           </div>
         </div>
-        {/* Always show conversation thread during loading so user bubble + Thinking… spinner is visible */}
-        <DashboardHeadlessChat
-          threadKey={chatThreadKey}
-          refreshKey={chatHistoryTick}
-        />
       </>
-    );
-  }
-
-  if (!result) {
-    return (
-      <div className="space-y-8">
-        {artifactPaths.length > 0 ? (
-          <div className="flex flex-wrap items-center gap-2 justify-end rounded-xl border border-emerald-100 bg-emerald-50/50 px-4 py-3">
-            <span className="text-xs font-bold uppercase tracking-wide text-emerald-900/80 mr-auto shrink-0">
-              Workspace downloads
-            </span>
-            {artifactPaths.map((p) => {
-              const label = p.split(/[/\\]/).filter(Boolean).pop() ?? p;
-              return (
-                <a
-                  key={p}
-                  href={apiService.workspaceFileDownloadUrl(p)}
-                  download={label}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold border border-emerald-200 bg-white text-emerald-950 shadow-sm hover:bg-emerald-100 hover:border-emerald-300 transition-colors max-w-[min(100%,14rem)]"
-                  title={p}
-                >
-                  <FileCode size={16} className="text-emerald-700 shrink-0" aria-hidden />
-                  <span className="truncate">Download {label}</span>
-                </a>
-              );
-            })}
-          </div>
-        ) : null}
-        <div className="bg-white rounded-2xl border border-dashed border-gray-300 p-12 flex flex-col items-center justify-center text-center">
-          <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mb-4">
-            <FileText className="text-gray-400" size={32} />
-          </div>
-          <h3 className="text-lg font-medium text-gray-900">No headless run yet</h3>
-          <p className="text-sm text-gray-500 max-w-md mx-auto mt-2">
-            Run a command above for <code className="text-xs bg-gray-100 px-1 rounded">claude -p</code> output, or use
-            the live PTY stream below (same session as Logon).
-          </p>
-        </div>
-        <LivePtyRawMirror mergedPtyPlain={ptyMergedArchive} />
-        {ptyMergedArchive.trim() ? (
-          <PrettyOutputView
-            key={`pty-pretty-empty-run-${chatThreadKey}`}
-            prettyMode="pty"
-            ptyTranscript={ptyMergedArchive}
-            chatHistoryTick={chatHistoryTick}
-            chatThreadKey={chatThreadKey}
-            lastRunThreadMeta={lastRunThreadMeta}
-          />
-        ) : null}
-        {/* Show conversation history even when result is null (e.g. after an error or before first run) */}
-        <DashboardHeadlessChat
-          threadKey={chatThreadKey}
-          refreshKey={chatHistoryTick}
-        />
-        <PtyReplyPanel
-          warnHeadlessMenuReadOnly={replyPanelWarnHeadlessMenuReadOnly}
-          warnWelcomeSplash={replyPanelWarnWelcomeSplash}
-        />
-      </div>
     );
   }
 
@@ -498,8 +434,8 @@ export default function ResultsView({
           >
             <LivePtyRawMirror
               mergedPtyPlain={ptyMergedArchive}
-              headlessStdout={result.rawOutput ?? ''}
-              headlessError={result.error ?? ''}
+              headlessStdout={result?.rawOutput}
+              headlessError={result?.error}
               livePtyMirror={!isHistoryEmbed}
             />
           </motion.div>
@@ -959,7 +895,7 @@ function PrettyOutputView({
         <span className="relative inline-flex h-3 w-3 rounded-full bg-indigo-600" />
       </span>
       <div>
-        <p className="text-sm font-semibold text-indigo-950">Command sent — Claude is starting…</p>
+        <p className="text-sm font-semibold text-indigo-950">Executing...</p>
         <p className="text-xs text-indigo-800/80 mt-1 leading-relaxed">
           Output will appear here as Claude responds. You can also watch the live stream in{' '}
           <strong>Raw View</strong> or <strong>Logon</strong>.
@@ -991,7 +927,8 @@ function PrettyOutputView({
     );
 
   if (prettyMode === 'headless') {
-    return <DashboardHeadlessChat threadKey={chatThreadKey} refreshKey={chatHistoryTick} />;
+    // Hidden per user request
+    return null;
   }
 
   return <div className="space-y-3">{ptySection}</div>;

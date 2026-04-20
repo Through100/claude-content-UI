@@ -23,10 +23,9 @@ function PtyAssistantPending() {
         <div className="rounded-2xl border border-indigo-100 bg-indigo-50/90 px-5 py-4 shadow-sm flex items-start gap-3 text-indigo-950">
           <Loader2 className="h-5 w-5 animate-spin shrink-0 text-indigo-600 mt-0.5" aria-hidden />
           <div>
-            <p className="text-sm font-semibold">Claude is responding…</p>
+            <p className="text-sm font-semibold">Executing...</p>
             <p className="text-xs text-indigo-900/80 mt-1 leading-relaxed">
-              Waiting for the next lines on the live PTY. If this stays here, check <strong>Raw View</strong> or{' '}
-              <strong>Logon</strong> for the full terminal.
+              Waiting for the next lines from the interactive session.
             </p>
           </div>
         </div>
