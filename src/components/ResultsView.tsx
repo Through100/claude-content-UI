@@ -700,13 +700,6 @@ function PtyReplyPanel({
     setHint(null);
 
     const afterDelivered = () => {
-      if (appendEnter && t.trim()) {
-        setTimeout(() => {
-          sendToPty('\r');
-        }, 100);
-      } else if (appendEnter && !t.trim()) {
-        sendToPty('\r');
-      }
       setHint({ message: 'Sent to the interactive PTY.', type: 'success' });
       onReplySent?.(t);
       setText('');
@@ -714,22 +707,31 @@ function PtyReplyPanel({
       setSending(false);
     };
 
-    const deliverPayload = (): boolean => {
-      if (!t) return true;
-      return sendToPty(t);
+    /** One PTY write per submit: line + CR when “Append Enter” is on (avoids a second WS send for CR failing silently). */
+    const deliverLine = (): boolean => {
+      if (appendEnter && t.trim()) {
+        return sendToPty(`${t}\r`);
+      }
+      if (appendEnter && !t.trim()) {
+        return sendToPty('\r');
+      }
+      if (t) {
+        return sendToPty(t);
+      }
+      return true;
     };
 
     try {
-      const okFirst = deliverPayload();
+      const okFirst = deliverLine();
       if (!okFirst) {
         /** `ptySessionReady` can flip before the bridge transport observes `WebSocket.OPEN` for a tick or two. */
         requestAnimationFrame(() => {
-          if (deliverPayload()) {
+          if (deliverLine()) {
             afterDelivered();
             return;
           }
           window.setTimeout(() => {
-            if (deliverPayload()) {
+            if (deliverLine()) {
               afterDelivered();
               return;
             }
