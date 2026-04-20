@@ -215,6 +215,11 @@ export default function ResultsView({
 
   const ptyTranscriptTrimmed = (ptyFullSnapshotPlain + ptyDisplayPlain).trim();
   const showBigSpinner = isLoading && !ptySessionReady && !ptyTranscriptTrimmed;
+  const elapsedMs = loadingStartedAt != null ? Date.now() - loadingStartedAt : 0;
+  const showLongRunHint = isLoading && elapsedMs > 40_000;
+  const showNoSseYetHint = isLoading && !headlessStreamPrimed && elapsedMs > 60_000;
+  const showClaudeSilentHint =
+    isLoading && headlessStreamPrimed && liveTerminal.trim().length === 0 && elapsedMs > 120_000;
 
   if (showBigSpinner) {
     return (
@@ -938,10 +943,11 @@ function PrettyOutputView({
       <>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-emerald-900/90 px-2 py-1.5 rounded-lg bg-emerald-50 border border-emerald-100">
           <span>
-            <strong>Interactive PTY (Pretty)</strong>: splash lines and spinner text are hidden here; the{' '}
-            <strong>Claude is responding…</strong> chip follows the raw stream. Full terminal in{' '}
-            <strong>Logon</strong> / <strong>Raw</strong>. Type replies directly in the <strong>Reply</strong> panel
-            below — Claude will see them in the same session.
+            <strong>Interactive PTY (Pretty)</strong>: hides splash and short spinner lines. While work is in
+            progress, the <strong>dark status bar</strong> under the thread mirrors Raw (timer, tokens, thinking) and
+            disappears once substantive <code className="text-[10px] font-mono bg-emerald-950/10 px-1 rounded">●</code>{' '}
+            output reaches the PTY tail. Full fidelity stays in <strong>Logon</strong> / <strong>Raw</strong>. Reply
+            below uses the same session.
           </span>
           <PtyNarrativeLiveBadge rawOutput={ptyForDisplay} executing={isPtyActivelyExecuting} />
         </div>

@@ -5,8 +5,8 @@ import {
   parsePtyTranscriptToMessages,
   trimTrailingTrivialAssistantTurns
 } from '../../shared/parsePtyTranscriptToMessages';
+import { extractPtyLiveFooterLine } from '../../shared/extractPtyLiveFooterLine';
 import PtyAssistantBody from './PtyAssistantBody';
-import { stripAnsi } from '../../shared/stripAnsi';
 
 type PtyMessengerThreadProps = {
   transcript: string;
@@ -18,51 +18,39 @@ type PtyMessengerThreadProps = {
   lastManualInput?: { text: string; time: number } | null;
 };
 
-function extractLiveStatus(raw: string) {
-  const plain = stripAnsi(raw).replace(/\r\n/g, '\n');
-  const lines = plain.split('\n');
-  let spinner = '';
-  let tip = '';
-  
-  for (let i = lines.length - 1; i >= Math.max(0, lines.length - 20); i--) {
-    const l = lines[i].trim();
-    // Support symbols: ·, *, •, ✻, ✶, ⎿, ✢, ✿, ✽
-    if (/^\s*[·*•✻✶⎿✢✿✽]\s*[A-Za-z]+ing(?:_|\b)/i.test(l) || /\b\d+\s*tokens?.*\bthinking\b/i.test(l)) {
-      spinner = l.replace(/^\s*[·*•✻✶⎿✢✿✽]\s*/, '').trim();
-      
-      // Look ahead up to 2 lines for a tip
-      for (let j = 1; j <= 2; j++) {
-        if (i + j < lines.length) {
-          const l2 = lines[i + j].trim();
-          if (/^(?:⎿\s*)?(?:L|└)\s*Tip:/i.test(l2)) {
-            tip = l2.replace(/^(?:⎿\s*)?(?:L|└)\s*/, '');
-            break;
-          }
-        }
-      }
-      return { spinner, tip };
-    }
-  }
-  return null;
+/** Raw TUI-style footer (timer, tokens, thinking) — same line family as Logon / Raw. */
+function TerminalLiveFooterBar({ text }: { text: string }) {
+  return (
+    <div className="flex justify-start w-full">
+      <div className="w-full max-w-[min(100%,44rem)] md:max-w-[56rem] pr-2 md:pr-16">
+        <div className="rounded-xl border border-zinc-700/95 bg-[#09090b] px-3 py-2.5 shadow-inner ring-1 ring-zinc-800/80">
+          <p className="text-[11px] sm:text-[12px] leading-snug font-mono text-zinc-200 whitespace-pre-wrap break-words">
+            {text}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
 }
 
-function PtyAssistantPending({ liveStatus }: { liveStatus?: { spinner: string; tip: string } | null }) {
+function PtyAssistantPending() {
   return (
     <div className="flex justify-start w-full">
       <div className="w-full max-w-[min(100%,40rem)] md:max-w-[48rem] pr-2 md:pr-16">
         <div className="rounded-2xl border border-indigo-100 bg-indigo-50/90 px-5 py-4 shadow-sm flex items-start gap-4 text-indigo-950">
           <div className="flex flex-col items-center shrink-0 mt-0.5">
-            <span className="text-xl leading-none animate-spin-slow text-indigo-600 select-none" style={{ animationDuration: '3s' }}>
+            <span
+              className="text-xl leading-none animate-spin-slow text-indigo-600 select-none"
+              style={{ animationDuration: '3s' }}
+            >
               ✽
             </span>
             <Loader2 className="h-3 w-3 animate-spin text-indigo-400 mt-1" aria-hidden />
           </div>
           <div className="min-w-0">
-            <p className="text-sm font-bold tracking-tight text-indigo-950" title={liveStatus?.spinner || "Executing..."}>
-              {liveStatus?.spinner || "Executing..."}
-            </p>
-            <p className="text-xs font-medium text-indigo-900/70 mt-1.5 leading-relaxed break-words">
-              {liveStatus?.tip || "Waiting for the next lines from the interactive session."}
+            <p className="text-sm font-bold tracking-tight text-indigo-950">Claude is responding…</p>
+            <p className="text-xs font-medium text-indigo-900/70 mt-1.5 leading-relaxed">
+              Waiting for the next lines from the interactive session. Open <strong>Raw</strong> for the full TTY.
             </p>
           </div>
         </div>
@@ -88,17 +76,17 @@ export default function PtyMessengerThread({ transcript, awaitingHintSource, las
     () => isAwaitingPtyAssistantResponse(turnsForAwaiting),
     [turnsForAwaiting]
   );
-  
-  const liveStatus = useMemo(() => {
-    if (!showThinking) return null;
-    return extractLiveStatus(awaitingHintSource ?? transcript);
-  }, [showThinking, awaitingHintSource, transcript]);
+
+  const rawForFooter = awaitingHintSource ?? transcript;
+  const liveFooterLine = useMemo(() => extractPtyLiveFooterLine(rawForFooter), [rawForFooter]);
+
+  const showActivityRow = showThinking || Boolean(liveFooterLine);
 
   useEffect(() => {
     const el = scrollerRef.current;
     if (!el || !stickBottomRef.current) return;
     el.scrollTop = el.scrollHeight;
-  }, [transcript, showThinking]);
+  }, [transcript, showThinking, liveFooterLine]);
 
   const onScroll = () => {
     const el = scrollerRef.current;
@@ -110,14 +98,12 @@ export default function PtyMessengerThread({ transcript, awaitingHintSource, las
   const visibleTurns = useMemo(() => {
     const base = displayTurns.filter((m) => m.role === 'user' || m.text.trim().length > 0);
     if (!lastManualInput) return base;
-    
-    // If the manual input was already naturally echoed by the terminal, we don't append it again.
+
     const lastUser = base.slice().reverse().find((m) => m.role === 'user');
     const naturallyEchoed = lastUser && lastUser.text.trim() === lastManualInput.text.trim();
-    
-    // Show the optimistic bubble for recent inputs (30s) or indefinitely as the last action.
+
     if (!naturallyEchoed && Date.now() - lastManualInput.time < 45000) {
-      return [...base, { id: `manual-${lastManualInput.time}`, role: 'user', text: lastManualInput.text }];
+      return [...base, { id: `manual-${lastManualInput.time}`, role: 'user' as const, text: lastManualInput.text }];
     }
     return base;
   }, [displayTurns, lastManualInput]);
@@ -131,14 +117,15 @@ export default function PtyMessengerThread({ transcript, awaitingHintSource, las
         </div>
       );
     }
-    if (showThinking) {
+    if (showActivityRow) {
       return (
         <div className="rounded-2xl border border-indigo-100 bg-white shadow-sm overflow-hidden">
           <p className="text-xs text-indigo-800 px-4 py-3 border-b border-indigo-100 bg-indigo-50/60">
             Live PTY — waiting for the assistant after your last line.
           </p>
-          <div className="px-4 py-8 md:px-8 max-h-[min(75vh,720px)] overflow-y-auto bg-white">
-            <PtyAssistantPending liveStatus={liveStatus} />
+          <div className="px-4 py-8 md:px-8 max-h-[min(75vh,720px)] overflow-y-auto bg-white space-y-4">
+            {liveFooterLine ? <TerminalLiveFooterBar text={liveFooterLine} /> : null}
+            {!liveFooterLine ? <PtyAssistantPending /> : null}
           </div>
         </div>
       );
@@ -194,7 +181,12 @@ export default function PtyMessengerThread({ transcript, awaitingHintSource, las
             </div>
           )
         )}
-        {showThinking ? <PtyAssistantPending liveStatus={liveStatus} /> : null}
+        {showActivityRow ? (
+          <div className="space-y-3">
+            {liveFooterLine ? <TerminalLiveFooterBar text={liveFooterLine} /> : null}
+            {showThinking && !liveFooterLine ? <PtyAssistantPending /> : null}
+          </div>
+        ) : null}
       </div>
     </section>
   );

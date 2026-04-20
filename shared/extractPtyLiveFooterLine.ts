@@ -1,0 +1,53 @@
+import { stripAnsi } from './stripAnsi';
+
+/**
+ * True when this `●` line is clearly the main answer body (Pretty should treat the stream as “got output”
+ * and hide the live Raw-style footer bar).
+ */
+function isSubstantiveAssistantTailLine(line: string): boolean {
+  const t = line.trim();
+  if (!/^\s*●\s+/.test(t)) return false;
+  if (/^\s*●\s*Thinking\b/i.test(t)) return false;
+  if (/^\s*●\s*Skill\s*\(/i.test(t)) return false;
+  if (t.length < 96) return false;
+  return true;
+}
+
+/** Claude Code one-line footer: timer + tokens + optional “thinking” (matches Raw TUI). */
+function isTokenTimerFooterLine(line: string): boolean {
+  const t = line.trim();
+  if (t.length < 14 || t.length > 420) return false;
+  if (!/\b\d+\s*tokens?\b/i.test(t)) return false;
+  if (!/\(\s*\d+[smh]/i.test(t)) return false;
+  if (/\bthinking\b/i.test(t)) return true;
+  if (/^\s*[·*•✻✶⎿✢✿✽]\s+\S+ing\b/i.test(t)) return true;
+  return false;
+}
+
+function shouldSkipWhenScanningFromBottom(line: string): boolean {
+  const t = line.trim();
+  if (!t) return true;
+  if (/^\|\s*cost:/i.test(t)) return true;
+  if (/^\s*>\s*\|?\s*$/i.test(t)) return true;
+  if (/^\s*❯\s*$/.test(t)) return true;
+  if (/^\s*(?:⎿\s*)?L\s*Tip:/i.test(t)) return true;
+  return false;
+}
+
+/**
+ * Returns the live status footer line shown at the bottom of Claude Code (timer, tokens, “thinking”),
+ * or null when the PTY tail already shows substantive `●` answer text.
+ */
+export function extractPtyLiveFooterLine(raw: string): string | null {
+  const plain = stripAnsi(raw ?? '').replace(/\r\n/g, '\n');
+  const lines = plain.split('\n');
+  const tail = lines.slice(-40);
+  for (let i = tail.length - 1; i >= 0; i--) {
+    const L = tail[i] ?? '';
+    const t = L.trim();
+    if (shouldSkipWhenScanningFromBottom(L)) continue;
+    if (isSubstantiveAssistantTailLine(L)) return null;
+    if (isTokenTimerFooterLine(L)) return t;
+  }
+  return null;
+}
