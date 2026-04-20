@@ -1,5 +1,6 @@
 import { normalizeTeletypeLines, stripAnsi } from './stripAnsi';
 import { isPtyAssistantNoiseLine } from './parsePtyTranscriptToMessages';
+import { reflowSoftWrappedPlainLines } from './reflowSoftWrappedPlainLines';
 
 /** Table / rule lines typical of the Claude Code TUI splash header. */
 function isSplashOrChromeLine(line: string): boolean {
@@ -84,5 +85,6 @@ export function sanitizePtyPrettyTranscript(raw: string): string {
   let t = normalizeTeletypeLines(stripAnsi(raw ?? '')).replace(/\r\n/g, '\n');
   t = stripClaudeCodeSplashPrefix(t);
   t = stripPtyEphemeralLines(t);
+  t = reflowSoftWrappedPlainLines(t);
   return t.replace(/\n{4,}/g, '\n\n\n').trim();
 }

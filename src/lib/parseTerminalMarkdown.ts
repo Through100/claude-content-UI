@@ -356,8 +356,15 @@ export function parseLinearBlocks(source: string): LinearBlock[] {
 
     tm = trimmed.match(TAG_LINE_ANY);
     if (tm) {
-      flush();
       const inner = (tm[1] ?? '').trim();
+      /** Lines like `[PERSONAL EXPERIENCE]` are checklist markers, not Pretty “tag” cards. */
+      const isUppercaseFlatMarker = /^[A-Z0-9 _-]{2,80}$/.test(inner) && !inner.includes(':');
+      if (isUppercaseFlatMarker) {
+        paraBuf.push(trimmed);
+        i++;
+        continue;
+      }
+      flush();
       const { tagKind, detail } = parseBracketTagInner(inner);
       blocks.push({ type: 'tag', tagKind, raw: trimmed, detail });
       i++;
