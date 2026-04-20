@@ -419,6 +419,7 @@ export default function ResultsView({
                   key={`pretty-${prettyMode}-${chatThreadKey}`}
                   prettyMode={prettyMode}
                   ptyTranscript={ptyMergedArchive}
+                  liveFooterPlainSource={ptyDisplayPlain}
                   chatHistoryTick={chatHistoryTick}
                   chatThreadKey={chatThreadKey}
                   lastRunThreadMeta={lastRunThreadMeta}
@@ -855,6 +856,7 @@ function appendDashboardRunAsPtyPlain(ptyHead: string, userSummary: string, assi
 function PrettyOutputView({
   prettyMode,
   ptyTranscript,
+  liveFooterPlainSource = '',
   chatHistoryTick = 0,
   chatThreadKey,
   lastRunThreadMeta = null,
@@ -866,6 +868,8 @@ function PrettyOutputView({
 }: {
   prettyMode: PrettyOutputMode;
   ptyTranscript: string;
+  /** Logon xterm “display” slice — updates every rAF with PTY chunks; fresher than merged archive for footer. */
+  liveFooterPlainSource?: string;
   chatHistoryTick?: number;
   chatThreadKey: string;
   lastRunThreadMeta?: { threadKey: string; userSummary: string } | null;
@@ -951,7 +955,12 @@ function PrettyOutputView({
           </span>
           <PtyNarrativeLiveBadge rawOutput={ptyForDisplay} executing={isPtyActivelyExecuting} />
         </div>
-        <PtyMessengerThread transcript={ptyForDisplay} awaitingHintSource={ptyTranscript} lastManualInput={lastManualInput} />
+        <PtyMessengerThread
+          transcript={ptyForDisplay}
+          awaitingHintSource={ptyTranscript}
+          liveFooterPlainSource={liveFooterPlainSource}
+          lastManualInput={lastManualInput}
+        />
       </>
     ) : (
       emptySection

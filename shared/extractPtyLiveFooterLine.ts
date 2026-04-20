@@ -1,4 +1,4 @@
-import { stripAnsi } from './stripAnsi';
+import { normalizeTeletypeLines, stripAnsi } from './stripAnsi';
 
 /**
  * True when this `●` line is clearly the main answer body (Pretty should treat the stream as “got output”
@@ -39,7 +39,8 @@ function shouldSkipWhenScanningFromBottom(line: string): boolean {
  * or null when the PTY tail already shows substantive `●` answer text.
  */
 export function extractPtyLiveFooterLine(raw: string): string | null {
-  const plain = stripAnsi(raw ?? '').replace(/\r\n/g, '\n');
+  /** Same as Logon path: CR redraws collapse so the last in-place footer (36s → 1m 33s) is visible. */
+  const plain = normalizeTeletypeLines(stripAnsi(raw ?? '')).replace(/\r\n/g, '\n');
   const lines = plain.split('\n');
   const tail = lines.slice(-40);
   for (let i = tail.length - 1; i >= 0; i--) {

@@ -15,6 +15,11 @@ type PtyMessengerThreadProps = {
    * whether to show “Claude is responding…” while spinners are stripped from `transcript`.
    */
   awaitingHintSource?: string;
+  /**
+   * Logon xterm display slice (same cadence as Raw). Prefer this for the live footer so timer/tokens
+   * match Raw; merged archive can lag on in-place CR redraws.
+   */
+  liveFooterPlainSource?: string;
   lastManualInput?: { text: string; time: number } | null;
 };
 
@@ -63,7 +68,12 @@ function PtyAssistantPending() {
  * ChatGPT-style thread: assistant on the left (markdown or plain), you on the right (pill).
  * Shows a loading card when the last parsed turn is the user (assistant still thinking / not yet in buffer).
  */
-export default function PtyMessengerThread({ transcript, awaitingHintSource, lastManualInput }: PtyMessengerThreadProps) {
+export default function PtyMessengerThread({
+  transcript,
+  awaitingHintSource,
+  liveFooterPlainSource,
+  lastManualInput
+}: PtyMessengerThreadProps) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const stickBottomRef = useRef(true);
   const turnsRaw = useMemo(() => parsePtyTranscriptToMessages(transcript), [transcript]);
@@ -77,8 +87,11 @@ export default function PtyMessengerThread({ transcript, awaitingHintSource, las
     [turnsForAwaiting]
   );
 
-  const rawForFooter = awaitingHintSource ?? transcript;
-  const liveFooterLine = useMemo(() => extractPtyLiveFooterLine(rawForFooter), [rawForFooter]);
+  const footerPlainSource =
+    liveFooterPlainSource && liveFooterPlainSource.trim().length > 0
+      ? liveFooterPlainSource
+      : (awaitingHintSource ?? transcript);
+  const liveFooterLine = useMemo(() => extractPtyLiveFooterLine(footerPlainSource), [footerPlainSource]);
 
   const showActivityRow = showThinking || Boolean(liveFooterLine);
 
