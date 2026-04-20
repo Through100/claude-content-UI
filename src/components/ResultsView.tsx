@@ -24,6 +24,7 @@ import { inferClaudeActivity } from '../../shared/inferClaudeActivity';
 import { headlessOutputLooksLikeInteractivePermissionAsk } from '../../shared/headlessStalePermissionCue';
 import {
   countPtyProceedPrompts,
+  inferPermissionMenuAffirmativeIndex,
   plainTextShowsClaudePermissionMenu,
   stripAnsiNormalizePtyMirror
 } from '../../shared/claudeCodePtyPermissionMenu';
@@ -162,6 +163,13 @@ export default function ResultsView({
   );
 
   /** Logon buffer tail looks like Claude Code’s idle welcome — “yes” has no pending question there. */
+  /** When set, Reply can map plain “yes”/“y” to the numbered choice Ink expects (verbatim letters are otherwise ignored by Claude Code). */
+  const permissionMenuPlainHint = useMemo(() => {
+    const chunk = `${ptyFullSnapshotPlain}\n${ptyDisplayPlain}`.slice(-12000);
+    const plain = stripAnsiNormalizePtyMirror(chunk);
+    return plainTextShowsClaudePermissionMenu(plain) ? plain : null;
+  }, [ptyFullSnapshotPlain, ptyDisplayPlain]);
+
   const replyPanelWarnWelcomeSplash = useMemo(() => {
     const chunk = `${ptyFullSnapshotPlain}\n${ptyDisplayPlain}`.slice(-12000);
     /** Welcome text can linger in scrollback while a live permission menu is at the tail — don’t warn then. */
@@ -472,6 +480,7 @@ export default function ResultsView({
         <PtyReplyPanel
           warnHeadlessMenuReadOnly={replyPanelWarnHeadlessMenuReadOnly}
           warnWelcomeSplash={replyPanelWarnWelcomeSplash}
+          permissionMenuPlainHint={permissionMenuPlainHint}
           onReplySent={(text) =>
             setLastManualInput({
               text,
@@ -675,12 +684,15 @@ type PtyReplyPanelProps = {
   /** Finished headless output in Pretty looks like a Fetch/permission ask — Reply still targets the live PTY only. */
   warnHeadlessMenuReadOnly?: boolean;
   warnWelcomeSplash?: boolean;
+  /** Normalized PTY tail when Claude Code’s numbered permission menu is visible; used only to map yes/y → menu index. */
+  permissionMenuPlainHint?: string | null;
   onReplySent?: (text: string) => void;
 };
 
 function PtyReplyPanel({
   warnHeadlessMenuReadOnly = false,
   warnWelcomeSplash = false,
+  permissionMenuPlainHint = null,
   onReplySent
 }: PtyReplyPanelProps) {
   const { sendToPty, ptySessionReady } = usePtyBridge();
@@ -719,8 +731,12 @@ function PtyReplyPanel({
      * but does not submit for Claude Code / Ink prompts (e.g. “yes”, “1”, long URLs).
      */
     const deliverLine = (): boolean => {
+      const ptyPayload =
+        permissionMenuPlainHint && /^(y|yes)$/i.test(t)
+          ? inferPermissionMenuAffirmativeIndex(permissionMenuPlainHint)
+          : t;
       if (appendEnter && t.trim()) {
-        const ok = sendToPty(t);
+        const ok = sendToPty(ptyPayload);
         if (!ok) return false;
         window.setTimeout(() => {
           void sendToPty('\r');
@@ -731,7 +747,7 @@ function PtyReplyPanel({
         return sendToPty('\r');
       }
       if (t) {
-        return sendToPty(t);
+        return sendToPty(ptyPayload);
       }
       return true;
     };
@@ -800,7 +816,7 @@ function PtyReplyPanel({
         }}
         rows={4}
         spellCheck={false}
-        placeholder="e.g. '1' (Yes), '2' (Yes, and don't ask again), or 'Explain how...'"
+        placeholder="Permission menu: type 1–3 (or yes — we send the matching number). Longer text is sent as-is."
         className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none resize-y font-mono"
       />
       
