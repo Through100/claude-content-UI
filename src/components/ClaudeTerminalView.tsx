@@ -111,6 +111,8 @@ export default function ClaudeTerminalView({
     ptyBridgeRef.current.registerPtyTerminal(term);
 
     const socket = new WebSocket(wsUrl());
+    /** Mutable handle so `sendRawToPty` always targets the live socket (must not be React `useRef` inside this effect). */
+    const wsRef = { current: socket as WebSocket | null };
     setWs(socket);
     const ws = socket;
 
@@ -128,10 +130,11 @@ export default function ClaudeTerminalView({
       onEndRef.current?.();
     };
 
-    const sendRawToPty = (data: string) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'input', data }));
-      }
+    const sendRawToPty = (data: string): boolean => {
+      const w = wsRef.current;
+      if (!w || w.readyState !== WebSocket.OPEN) return false;
+      w.send(JSON.stringify({ type: 'input', data }));
+      return true;
     };
 
     insertIntoPtyRef.current = (data: string) => {
@@ -199,11 +202,13 @@ export default function ClaudeTerminalView({
           // the '1' satisfies it and the '\r' is usually ignored or consumed by the next prompt.
           // Add delay so CLI buffers can flush/ready the prompt before processing input
           setTimeout(() => {
-            if (ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({ type: 'input', data: String(choice) }));
+            const w1 = wsRef.current;
+            if (w1?.readyState === WebSocket.OPEN) {
+              w1.send(JSON.stringify({ type: 'input', data: String(choice) }));
               setTimeout(() => {
-                if (ws.readyState === WebSocket.OPEN) {
-                  ws.send(JSON.stringify({ type: 'input', data: '\r' }));
+                const w2 = wsRef.current;
+                if (w2?.readyState === WebSocket.OPEN) {
+                  w2.send(JSON.stringify({ type: 'input', data: '\r' }));
                 }
               }, 150);
             }
@@ -370,9 +375,10 @@ export default function ClaudeTerminalView({
 
     return () => {
       destroyed = true;
+      wsRef.current = null;
       ptyBridgeRef.current.registerPtyTerminal(null);
       ptyBridgeRef.current.setSessionConnected(false);
-      ptyBridgeRef.current.registerTransport(() => {});
+      ptyBridgeRef.current.registerTransport(() => false);
       if (sessionCreated || welcomeScanner.didEmit) {
         endPtyHeader();
       } else {

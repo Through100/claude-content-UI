@@ -680,22 +680,54 @@ function PtyReplyPanel({
     
     setSending(true);
     setHint(null);
-    
-    try {
-      sendToPty(t);
+
+    const afterDelivered = () => {
       if (appendEnter && t.trim()) {
-        setTimeout(() => sendToPty('\r'), 100);
+        setTimeout(() => {
+          sendToPty('\r');
+        }, 100);
       } else if (appendEnter && !t.trim()) {
         sendToPty('\r');
       }
       setHint({ message: 'Sent to the interactive PTY.', type: 'success' });
       onReplySent?.(t);
       setText('');
-      // Auto-clear success hint after a few seconds
-      setTimeout(() => setHint(h => h?.type === 'success' ? null : h), 4000);
+      setTimeout(() => setHint((h) => (h?.type === 'success' ? null : h)), 4000);
+      setSending(false);
+    };
+
+    const deliverPayload = (): boolean => {
+      if (!t) return true;
+      return sendToPty(t);
+    };
+
+    try {
+      const okFirst = deliverPayload();
+      if (!okFirst) {
+        /** `ptySessionReady` can flip before the bridge transport observes `WebSocket.OPEN` for a tick or two. */
+        requestAnimationFrame(() => {
+          if (deliverPayload()) {
+            afterDelivered();
+            return;
+          }
+          window.setTimeout(() => {
+            if (deliverPayload()) {
+              afterDelivered();
+              return;
+            }
+            setHint({
+              message:
+                'Could not send to the PTY (socket not open yet). Wait a moment and try again, or open Logon to confirm the terminal is connected.',
+              type: 'error'
+            });
+            setSending(false);
+          }, 120);
+        });
+        return;
+      }
+      afterDelivered();
     } catch (err) {
       setHint({ message: `Failed to send: ${String(err)}`, type: 'error' });
-    } finally {
       setSending(false);
     }
   };

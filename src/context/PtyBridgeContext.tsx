@@ -12,9 +12,10 @@ import { serializeXtermBufferPlain } from '../../shared/serializeXtermBuffer';
 const MAX_LIVE_TRANSCRIPT = 600_000;
 
 export type PtyBridgeContextValue = {
-  sendToPty: (text: string) => void;
+  /** Returns false if the PTY WebSocket transport is not accepting input (nothing was sent). */
+  sendToPty: (text: string) => boolean;
   ptySessionReady: boolean;
-  registerTransport: (fn: (text: string) => void) => void;
+  registerTransport: (fn: (text: string) => boolean) => void;
   setSessionConnected: (connected: boolean) => void;
   /**
    * Plain text snapshot of the Logon xterm buffer (Dashboard Raw / Pretty live).
@@ -50,10 +51,10 @@ export type PtyBridgeContextValue = {
 
 const PtyBridgeContext = createContext<PtyBridgeContextValue | null>(null);
 
-const noopTransport = () => {};
+const noopTransport = (_text: string) => false;
 
 export function PtyBridgeProvider({ children }: { children: React.ReactNode }) {
-  const transportRef = useRef<(text: string) => void>(noopTransport);
+  const transportRef = useRef<(text: string) => boolean>(noopTransport);
   const [ptySessionReady, setPtySessionReady] = useState(false);
   const [ptyDisplayPlain, setPtyDisplayPlain] = useState('');
   const [ptyFullSnapshotPlain, setPtyFullSnapshotPlain] = useState('');
@@ -177,7 +178,7 @@ export function PtyBridgeProvider({ children }: { children: React.ReactNode }) {
     setPtyFullSnapshotPlain(serializeXtermBufferPlain(t, 0));
   }, []);
 
-  const registerTransport = useCallback((fn: (text: string) => void) => {
+  const registerTransport = useCallback((fn: (text: string) => boolean) => {
     transportRef.current = fn;
   }, []);
 
@@ -185,8 +186,8 @@ export function PtyBridgeProvider({ children }: { children: React.ReactNode }) {
     setPtySessionReady(connected);
   }, []);
 
-  const sendToPty = useCallback((text: string) => {
-    transportRef.current(text);
+  const sendToPty = useCallback((text: string): boolean => {
+    return transportRef.current(text);
   }, []);
 
   const value = useMemo(
