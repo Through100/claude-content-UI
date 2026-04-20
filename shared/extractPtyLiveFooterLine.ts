@@ -1,3 +1,4 @@
+import { isInkSpinnerTokenStatusLine } from './inkSpinnerTokenStatusLine';
 import { normalizeTeletypeLines, stripAnsi } from './stripAnsi';
 
 /**
@@ -21,6 +22,7 @@ function lineHasTokenCountFooter(t: string): boolean {
 /** Claude Code one-line footer: timer + tokens + optional “thinking” (matches Raw TUI). */
 function isTokenTimerFooterLine(line: string): boolean {
   const t = line.trim();
+  if (isInkSpinnerTokenStatusLine(t)) return true;
   if (t.length < 14 || t.length > 420) return false;
   if (!lineHasTokenCountFooter(t)) return false;
   if (!/\(\s*\d+[smh]/i.test(t)) return false;

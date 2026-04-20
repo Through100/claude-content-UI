@@ -1,4 +1,5 @@
 import { textContainsClaudePermissionMenu } from './claudeCodePtyPermissionMenu';
+import { isInkSpinnerTokenStatusLine } from './inkSpinnerTokenStatusLine';
 import { normalizeTeletypeLines, stripAnsi } from './stripAnsi';
 
 export type ChatTurn = { role: 'user' | 'assistant'; text: string; id: string };
@@ -7,6 +8,8 @@ export type ChatTurn = { role: 'user' | 'assistant'; text: string; id: string };
 export function isPtyAssistantNoiseLine(line: string): boolean {
   const l = line.trim();
   if (!l) return true;
+  /** Keep Ink one-line status (any verb) visible in Pretty — see `isInkSpinnerTokenStatusLine`. */
+  if (isInkSpinnerTokenStatusLine(l)) return false;
   if (/^[─\-_\s|]+$/.test(l)) return true;
   if (/^\|\s*cost:/i.test(l)) return true;
   if (/^\s*❯\s*$/.test(l)) return true;
