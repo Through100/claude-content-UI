@@ -26,16 +26,6 @@ function isTokenTimerFooterLine(line: string): boolean {
   if (!/\(\s*\d+[smh]/i.test(t)) return false;
   if (/\bthinking\b/i.test(t)) return true;
   if (/^\s*[·*•✻✶⎿✢✿✽]\s+\S+ing\b/i.test(t)) return true;
-  /**
-   * Ink uses coined verbs like “Beboppin'…” (not *-ing) with the same “(12s · ↓ 587 tokens)” shape as Undulating.
-   */
-  if (
-    /^\s*[·*•✻✶⎿✢✿✽]\s+\S+/i.test(t) &&
-    /·\s*[↓↑]\s*[\d,.]/i.test(t) &&
-    t.length <= 240
-  ) {
-    return true;
-  }
   return false;
 }
 
