@@ -670,7 +670,7 @@ function PtyReplyPanel({
     setHint(null);
     
     try {
-      sendToPty(appendEnter ? `${t}\n` : t);
+      sendToPty(appendEnter ? `${t}\r\n` : t);
       setHint({ message: 'Sent to the interactive PTY.', type: 'success' });
       setText('');
       // Auto-clear success hint after a few seconds
