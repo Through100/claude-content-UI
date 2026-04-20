@@ -97,6 +97,8 @@ export default function App() {
     threadKey: string;
     userSummary: string;
   } | null>(null);
+  /** True once SSE delivers run_accepted or keepalive — distinguishes proxy buffering from a silent Claude process. */
+  const [headlessStreamPrimed, setHeadlessStreamPrimed] = useState(false);
 
   const onRunnerSessionChange = useCallback((commandKey: string, target: string) => {
     setChatThreadKey(formatChatThreadKey(commandKey, target));
@@ -116,10 +118,22 @@ export default function App() {
     setLiveTerminal('');
     setError(null);
     setLastRunThreadMeta(null);
+    setHeadlessStreamPrimed(false);
     try {
-      const response = await apiService.runBlogCommand(commandKey, target, model, (_ch, text) => {
-        setLiveTerminal(prev => prev + text);
-      });
+      const response = await apiService.runBlogCommand(
+        commandKey,
+        target,
+        model,
+        (_ch, text) => {
+          if (text.length > 0) setHeadlessStreamPrimed(true);
+          setLiveTerminal(prev => prev + text);
+        },
+        (ev) => {
+          if (ev.type === 'run_accepted' || ev.type === 'keepalive') {
+            setHeadlessStreamPrimed(true);
+          }
+        }
+      );
       setResult(response);
       const userLine = formatRunUserSummary(commandKey, target, model);
       const tk = formatChatThreadKey(commandKey, target);
@@ -217,6 +231,7 @@ export default function App() {
               isLoading={isLoading}
               loadingStartedAt={runStartedAt}
               liveTerminal={liveTerminal}
+              headlessStreamPrimed={headlessStreamPrimed}
               chatHistoryTick={chatHistoryTick}
               chatThreadKey={chatThreadKey}
               lastRunThreadMeta={lastRunThreadMeta}

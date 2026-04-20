@@ -584,6 +584,9 @@ app.post('/api/run/stream', async (req, res) => {
     }
   };
 
+  /** First `data:` frame ASAP so reverse proxies flush (comment-only SSE pings are often buffered). */
+  sse({ type: 'run_accepted', startedAt });
+
   const { child, argv } = spawnClaudeChild({
     prompt,
     cwd,
@@ -600,11 +603,7 @@ app.post('/api/run/stream', async (req, res) => {
 
   const heartbeat = setInterval(() => {
     if (!res.writableEnded) {
-      try {
-        res.write(`: ping ${Date.now()}\n\n`);
-      } catch {
-        /* ignore */
-      }
+      sse({ type: 'keepalive', t: Date.now() });
     }
   }, 15000);
 

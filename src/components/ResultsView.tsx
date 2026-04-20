@@ -36,6 +36,8 @@ interface ResultsViewProps {
   loadingStartedAt?: number | null;
   /** Live stdout/stderr from Claude while the run is in progress (SSE) */
   liveTerminal?: string;
+  /** SSE stream delivered run_accepted or keepalive (server link works; Claude may still be silent). */
+  headlessStreamPrimed?: boolean;
   /** Bump after each headless run completes so Pretty reloads saved conversation from localStorage. */
   chatHistoryTick?: number;
   /** Headless Pretty conversation thread = blog command key + target (matches Command Runner). */
@@ -59,6 +61,7 @@ export default function ResultsView({
   isLoading,
   loadingStartedAt,
   liveTerminal = '',
+  headlessStreamPrimed = false,
   chatHistoryTick = 0,
   chatThreadKey = formatChatThreadKey(BLOG_COMMANDS[0].key, ''),
   lastRunThreadMeta = null,
@@ -184,6 +187,9 @@ export default function ResultsView({
   if (isLoading) {
     const elapsedMs = loadingStartedAt != null ? Date.now() - loadingStartedAt : 0;
     const showLongRunHint = elapsedMs > 40_000;
+    const showNoSseYetHint = !headlessStreamPrimed && elapsedMs > 60_000;
+    const showClaudeSilentHint =
+      headlessStreamPrimed && liveTerminal.trim().length === 0 && elapsedMs > 120_000;
 
     return (
       <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-8 md:p-12 flex flex-col items-stretch space-y-6 max-w-6xl mx-auto w-full">
@@ -223,21 +229,41 @@ export default function ResultsView({
                     </p>
                   ) : null}
                 </div>
+              ) : headlessStreamPrimed ? (
+                <p className="text-sm text-gray-600">
+                  Server accepted the run — waiting for the first line of output from{' '}
+                  <code className="text-xs bg-gray-100 px-1 rounded">claude -p</code>…
+                </p>
               ) : (
-                <p className="text-sm text-gray-500">Waiting for the first bytes from Claude…</p>
+                <p className="text-sm text-gray-500">Waiting for the response stream from the API…</p>
               )}
+              {showNoSseYetHint ? (
+                <p className="text-xs text-amber-900/90 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 max-w-lg">
+                  No stream events yet. A reverse proxy often buffers server-sent events until the response ends. Try{' '}
+                  <code className="text-[10px] bg-white/80 px-1 rounded">VITE_RUN_STREAM=0</code> (rebuild) to use
+                  buffered <code className="text-[10px] bg-white/80 px-1 rounded">/api/run</code>, or inspect this
+                  request in the browser Network tab.
+                </p>
+              ) : null}
+              {showClaudeSilentHint ? (
+                <p className="text-xs text-amber-900/90 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 max-w-lg">
+                  The stream is alive but Claude has not printed anything for a long time. Check the API host logs
+                  (Docker: <code className="text-[10px] bg-white/80 px-1 rounded">docker logs</code>) for auth, network,
+                  or a stuck <code className="text-[10px] bg-white/80 px-1 rounded">claude</code> process.
+                </p>
+              ) : null}
               {showLongRunHint ? (
                 <p className="text-xs text-amber-800/90 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 max-w-lg">
-                  Long blog skill runs can take several minutes. If the timer above keeps increasing and the terminal
-                  scrolls, the run is still active—not frozen.
+                  Long blog skill runs can take several minutes. If the timer increases and the terminal scrolls, the
+                  run is still active. If the timer increases with an empty terminal, use the hints above.
                 </p>
               ) : null}
             </div>
 
             <p className="text-xs text-gray-400 mt-4 max-w-lg mx-auto">
-              Uses <code className="bg-gray-100 px-1 rounded">/api/run/stream</code>. Ensure the API is running; set{' '}
+              Uses <code className="bg-gray-100 px-1 rounded">/api/run/stream</code>. Ensure the API is reachable; set{' '}
               <code className="bg-gray-100 px-1 rounded">VITE_RUN_STREAM=0</code> to fall back to buffered{' '}
-              <code className="bg-gray-100 px-1 rounded">/api/run</code> if your proxy blocks streaming.
+              <code className="bg-gray-100 px-1 rounded">/api/run</code> if your proxy buffers streaming.
             </p>
           </div>
         </div>

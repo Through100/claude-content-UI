@@ -61,7 +61,8 @@ function parseSseDataBlocks(buffer: string): { rest: string; events: unknown[] }
 
 async function consumeRunStream(
   body: Record<string, unknown>,
-  onChunk: (channel: 'stdout' | 'stderr', text: string) => void
+  onChunk: (channel: 'stdout' | 'stderr', text: string) => void,
+  onStreamEvent?: (ev: { type: string }) => void
 ): Promise<RunResponse> {
   const ms = runTimeoutMs();
   const ctrl = new AbortController();
@@ -118,6 +119,7 @@ async function consumeRunStream(
       else if (o.type === 'stderr' && typeof o.chunk === 'string') onChunk('stderr', o.chunk);
       else if (o.type === 'error') throw new Error(o.message || 'Stream error');
       else if (o.type === 'done' && o.result) final = o.result;
+      else if (o.type === 'run_accepted' || o.type === 'keepalive') onStreamEvent?.({ type: o.type });
     }
   }
   buf += dec.decode();
@@ -128,6 +130,7 @@ async function consumeRunStream(
     else if (o.type === 'stderr' && typeof o.chunk === 'string') onChunk('stderr', o.chunk);
     else if (o.type === 'error') throw new Error(o.message || 'Stream error');
     else if (o.type === 'done' && o.result) final = o.result;
+    else if (o.type === 'run_accepted' || o.type === 'keepalive') onStreamEvent?.({ type: o.type });
   }
 
   if (!final) {
@@ -174,14 +177,19 @@ export const apiService = {
     commandKey: string,
     target: string,
     model?: string,
-    onStreamChunk?: (channel: 'stdout' | 'stderr', text: string) => void
+    onStreamChunk?: (channel: 'stdout' | 'stderr', text: string) => void,
+    onStreamEvent?: (ev: { type: string }) => void
   ): Promise<RunResponse> {
     const payload = { commandKey, target, model: model || 'haiku' };
 
     if (useRunStream()) {
-      return consumeRunStream(payload, (ch, text) => {
-        onStreamChunk?.(ch, text);
-      });
+      return consumeRunStream(
+        payload,
+        (ch, text) => {
+          onStreamChunk?.(ch, text);
+        },
+        onStreamEvent
+      );
     }
 
     const ms = runTimeoutMs();
