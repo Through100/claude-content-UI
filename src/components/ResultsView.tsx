@@ -26,7 +26,8 @@ import {
   countPtyProceedPrompts,
   inferPermissionMenuAffirmativeIndex,
   plainTextShowsClaudePermissionMenu,
-  stripAnsiNormalizePtyMirror
+  stripAnsiNormalizePtyMirror,
+  textContainsClaudePermissionMenu
 } from '../../shared/claudeCodePtyPermissionMenu';
 import { downloadElementAsPdf } from '../utils/downloadReportPdf';
 import { apiService } from '../services/api';
@@ -173,9 +174,19 @@ export default function ResultsView({
   /** Logon buffer tail looks like Claude Code’s idle welcome — “yes” has no pending question there. */
   /** When set, Reply can map plain “yes”/“y” to the numbered choice Ink expects (verbatim letters are otherwise ignored by Claude Code). */
   const permissionMenuPlainHint = useMemo(() => {
-    const chunk = `${ptyFullSnapshotPlain}\n${ptyDisplayPlain}`.slice(-12000);
+    const chunk = `${ptyFullSnapshotPlain}\n${ptyDisplayPlain}`.slice(-20000);
     const plain = stripAnsiNormalizePtyMirror(chunk);
-    return plainTextShowsClaudePermissionMenu(plain) ? plain : null;
+    if (plainTextShowsClaudePermissionMenu(plain)) return plain;
+    const tail = plain.slice(-12000);
+    /** Fallback when strict `plainText` misses (wording variants) but the same Esc/Tab + numbered proceed menu is present. */
+    if (
+      textContainsClaudePermissionMenu(plain) &&
+      /\bDo you want\b/i.test(tail) &&
+      /(^|\n)\s*(?:(?:❯|[>])\s*)?\d+\.\s*\S/m.test(tail)
+    ) {
+      return plain;
+    }
+    return null;
   }, [ptyFullSnapshotPlain, ptyDisplayPlain]);
 
   const replyPanelWarnWelcomeSplash = useMemo(() => {
@@ -739,8 +750,9 @@ function PtyReplyPanel({
      * but does not submit for Claude Code / Ink prompts (e.g. “yes”, “1”, long URLs).
      */
     const deliverLine = (): boolean => {
+      const affirmWord = /^(y|yes)[.!?…]*$/i.test(t);
       const ptyPayload =
-        permissionMenuPlainHint && /^(y|yes)$/i.test(t)
+        permissionMenuPlainHint && affirmWord
           ? inferPermissionMenuAffirmativeIndex(permissionMenuPlainHint)
           : t;
       if (appendEnter && t.trim()) {

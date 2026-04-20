@@ -17,7 +17,7 @@ export function isLikelyTerminalOrCodeDump(text: string): boolean {
   if (/^\s{0,8}\d{1,4}\s+<!DOCTYPE\b/im.test(s) || /\n\s{0,8}\d{1,4}\s+<!DOCTYPE\b/i.test(s)) return true;
   if (/^\s{0,8}\d{1,4}\s+<html\b/im.test(s) || /\n\s{0,8}\d{1,4}\s+<html\b/i.test(s)) return true;
   if (/^\s*❯/m.test(s) && /●\s+\w+\s*\(/m.test(s)) return true;
-  if (/Esc to cancel/i.test(s) && /Tab to amend/i.test(s)) return true;
+  if (/Esc to cancel/i.test(s) && /Tab to (?:amend|edit|change)/i.test(s)) return true;
   return false;
 }
 
