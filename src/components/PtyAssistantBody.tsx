@@ -146,6 +146,26 @@ function reconcileLiveMenuSlots(
   return out;
 }
 
+export type PtyAssistantMenusRender = 'inline' | 'omit' | 'menusOnly';
+
+/** Keeps `PtyThreadAssistantShell` from wrapping an empty bubble when menus are detached or menus-only is empty. */
+export function shouldRenderPtyAssistantBubble(text: string, menusRender: PtyAssistantMenusRender): boolean {
+  if (menusRender === 'inline') return true;
+  const parts = segmentPtyAssistantDisplayBlocks(text);
+  if (parts.length === 0) {
+    if (menusRender === 'menusOnly') return false;
+    return Boolean(text?.trim());
+  }
+  if (parts.length === 1 && parts[0].kind === 'prose') {
+    return menusRender !== 'menusOnly';
+  }
+  const hasMenu = parts.some((p) => p.kind === 'menu');
+  const hasNonMenu = parts.some((p) => p.kind !== 'menu');
+  if (menusRender === 'menusOnly') return hasMenu;
+  if (menusRender === 'omit') return hasNonMenu;
+  return true;
+}
+
 type PtyAssistantBodyProps = {
   text: string;
   /**
@@ -153,15 +173,33 @@ type PtyAssistantBodyProps = {
    * so they survive remounts when the Pretty pane’s React key changes.
    */
   menuSlotBundle?: PtyMenuSlotBundle | null;
+  /**
+   * `omit` / `menusOnly` still reconcile live menu slots from full `text` so clocks stay stable when Pretty
+   * pins live yellow cards below the thread (`PtyMessengerThread`).
+   */
+  menusRender?: PtyAssistantMenusRender;
 };
 
 /** Renders Live PTY assistant text: diffs / ASCII pipe grids as monospace pre, everything else as Pretty markdown. */
-export default function PtyAssistantBody({ text, menuSlotBundle = null }: PtyAssistantBodyProps) {
+export default function PtyAssistantBody({
+  text,
+  menuSlotBundle = null,
+  menusRender = 'inline'
+}: PtyAssistantBodyProps) {
   const internalSlotsRef = useRef<PtyLiveMenuSlot[]>([]);
   const internalNextIdRef = useRef(0);
   const parts = useMemo(() => segmentPtyAssistantDisplayBlocks(text), [text]);
 
   if (parts.length === 0) {
+    if (menusRender === 'menusOnly') {
+      if (menuSlotBundle) {
+        menuSlotBundle.slots = [];
+        menuSlotBundle.nextId = 0;
+      } else {
+        internalSlotsRef.current = [];
+      }
+      return null;
+    }
     if (menuSlotBundle) {
       menuSlotBundle.slots = [];
       menuSlotBundle.nextId = 0;
@@ -172,6 +210,15 @@ export default function PtyAssistantBody({ text, menuSlotBundle = null }: PtyAss
   }
 
   if (parts.length === 1 && parts[0].kind === 'prose') {
+    if (menusRender === 'menusOnly') {
+      if (menuSlotBundle) {
+        menuSlotBundle.slots = [];
+        menuSlotBundle.nextId = 0;
+      } else {
+        internalSlotsRef.current = [];
+      }
+      return null;
+    }
     if (menuSlotBundle) {
       menuSlotBundle.slots = [];
       menuSlotBundle.nextId = 0;
@@ -212,9 +259,16 @@ export default function PtyAssistantBody({ text, menuSlotBundle = null }: PtyAss
     }
   }
 
+  const renderMenu = menusRender !== 'omit';
+  const renderNonMenu = menusRender !== 'menusOnly';
+  const hasVisible = parts.some((p) => (p.kind === 'menu' ? renderMenu : renderNonMenu));
+  if (!hasVisible) return null;
+
   return (
     <div className="space-y-4">
       {parts.map((p, idx) => {
+        if (p.kind === 'menu' && !renderMenu) return null;
+        if (p.kind !== 'menu' && !renderNonMenu) return null;
         if (p.kind === 'diff') {
           return (
             <div

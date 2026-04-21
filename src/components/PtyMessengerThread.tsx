@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import {
   getPtyParseNormalizedPlain,
@@ -14,7 +14,12 @@ import { textContainsClaudePermissionMenu } from '../../shared/claudeCodePtyPerm
 import { isInkSpinnerTokenStatusLine } from '../../shared/inkSpinnerTokenStatusLine';
 import { segmentPtyAssistantDisplayBlocks } from '../../shared/segmentPtyDiffBlocks';
 import { extractPtyLiveFooterLine } from '../../shared/extractPtyLiveFooterLine';
-import PtyAssistantBody, { PtyChoicePromptCard, type PtyMenuSlotBundle } from './PtyAssistantBody';
+import PtyAssistantBody, {
+  PtyChoicePromptCard,
+  shouldRenderPtyAssistantBubble,
+  type PtyAssistantMenusRender,
+  type PtyMenuSlotBundle
+} from './PtyAssistantBody';
 
 export type PtyManualReplyBubble = {
   id: string;
@@ -97,6 +102,17 @@ type MergedRow =
   | { kind: 'pty'; turn: ChatTurn }
   | { kind: 'manual'; manual: PtyManualReplyBubble }
   | { kind: 'archivedMenu'; archived: PtyArchivedChoiceMenu };
+
+/** Last assistant row in document order whose segmented body includes a live choice menu (Pretty yellow card). */
+function findLastAssistantRowIndexWithMenu(rows: MergedRow[]): number | null {
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const r = rows[i];
+    if (r.kind === 'pty' && r.turn.role === 'assistant') {
+      if (segmentPtyAssistantDisplayBlocks(r.turn.text).some((p) => p.kind === 'menu')) return i;
+    }
+  }
+  return null;
+}
 
 function menuSnapshotStillInAssistantText(assistantPlain: string, menuPlain: string): boolean {
   const want = menuPlain.replace(/\r\n/g, '\n').trim();
@@ -556,11 +572,15 @@ function PtyThreadAssistantShell({ children }: { children: React.ReactNode }) {
 /** Assistant bubble in the thread; `__post` interleaved tails get a small wall-clock stamp when the PTY tail updates. */
 function PtyThreadAssistantBubble({
   turn,
-  menuSlotBundle
+  menuSlotBundle,
+  menusRender = 'inline'
 }: {
   turn: ChatTurn;
   menuSlotBundle: PtyMenuSlotBundle;
+  menusRender?: PtyAssistantMenusRender;
 }) {
+  if (!shouldRenderPtyAssistantBubble(turn.text, menusRender)) return null;
+
   const [tailStampMs, setTailStampMs] = useState(() => Date.now());
   useEffect(() => {
     if (turn.id.endsWith('__post')) setTailStampMs(Date.now());
@@ -570,7 +590,7 @@ function PtyThreadAssistantBubble({
 
   return (
     <PtyThreadAssistantShell>
-      <PtyAssistantBody text={turn.text} menuSlotBundle={menuSlotBundle} />
+      <PtyAssistantBody text={turn.text} menuSlotBundle={menuSlotBundle} menusRender={menusRender} />
       {showTailStamp ? (
         <p className="mt-2 mb-0 text-[10px] font-medium text-gray-500 tabular-nums text-right">
           <time dateTime={new Date(tailStampMs).toISOString()} title="When this live PTY tail last changed in Pretty">
@@ -579,6 +599,22 @@ function PtyThreadAssistantBubble({
         </p>
       ) : null}
     </PtyThreadAssistantShell>
+  );
+}
+
+/** When live menus are pinned below the thread, the inline `__post` bubble may be omitted (menu-only tail); keep the stamp once on the pinned shell. */
+function PtyLivePostTailStampUnderShell({ turn }: { turn: ChatTurn }) {
+  if (!turn.id.endsWith('__post')) return null;
+  const [tailStampMs, setTailStampMs] = useState(() => Date.now());
+  useEffect(() => {
+    setTailStampMs(Date.now());
+  }, [turn.text, turn.id]);
+  return (
+    <p className="mt-2 mb-0 text-[10px] font-medium text-gray-500 tabular-nums text-right">
+      <time dateTime={new Date(tailStampMs).toISOString()} title="When this live PTY tail last changed in Pretty">
+        Live tail — {formatBubbleTime(tailStampMs)}
+      </time>
+    </p>
   );
 }
 
@@ -720,6 +756,111 @@ export default function PtyMessengerThread({
     return filterArchivedMenusHiddenWhileLiveDuplicate(interleaved);
   }, [transcript, manualReplyBubbles, archivedChoiceMenus, displayTurns, showThinking]);
 
+  /**
+   * When a live choice menu exists, pin its yellow card(s) under the scrollable thread: main column drops
+   * inline archived menus (re-sorted by `sentAt`), then recorded snapshots, then detached live menus — above
+   * the activity/status footer.
+   */
+  const prettyPinnedMenusLayout = useMemo(() => {
+    const liveIdx = findLastAssistantRowIndexWithMenu(mergedRows);
+    const usePinned = liveIdx !== null;
+    const archivedSorted = mergedRows
+      .filter((r): r is MergedRow & { kind: 'archivedMenu' } => r.kind === 'archivedMenu')
+      .slice()
+      .sort((a, b) => {
+        if (a.archived.sentAt !== b.archived.sentAt) return a.archived.sentAt - b.archived.sentAt;
+        return a.archived.id.localeCompare(b.archived.id);
+      });
+    const mainRows: { row: MergedRow; detachLiveMenus: boolean }[] = [];
+    if (usePinned) {
+      for (let i = 0; i < mergedRows.length; i++) {
+        const row = mergedRows[i];
+        if (row.kind === 'archivedMenu') continue;
+        mainRows.push({
+          row,
+          detachLiveMenus:
+            liveIdx !== null &&
+            i === liveIdx &&
+            row.kind === 'pty' &&
+            row.turn.role === 'assistant'
+        });
+      }
+    }
+    const liveDetachTurn =
+      usePinned && liveIdx !== null && mergedRows[liveIdx]!.kind === 'pty'
+        ? mergedRows[liveIdx]!.turn
+        : null;
+    return { usePinned, archivedSorted, mainRows, liveDetachTurn };
+  }, [mergedRows]);
+
+  const renderPrettyThreadRow = (row: MergedRow, detachLiveMenus: boolean): React.ReactNode =>
+    row.kind === 'pty' ? (
+      row.turn.role === 'assistant' ? (
+        shouldRenderPtyAssistantBubble(row.turn.text, detachLiveMenus ? 'omit' : 'inline') ? (
+          <div key={row.turn.id} className="flex justify-start w-full">
+            <div className="w-full max-w-[min(100%,44rem)] md:max-w-[56rem] pr-2 md:pr-16">
+              <PtyThreadAssistantBubble
+                turn={row.turn}
+                menuSlotBundle={menuSlotBundleForTurn(row.turn.id)}
+                menusRender={detachLiveMenus ? 'omit' : 'inline'}
+              />
+            </div>
+          </div>
+        ) : (
+          <Fragment key={row.turn.id} />
+        )
+      ) : (
+        <div key={row.turn.id} className="flex justify-end w-full">
+          <div className="max-w-[min(100%,85%)] sm:max-w-[32rem] pl-8 sm:pl-12">
+            <div className="rounded-[1.35rem] bg-[#ececec] text-gray-900 px-4 py-2.5 md:px-5 md:py-3 text-[15px] leading-6 whitespace-pre-wrap break-words shadow-sm">
+              {row.turn.text}
+            </div>
+          </div>
+        </div>
+      )
+    ) : row.kind === 'archivedMenu' ? (
+      <div key={row.archived.id} className="flex justify-start w-full">
+        <div className="w-full max-w-[min(100%,44rem)] md:max-w-[56rem] pr-2 md:pr-16">
+          <PtyThreadAssistantShell>
+            <PtyChoicePromptCard
+              text={row.archived.menuPlain}
+              recorded
+              shownAt={row.archived.sentAt}
+            />
+          </PtyThreadAssistantShell>
+        </div>
+      </div>
+    ) : (
+      <div key={row.manual.id} className="flex justify-end w-full">
+        <div className="max-w-[min(100%,85%)] sm:max-w-[32rem] pl-8 sm:pl-12 w-full flex flex-col items-end">
+          {/*
+            Not an “unboxed” fetch menu — this is the synthetic row from “Reply via interactive PTY”.
+            Amber cards only come from `PtyChoicePromptCard` (live assistant menus + recorded snapshots).
+          */}
+          <article
+            className="w-full rounded-xl border border-indigo-200/95 bg-indigo-50/50 overflow-hidden shadow-sm"
+            aria-label="PTY reply sent from Pretty"
+          >
+            <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-indigo-950/90 bg-indigo-100/90 border-b border-indigo-200/80">
+              PTY reply
+            </div>
+            <div className="px-3 py-3 flex flex-col items-end gap-1">
+              <div className="rounded-[1.35rem] bg-indigo-100/90 text-gray-900 px-4 py-2.5 md:px-5 md:py-3 text-[15px] leading-6 whitespace-pre-wrap break-words border border-indigo-200/80">
+                {row.manual.text}
+              </div>
+              <time
+                className="text-[10px] font-medium text-gray-500 tabular-nums pr-1"
+                dateTime={new Date(row.manual.sentAt).toISOString()}
+                title={`Sent at ${new Date(row.manual.sentAt).toISOString()}`}
+              >
+                {formatBubbleTime(row.manual.sentAt)}
+              </time>
+            </div>
+          </article>
+        </div>
+      </div>
+    );
+
   useEffect(() => {
     const el = scrollerRef.current;
     if (!el || !stickBottomRef.current) return;
@@ -787,68 +928,35 @@ export default function PtyMessengerThread({
         aria-live="polite"
         aria-relevant="additions"
       >
-        {mergedRows.map((row) =>
-          row.kind === 'pty' ? (
-            row.turn.role === 'assistant' ? (
-              <div key={row.turn.id} className="flex justify-start w-full">
+        {prettyPinnedMenusLayout.usePinned ? (
+          <>
+            {prettyPinnedMenusLayout.mainRows.map(({ row, detachLiveMenus }) =>
+              renderPrettyThreadRow(row, detachLiveMenus)
+            )}
+            {prettyPinnedMenusLayout.archivedSorted.map((row) => renderPrettyThreadRow(row, false))}
+            {prettyPinnedMenusLayout.liveDetachTurn &&
+            shouldRenderPtyAssistantBubble(prettyPinnedMenusLayout.liveDetachTurn.text, 'menusOnly') ? (
+              <div
+                key={`${prettyPinnedMenusLayout.liveDetachTurn.id}--pinned-live-menus`}
+                className="flex justify-start w-full"
+              >
                 <div className="w-full max-w-[min(100%,44rem)] md:max-w-[56rem] pr-2 md:pr-16">
-                  <PtyThreadAssistantBubble
-                    turn={row.turn}
-                    menuSlotBundle={menuSlotBundleForTurn(row.turn.id)}
-                  />
+                  <PtyThreadAssistantShell>
+                    <PtyAssistantBody
+                      text={prettyPinnedMenusLayout.liveDetachTurn.text}
+                      menuSlotBundle={menuSlotBundleForTurn(prettyPinnedMenusLayout.liveDetachTurn.id)}
+                      menusRender="menusOnly"
+                    />
+                    {!shouldRenderPtyAssistantBubble(prettyPinnedMenusLayout.liveDetachTurn.text, 'omit') ? (
+                      <PtyLivePostTailStampUnderShell turn={prettyPinnedMenusLayout.liveDetachTurn} />
+                    ) : null}
+                  </PtyThreadAssistantShell>
                 </div>
               </div>
-            ) : (
-              <div key={row.turn.id} className="flex justify-end w-full">
-                <div className="max-w-[min(100%,85%)] sm:max-w-[32rem] pl-8 sm:pl-12">
-                  <div className="rounded-[1.35rem] bg-[#ececec] text-gray-900 px-4 py-2.5 md:px-5 md:py-3 text-[15px] leading-6 whitespace-pre-wrap break-words shadow-sm">
-                    {row.turn.text}
-                  </div>
-                </div>
-              </div>
-            )
-          ) : row.kind === 'archivedMenu' ? (
-            <div key={row.archived.id} className="flex justify-start w-full">
-              <div className="w-full max-w-[min(100%,44rem)] md:max-w-[56rem] pr-2 md:pr-16">
-                <PtyThreadAssistantShell>
-                  <PtyChoicePromptCard
-                    text={row.archived.menuPlain}
-                    recorded
-                    shownAt={row.archived.sentAt}
-                  />
-                </PtyThreadAssistantShell>
-              </div>
-            </div>
-          ) : (
-            <div key={row.manual.id} className="flex justify-end w-full">
-              <div className="max-w-[min(100%,85%)] sm:max-w-[32rem] pl-8 sm:pl-12 w-full flex flex-col items-end">
-                {/*
-                  Not an “unboxed” fetch menu — this is the synthetic row from “Reply via interactive PTY”.
-                  Amber cards only come from `PtyChoicePromptCard` (live assistant menus + recorded snapshots).
-                */}
-                <article
-                  className="w-full rounded-xl border border-indigo-200/95 bg-indigo-50/50 overflow-hidden shadow-sm"
-                  aria-label="PTY reply sent from Pretty"
-                >
-                  <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-indigo-950/90 bg-indigo-100/90 border-b border-indigo-200/80">
-                    PTY reply
-                  </div>
-                  <div className="px-3 py-3 flex flex-col items-end gap-1">
-                    <div className="rounded-[1.35rem] bg-indigo-100/90 text-gray-900 px-4 py-2.5 md:px-5 md:py-3 text-[15px] leading-6 whitespace-pre-wrap break-words border border-indigo-200/80">
-                      {row.manual.text}
-                    </div>
-                    <time
-                      className="text-[10px] font-medium text-gray-500 tabular-nums pr-1"
-                      dateTime={new Date(row.manual.sentAt).toISOString()}
-                      title={`Sent at ${new Date(row.manual.sentAt).toISOString()}`}
-                    >
-                      {formatBubbleTime(row.manual.sentAt)}
-                    </time>
-                  </div>
-                </article>
-              </div>
-            </div>
-          )
+            ) : null}
+          </>
+        ) : (
+          mergedRows.map((row) => renderPrettyThreadRow(row, false))
         )}
         {showActivityRow || statusWellLatched ? (
           <div className="min-h-[8rem] flex flex-col justify-end shrink-0">
