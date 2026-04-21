@@ -8,7 +8,8 @@ import LogonView from './components/LogonView';
 import UsageView from './components/UsageView';
 import { apiService } from './services/api';
 import { BLOG_COMMANDS, buildBlogPrompt } from './types';
-import { formatChatThreadKey } from './lib/dashboardChatHistory';
+import { clearDashboardChatHistory, formatChatThreadKey } from './lib/dashboardChatHistory';
+import { savePtyPrettyArchive } from './lib/ptyPrettyArchiveStorage';
 import { usePtyBridge } from './context/PtyBridgeContext';
 import { AlertCircle, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -140,6 +141,9 @@ export default function App() {
       return;
     }
     void tryAppendPtyConversationToHistory();
+    const threadKey = formatChatThreadKey(commandKey, target.trim());
+    clearDashboardChatHistory(threadKey);
+    savePtyPrettyArchive(threadKey, '');
     const prompt = buildBlogPrompt(cmd, target);
     clearLiveTranscript({ resetPrettySession: true });
     /** Send prompt then CR on a timer: one combined write often echoes the line but never submits for long /blog … URLs. */

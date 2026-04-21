@@ -99,32 +99,41 @@ export default function ResultsView({
 
   /** Merged PTY transcript: grows with new terminal output and survives scrollback trimming; saved per topic. */
   const [ptyMergedArchive, setPtyMergedArchive] = useState(() => loadPtyPrettyArchive(chatThreadKey));
-  const ptyArchiveAnchorRef = useRef('');
-  /** When the Logon WebSocket reconnects, avoid merging a long saved transcript with a short new buffer (Pretty would miss the first exchange). */
+  /** Last Command Runner topic key we merged against (empty = not yet initialized). */
+  const ptyArchiveThreadKeyRef = useRef('');
+  /**
+   * After the user changes Target without Run, the live PTY still shows the prior topic — freeze Pretty updates
+   * until `ptySessionGeneration` bumps on the next Run (`clearLiveTranscript`).
+   */
+  const topicLiveHoldRef = useRef<string | null>(null);
   const ptyPrevSessionGenerationRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (isHistoryEmbed) return;
-    const nextAnchor = `${chatThreadKey}|${ptySessionGeneration}`;
-    const anchorChanged = nextAnchor !== ptyArchiveAnchorRef.current;
-    ptyArchiveAnchorRef.current = nextAnchor;
-
+    const prevThreadKey = ptyArchiveThreadKeyRef.current;
     const prevGen = ptyPrevSessionGenerationRef.current;
-    const ptySessionRestarted = prevGen !== null && ptySessionGeneration !== prevGen;
+    const generationChanged = prevGen !== null && ptySessionGeneration !== prevGen;
     ptyPrevSessionGenerationRef.current = ptySessionGeneration;
 
+    const threadKeyChanged = prevThreadKey !== '' && chatThreadKey !== prevThreadKey;
+
     setPtyMergedArchive((prev) => {
-      let base: string;
-      if (ptySessionRestarted) {
-        base = '';
-      } else if (anchorChanged) {
-        base = loadPtyPrettyArchive(chatThreadKey);
-      } else {
-        base = prev;
+      if (generationChanged) {
+        topicLiveHoldRef.current = null;
+        return mergePtyPlainArchive('', ptyDisplayPlain);
       }
-      return mergePtyPlainArchive(base, ptyFullSnapshotPlain);
+      if (threadKeyChanged && !generationChanged) {
+        topicLiveHoldRef.current = chatThreadKey;
+        return loadPtyPrettyArchive(chatThreadKey);
+      }
+      if (topicLiveHoldRef.current === chatThreadKey) {
+        return prev;
+      }
+      return mergePtyPlainArchive(prev, ptyDisplayPlain);
     });
-  }, [isHistoryEmbed, chatThreadKey, ptySessionGeneration, ptyFullSnapshotPlain]);
+
+    ptyArchiveThreadKeyRef.current = chatThreadKey;
+  }, [isHistoryEmbed, chatThreadKey, ptySessionGeneration, ptyDisplayPlain]);
 
   useEffect(() => {
     if (isHistoryEmbed) return;
