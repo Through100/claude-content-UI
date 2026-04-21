@@ -34,6 +34,7 @@ function isThinkingActivityStartLine(line: string): boolean {
   if (/^\s*⎿\s*KillShell\b/i.test(t)) return true;
   if (/^\s*⎿\s*ExitPlanMode\b/i.test(t)) return true;
   if (/^\s*⎿\s*AskUserQuestion\b/i.test(t)) return true;
+  if (/^\s*[a-z0-9_-]+\(/i.test(t)) return true;
   if (/^\s*Fetching[….]?\s*$/i.test(t)) return true;
   if (/^\+\d+\s+more\s+tool\s+uses\b/i.test(t)) return true;
   if (/\bctrl\+o\s+to\s+expand\b/i.test(t)) return true;

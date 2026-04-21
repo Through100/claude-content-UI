@@ -243,7 +243,7 @@ function findLastPermissionMenuTextFromSegments(plain: string): string | null {
   return null;
 }
 
-function removeLastOccurrenceOfMenuFromHead(hay: string, menuText: string): [string, string] {
+function splitAtLastOccurrenceOfMenu(hay: string, menuText: string): { before: string; menu: string; after: string } | null {
   const h = hay.replace(/\r\n/g, '\n');
   const want = menuText.replace(/\r\n/g, '\n');
   let from = h.lastIndexOf(want);
@@ -251,18 +251,14 @@ function removeLastOccurrenceOfMenuFromHead(hay: string, menuText: string): [str
   if (from < 0) {
     const w2 = want.trim();
     from = h.lastIndexOf(w2);
-    if (from < 0) return [hay, ''];
+    if (from < 0) return null;
     matchLen = w2.length;
   }
-  const removed = h.slice(from, from + matchLen);
-  const before = h.slice(0, from);
-  const after = h.slice(from + matchLen);
-  const headOut = [before.replace(/\s+$/, ''), after.replace(/^\s+/, '')]
-    .filter((x) => x.length > 0)
-    .join('\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trimEnd();
-  return [headOut, removed];
+  return {
+    before: h.slice(0, from),
+    menu: h.slice(from, from + matchLen),
+    after: h.slice(from + matchLen)
+  };
 }
 
 /**
@@ -273,6 +269,8 @@ function removeLastOccurrenceOfMenuFromHead(hay: string, menuText: string): [str
  * - Menus whose plain text matches a frozen archived snapshot are stripped from `__pre` only (dedupe
  *   with the yellow card) and are not re-appended to the tail.
  * - All other menus are collected in chronological order and prepended to the live tail.
+ * - Any text *after* the menu in `head` logically belongs in the tail (it was generated after the menu),
+ *   so it is also moved to the tail.
  */
 function reconcileInterleavedAssistantHeadMenus(headPlain: string, tailRows: MergedRow[]): [string, string, number] {
   const archivedNorm = new Set(
@@ -288,13 +286,21 @@ function reconcileInterleavedAssistantHeadMenus(headPlain: string, tailRows: Mer
     const snapRaw = findLastPermissionMenuTextFromSegments(head);
     if (!snapRaw?.trim() || !textContainsClaudePermissionMenu(snapRaw)) break;
     const trimChunk = snapRaw.replace(/\r\n/g, '\n').trim();
-    const [h2, removed] = removeLastOccurrenceOfMenuFromHead(head, snapRaw);
-    if (!removed.trim() || h2 === head) break;
-    head = h2;
+    
+    const split = splitAtLastOccurrenceOfMenu(head, snapRaw);
+    if (!split) break;
+    
+    head = split.before.replace(/\s+$/, '');
+    
+    if (split.after.trim()) {
+      toTailPieces.unshift(split.after.replace(/^\s+/, ''));
+    }
+    
     if (!archivedNorm.has(trimChunk)) {
-      toTailPieces.unshift(removed);
+      toTailPieces.unshift(split.menu);
       movedLiveChunks++;
     }
+    
     if (head === prev) break;
   }
   return [head, toTailPieces.join('\n\n'), movedLiveChunks];
