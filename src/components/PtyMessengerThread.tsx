@@ -861,6 +861,19 @@ export default function PtyMessengerThread({
       </div>
     );
 
+  const tailStatusStack =
+    showActivityRow ? (
+      <div className="space-y-3 w-full">
+        {liveFooterLineDeduped ? <TerminalLiveFooterBar text={liveFooterLineDeduped} /> : null}
+        {showThinking ? <PtyAssistantPending /> : null}
+      </div>
+    ) : null;
+
+  const latchedEmptyReserve =
+    statusWellLatched && !showActivityRow ? (
+      <div className="min-h-[8rem] shrink-0 w-full" aria-hidden />
+    ) : null;
+
   useEffect(() => {
     const el = scrollerRef.current;
     if (!el || !stickBottomRef.current) return;
@@ -891,7 +904,7 @@ export default function PtyMessengerThread({
           </p>
           <div className="px-4 py-8 md:px-8 max-h-[min(75vh,720px)] overflow-y-auto bg-white space-y-4">
             {liveFooterLineDeduped ? <TerminalLiveFooterBar text={liveFooterLineDeduped} /> : null}
-            {!liveFooterLineDeduped ? <PtyAssistantPending /> : null}
+            {showThinking ? <PtyAssistantPending /> : null}
           </div>
         </div>
       );
@@ -934,38 +947,38 @@ export default function PtyMessengerThread({
               renderPrettyThreadRow(row, detachLiveMenus)
             )}
             {prettyPinnedMenusLayout.archivedSorted.map((row) => renderPrettyThreadRow(row, false))}
-            {prettyPinnedMenusLayout.liveDetachTurn &&
-            shouldRenderPtyAssistantBubble(prettyPinnedMenusLayout.liveDetachTurn.text, 'menusOnly') ? (
-              <div
-                key={`${prettyPinnedMenusLayout.liveDetachTurn.id}--pinned-live-menus`}
-                className="flex justify-start w-full"
-              >
-                <div className="w-full max-w-[min(100%,44rem)] md:max-w-[56rem] pr-2 md:pr-16">
-                  <PtyThreadAssistantShell>
-                    <PtyAssistantBody
-                      text={prettyPinnedMenusLayout.liveDetachTurn.text}
-                      menuSlotBundle={menuSlotBundleForTurn(prettyPinnedMenusLayout.liveDetachTurn.id)}
-                      menusRender="menusOnly"
-                    />
-                    {!shouldRenderPtyAssistantBubble(prettyPinnedMenusLayout.liveDetachTurn.text, 'omit') ? (
-                      <PtyLivePostTailStampUnderShell turn={prettyPinnedMenusLayout.liveDetachTurn} />
-                    ) : null}
-                  </PtyThreadAssistantShell>
+            <div className="flex flex-col gap-4 md:gap-5 w-full">
+              {prettyPinnedMenusLayout.liveDetachTurn &&
+              shouldRenderPtyAssistantBubble(prettyPinnedMenusLayout.liveDetachTurn.text, 'menusOnly') ? (
+                <div
+                  key={`${prettyPinnedMenusLayout.liveDetachTurn.id}--pinned-live-menus`}
+                  className="flex justify-start w-full"
+                >
+                  <div className="w-full max-w-[min(100%,44rem)] md:max-w-[56rem] pr-2 md:pr-16">
+                    <PtyThreadAssistantShell>
+                      <PtyAssistantBody
+                        text={prettyPinnedMenusLayout.liveDetachTurn.text}
+                        menuSlotBundle={menuSlotBundleForTurn(prettyPinnedMenusLayout.liveDetachTurn.id)}
+                        menusRender="menusOnly"
+                      />
+                      {!shouldRenderPtyAssistantBubble(prettyPinnedMenusLayout.liveDetachTurn.text, 'omit') ? (
+                        <PtyLivePostTailStampUnderShell turn={prettyPinnedMenusLayout.liveDetachTurn} />
+                      ) : null}
+                    </PtyThreadAssistantShell>
+                  </div>
                 </div>
-              </div>
-            ) : null}
+              ) : null}
+              {tailStatusStack}
+              {latchedEmptyReserve}
+            </div>
           </>
         ) : (
           mergedRows.map((row) => renderPrettyThreadRow(row, false))
         )}
-        {showActivityRow || statusWellLatched ? (
-          <div className="min-h-[8rem] flex flex-col justify-end shrink-0">
-            {showActivityRow ? (
-              <div className="space-y-3">
-                {liveFooterLineDeduped ? <TerminalLiveFooterBar text={liveFooterLineDeduped} /> : null}
-                {showThinking && !liveFooterLineDeduped ? <PtyAssistantPending /> : null}
-              </div>
-            ) : null}
+        {!prettyPinnedMenusLayout.usePinned && (showActivityRow || statusWellLatched) ? (
+          <div className="flex flex-col justify-start shrink-0 w-full">
+            {tailStatusStack}
+            {latchedEmptyReserve}
           </div>
         ) : null}
       </div>
