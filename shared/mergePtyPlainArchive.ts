@@ -29,3 +29,60 @@ export function mergePtyPlainArchive(prev: string, fullPlain: string): string {
 
   return f.length > p.length ? f : p;
 }
+
+function alignCutBackwardToNewline(s: string, approxCut: number): number {
+  let c = Math.max(0, Math.min(approxCut, s.length));
+  const floor = Math.max(0, c - 4000);
+  while (c > floor && c > 0 && s[c - 1] !== '\n') c--;
+  return c;
+}
+
+/**
+ * Pretty merges scrollback + live xterm snapshots; when Ink redraws a permission menu in place, the merged
+ * string can keep an old tail while {@link mergePtyPlainArchive} still thinks the buffer is unchanged.
+ * If the last `maxTailScan` chars of the live full snapshot differ from the merged tail, replace that
+ * merged suffix with the live one (line-aligned cut) so Pretty matches Logon / Raw.
+ */
+export function snapMergedPtyTailToLiveFullSnapshot(
+  merged: string,
+  liveFullPlain: string,
+  maxTailScan: number
+): string {
+  if (!liveFullPlain?.trim()) return merged;
+  const m = merged.replace(/\r\n/g, '\n');
+  const live = liveFullPlain.replace(/\r\n/g, '\n');
+  if (!m.trim()) return merged;
+  if (m === live || m.endsWith(live)) return merged;
+
+  const t = Math.min(maxTailScan, live.length, m.length);
+  if (t < 200) return merged;
+
+  const mTail = m.slice(-t);
+  const liveTail = live.slice(-t);
+  if (mTail === liveTail) return merged;
+
+  const approxCut = m.length - t;
+  const cut = alignCutBackwardToNewline(m, approxCut);
+  const suffixLen = m.length - cut;
+  if (suffixLen <= 0 || suffixLen > live.length) return merged;
+
+  const liveSuffix = live.slice(-suffixLen);
+  if (m.slice(cut) === liveSuffix) return merged;
+
+  const patched = m.slice(0, cut) + liveSuffix;
+  // #region agent log
+  fetch('http://127.0.0.1:7823/ingest/0f30680b-0aa0-4d4a-ba6d-262bf6a78290', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '456dbf' },
+    body: JSON.stringify({
+      sessionId: '456dbf',
+      hypothesisId: 'H13',
+      location: 'mergePtyPlainArchive.ts:snapMergedPtyTailToLiveFullSnapshot',
+      message: 'pretty tail snapped to live snapshot',
+      data: { mergedLen: m.length, liveLen: live.length, cut, suffixLen },
+      timestamp: Date.now()
+    })
+  }).catch(() => {});
+  // #endregion
+  return patched;
+}

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { extractArtifactPathsFromRunText } from '../../shared/extractArtifactPaths';
-import { mergePtyPlainArchive } from '../../shared/mergePtyPlainArchive';
+import { mergePtyPlainArchive, snapMergedPtyTailToLiveFullSnapshot } from '../../shared/mergePtyPlainArchive';
 import { sanitizePtyPrettyTranscript } from '../../shared/sanitizePtyPrettyTranscript';
 import { loadPtyPrettyArchive, savePtyPrettyArchive } from '../lib/ptyPrettyArchiveStorage';
 import {
@@ -174,11 +174,20 @@ export default function ResultsView({
     return 'headless';
   }, [hasFreshPtyCapture, hasHeadlessRunCapture]);
 
+  /**
+   * Merged archive can lag a redrawn Ink tail (overlap merge keeps stale menus). Align the last window
+   * to the live xterm full snapshot so Pretty matches Raw / Logon.
+   */
+  const ptyMergedDisplayPlain = useMemo(
+    () => snapMergedPtyTailToLiveFullSnapshot(ptyMergedArchive, ptyPlainForMerge, 36_000),
+    [ptyMergedArchive, ptyPlainForMerge]
+  );
+
   /** Same plain string Pretty uses for the thread — anchors Reply bubbles in transcript order. */
   const replyOrderingPlain = useMemo(() => {
     const ptyForPretty = (() => {
-      const s = sanitizePtyPrettyTranscript(ptyMergedArchive);
-      if (!s.trim() && ptyMergedArchive.trim()) return ptyMergedArchive;
+      const s = sanitizePtyPrettyTranscript(ptyMergedDisplayPlain);
+      if (!s.trim() && ptyMergedDisplayPlain.trim()) return ptyMergedDisplayPlain;
       return s;
     })();
     return buildPtyForDisplayPlain({
@@ -188,7 +197,7 @@ export default function ResultsView({
       lastRunThreadMeta,
       chatThreadKey
     });
-  }, [prettyMode, ptyMergedArchive, result, lastRunThreadMeta, chatThreadKey]);
+  }, [prettyMode, ptyMergedDisplayPlain, result, lastRunThreadMeta, chatThreadKey]);
 
   const headlessBlobForPermissionCue = useMemo(() => {
     const out = sanitizeRunOutputForChat(result?.rawOutput ?? '').trim();
@@ -227,9 +236,9 @@ export default function ResultsView({
   /** Headless capture plus live PTY transcript so workspace files mentioned only in interactive mode still get top download links. */
   const artifactPaths = useMemo(() => {
     const headless = [result?.rawOutput ?? '', result?.error ?? ''].filter(Boolean).join('\n\n');
-    const chunks = [headless, !isHistoryEmbed ? ptyMergedArchive : ''].filter((s) => s.trim().length > 0);
+    const chunks = [headless, !isHistoryEmbed ? ptyMergedDisplayPlain : ''].filter((s) => s.trim().length > 0);
     return extractArtifactPathsFromRunText(chunks.join('\n\n'));
-  }, [result?.rawOutput, result?.error, ptyMergedArchive, isHistoryEmbed]);
+  }, [result?.rawOutput, result?.error, ptyMergedDisplayPlain, isHistoryEmbed]);
 
   const historyPrettySource = useMemo(() => {
     if (!isHistoryEmbed || !result) return '';
@@ -486,7 +495,7 @@ export default function ResultsView({
                 <PrettyOutputView
                   key={`pretty-${prettyMode}-${chatThreadKey}`}
                   prettyMode={prettyMode}
-                  ptyTranscript={ptyMergedArchive}
+                  ptyTranscript={ptyMergedDisplayPlain}
                   liveFooterPlainSource={ptyDisplayPlain}
                   chatHistoryTick={chatHistoryTick}
                   chatThreadKey={chatThreadKey}
