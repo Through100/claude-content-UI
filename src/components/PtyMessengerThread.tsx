@@ -3,12 +3,14 @@ import { Loader2 } from 'lucide-react';
 import {
   getPtyParseNormalizedPlain,
   isAwaitingPtyAssistantResponse,
+  isPtyAssistantNoiseLine,
   parsePtyTranscriptToMessages,
   parsePtyTranscriptToMessagesForPrettyLayout,
   trimTrailingTrivialAssistantTurns,
   type ChatTurn,
   type ChatTurnWithEnd
 } from '../../shared/parsePtyTranscriptToMessages';
+import { isInkSpinnerTokenStatusLine } from '../../shared/inkSpinnerTokenStatusLine';
 import { segmentPtyAssistantDisplayBlocks } from '../../shared/segmentPtyDiffBlocks';
 import { extractPtyLiveFooterLine } from '../../shared/extractPtyLiveFooterLine';
 import PtyAssistantBody, { PtyChoicePromptCard, type PtyMenuSlotBundle } from './PtyAssistantBody';
@@ -137,6 +139,25 @@ function splitTurnAtNormalizedLength(raw: string, prefixNormLen: number): [strin
 }
 
 /**
+ * Strip trailing Ink spinner / cost / “L Tip” rows from the end of `head` and return them as a suffix.
+ * When the anchor split is slightly off, “* Crunching…” can remain in `__pre` above recorded menus; those
+ * lines belong with the live tail and should render after settled prompts + replies.
+ */
+function extractTrailingAssistantNoiseSuffix(raw: string): [string, string] {
+  const lines = raw.replace(/\r\n/g, '\n').split('\n');
+  let end = lines.length;
+  while (end > 0) {
+    let i = end - 1;
+    while (i >= 0 && !(lines[i] ?? '').trim()) i--;
+    if (i < 0) break;
+    const line = lines[i] ?? '';
+    if (!isPtyAssistantNoiseLine(line) && !isInkSpinnerTokenStatusLine(line)) break;
+    end = i;
+  }
+  return [lines.slice(0, end).join('\n'), lines.slice(end).join('\n')];
+}
+
+/**
  * When Pretty Reply archives land in the bucket *after* a growing assistant turn, the live PTY tail
  * (newer fetch) appears above older yellow cards. Split the assistant at the earliest archived anchor
  * so chronological order is: assistant prefix → recorded menus / replies → assistant tail (live menus).
@@ -228,7 +249,12 @@ function interleaveArchivedWithinLastAssistant(
   } else {
     relCut = gSpan <= 0 ? 0 : Math.min(tn, Math.max(0, Math.round((gLocal * tn) / gSpan)));
   }
-  const [headText, tailText] = splitTurnAtNormalizedLength(turn.text, relCut);
+  let [headText, tailText] = splitTurnAtNormalizedLength(turn.text, relCut);
+  const [headPeel, noiseTail] = extractTrailingAssistantNoiseSuffix(headText);
+  if (noiseTail.trim()) {
+    headText = headPeel;
+    tailText = [noiseTail, tailText].filter((x) => x.trim().length > 0).join('\n');
+  }
   // #region agent log
   fetch('http://127.0.0.1:7823/ingest/0f30680b-0aa0-4d4a-ba6d-262bf6a78290', {
     method: 'POST',
@@ -236,7 +262,7 @@ function interleaveArchivedWithinLastAssistant(
     body: JSON.stringify({
       sessionId: '456dbf',
       runId: 'verify-v1',
-      hypothesisId: 'H1',
+      hypothesisId: 'H3',
       location: 'PtyMessengerThread.tsx:interleave',
       message: 'split last assistant for archived/manual',
       data: {
@@ -254,6 +280,7 @@ function interleaveArchivedWithinLastAssistant(
         pref: sliceTrim.startsWith(nt),
         suff: sliceTrim.endsWith(nt),
         relCut,
+        peelNoiseLen: noiseTail.trim().length,
         headNormLen: getPtyParseNormalizedPlain(headText).length,
         tailNormLen: getPtyParseNormalizedPlain(tailText).length,
         tailHasFetch: /\bFetch\s+https?:/i.test(tailText),
@@ -346,6 +373,11 @@ function mergeParsedTurnsWithManualAndArchived(
 
 /** Raw TUI-style footer (timer, tokens, thinking) — same line family as Logon / Raw. */
 function TerminalLiveFooterBar({ text }: { text: string }) {
+  const [stampMs, setStampMs] = useState(() => Date.now());
+  useEffect(() => {
+    setStampMs(Date.now());
+  }, [text]);
+
   return (
     <div className="flex justify-start w-full">
       <div className="w-full max-w-[min(100%,44rem)] md:max-w-[56rem] pr-2 md:pr-16">
@@ -353,8 +385,44 @@ function TerminalLiveFooterBar({ text }: { text: string }) {
           <p className="text-[11px] sm:text-[12px] leading-snug font-mono text-zinc-200 whitespace-pre-wrap break-words">
             {text}
           </p>
+          <time
+            className="mt-1.5 block text-[9px] font-medium tabular-nums text-zinc-500"
+            dateTime={new Date(stampMs).toISOString()}
+            title="When this status line last changed in Pretty"
+          >
+            Status — {formatBubbleTime(stampMs)}
+          </time>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Assistant bubble in the thread; `__post` interleaved tails get a small wall-clock stamp when the PTY tail updates. */
+function PtyThreadAssistantBubble({
+  turn,
+  menuSlotBundle
+}: {
+  turn: ChatTurn;
+  menuSlotBundle: PtyMenuSlotBundle;
+}) {
+  const [tailStampMs, setTailStampMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (turn.id.endsWith('__post')) setTailStampMs(Date.now());
+  }, [turn.text, turn.id]);
+
+  const showTailStamp = turn.id.endsWith('__post');
+
+  return (
+    <div className="rounded-2xl border border-gray-100 bg-white px-4 py-5 md:px-6 md:py-5 shadow-sm">
+      <PtyAssistantBody text={turn.text} menuSlotBundle={menuSlotBundle} />
+      {showTailStamp ? (
+        <p className="mt-2 mb-0 text-[10px] font-medium text-gray-500 tabular-nums text-right">
+          <time dateTime={new Date(tailStampMs).toISOString()} title="When this live PTY tail last changed in Pretty">
+            Live tail — {formatBubbleTime(tailStampMs)}
+          </time>
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -545,9 +613,10 @@ export default function PtyMessengerThread({
             row.turn.role === 'assistant' ? (
               <div key={row.turn.id} className="flex justify-start w-full">
                 <div className="w-full max-w-[min(100%,44rem)] md:max-w-[56rem] pr-2 md:pr-16">
-                  <div className="rounded-2xl border border-gray-100 bg-white px-4 py-5 md:px-6 md:py-5 shadow-sm">
-                    <PtyAssistantBody text={row.turn.text} menuSlotBundle={menuSlotBundleForTurn(row.turn.id)} />
-                  </div>
+                  <PtyThreadAssistantBubble
+                    turn={row.turn}
+                    menuSlotBundle={menuSlotBundleForTurn(row.turn.id)}
+                  />
                 </div>
               </div>
             ) : (
