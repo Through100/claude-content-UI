@@ -861,11 +861,12 @@ export default function PtyMessengerThread({
       </div>
     );
 
+  /** Indigo “responding” card, then Ink timer/tokens line — footer is the last thing in the scroll (below live menus). */
   const tailStatusStack =
     showActivityRow ? (
       <div className="space-y-3 w-full">
-        {liveFooterLineDeduped ? <TerminalLiveFooterBar text={liveFooterLineDeduped} /> : null}
         {showThinking ? <PtyAssistantPending /> : null}
+        {liveFooterLineDeduped ? <TerminalLiveFooterBar text={liveFooterLineDeduped} /> : null}
       </div>
     ) : null;
 
@@ -903,8 +904,8 @@ export default function PtyMessengerThread({
             Live PTY — waiting for the assistant after your last line.
           </p>
           <div className="px-4 py-8 md:px-8 max-h-[min(75vh,720px)] overflow-y-auto bg-white space-y-4">
-            {liveFooterLineDeduped ? <TerminalLiveFooterBar text={liveFooterLineDeduped} /> : null}
             {showThinking ? <PtyAssistantPending /> : null}
+            {liveFooterLineDeduped ? <TerminalLiveFooterBar text={liveFooterLineDeduped} /> : null}
           </div>
         </div>
       );
