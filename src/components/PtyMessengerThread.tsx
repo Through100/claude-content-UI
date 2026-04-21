@@ -194,33 +194,50 @@ function partitionInterleavedHeadNoiseToTail(raw: string): [string, string] {
 }
 
 /**
- * When the anchor split is off after several prompts, the **newest** permission menu can remain in
- * `__pre` so the LIVE yellow card appears **above** older RECORDED cards. Peel the last menu block
- * (same segmentation as archives) from `head` into `__post` when we are interleaving replies.
+ * After several fetch prompts, `__pre` can still contain one or more permission menus (anchor/split
+ * drift). Peel **iteratively** from the end of `head`: each pass removes the last segmented menu.
+ * - Menus whose plain text matches a frozen archived snapshot are stripped from `__pre` only (dedupe
+ *   with the yellow card) and are not re-appended to the tail.
+ * - All other menus are collected in chronological order and prepended to the live tail.
  */
-function peelLastPermissionMenuChunkFromHead(headPlain: string): [string, string] {
-  const snapRaw = extractLastChoiceMenuSnapshotForArchive(headPlain);
-  if (!snapRaw?.trim() || !textContainsClaudePermissionMenu(snapRaw)) return [headPlain, ''];
-  const want = snapRaw.replace(/\r\n/g, '\n');
-  const h = headPlain.replace(/\r\n/g, '\n');
-  let from = h.lastIndexOf(want);
-  let matchLen = want.length;
-  if (from < 0) {
-    const w2 = want.trim();
-    from = h.lastIndexOf(w2);
-    if (from < 0) return [headPlain, ''];
-    matchLen = w2.length;
+function reconcileInterleavedAssistantHeadMenus(headPlain: string, tailRows: MergedRow[]): [string, string, number] {
+  const archivedNorm = new Set(
+    tailRows
+      .filter((r): r is MergedRow & { kind: 'archivedMenu' } => r.kind === 'archivedMenu')
+      .map((r) => r.archived.menuPlain.replace(/\r\n/g, '\n').trim())
+  );
+  let head = headPlain;
+  const toTailPieces: string[] = [];
+  let movedLiveChunks = 0;
+  for (let iter = 0; iter < 12; iter++) {
+    const prev = head;
+    const snapRaw = extractLastChoiceMenuSnapshotForArchive(head);
+    if (!snapRaw?.trim() || !textContainsClaudePermissionMenu(snapRaw)) break;
+    const chunkRaw = snapRaw.replace(/\r\n/g, '\n');
+    const trimChunk = chunkRaw.trim();
+    const h = head.replace(/\r\n/g, '\n');
+    let from = h.lastIndexOf(chunkRaw);
+    let matchLen = chunkRaw.length;
+    if (from < 0) {
+      from = h.lastIndexOf(trimChunk);
+      if (from < 0) break;
+      matchLen = trimChunk.length;
+    }
+    const removed = h.slice(from, from + matchLen);
+    const before = h.slice(0, from);
+    const after = h.slice(from + matchLen);
+    head = [before.replace(/\s+$/, ''), after.replace(/^\s+/, '')]
+      .filter((x) => x.length > 0)
+      .join('\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trimEnd();
+    if (!archivedNorm.has(trimChunk)) {
+      toTailPieces.unshift(removed);
+      movedLiveChunks++;
+    }
+    if (head === prev) break;
   }
-  const end = from + matchLen;
-  const chunk = h.slice(from, end);
-  const before = h.slice(0, from);
-  const after = h.slice(end);
-  const headOut = [before.replace(/\s+$/, ''), after.replace(/^\s+/, '')]
-    .filter((x) => x.length > 0)
-    .join('\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trimEnd();
-  return [headOut, chunk];
+  return [head, toTailPieces.join('\n\n'), movedLiveChunks];
 }
 
 /**
@@ -322,12 +339,16 @@ function interleaveArchivedWithinLastAssistant(
     tailText = [noisePulled, tailText].filter((x) => x.trim().length > 0).join('\n');
   }
   let menuPeelLen = 0;
+  let menuPeelIters = 0;
   if (tail.length > 0) {
-    const [hMenu, menuChunk] = peelLastPermissionMenuChunkFromHead(headText);
-    if (menuChunk.trim()) {
-      menuPeelLen = menuChunk.trim().length;
+    const [hMenu, menusToTail, liveChunks] = reconcileInterleavedAssistantHeadMenus(headText, tail);
+    menuPeelIters = liveChunks;
+    menuPeelLen = menusToTail.trim().length;
+    if (hMenu !== headText || menusToTail.trim()) {
       headText = hMenu;
-      tailText = [menuChunk, tailText].filter((x) => x.trim().length > 0).join('\n');
+      if (menusToTail.trim()) {
+        tailText = [menusToTail, tailText].filter((x) => x.trim().length > 0).join('\n');
+      }
     }
   }
   // #region agent log
@@ -358,6 +379,7 @@ function interleaveArchivedWithinLastAssistant(
         partPulledLines: noisePulled ? noisePulled.split('\n').filter((l) => l.trim()).length : 0,
         partPulledNormLen: getPtyParseNormalizedPlain(noisePulled).length,
         menuPeelLen,
+        menuPeelIters,
         headNormLen: getPtyParseNormalizedPlain(headText).length,
         tailNormLen: getPtyParseNormalizedPlain(tailText).length,
         tailHasFetch: /\bFetch\s+https?:/i.test(tailText),
