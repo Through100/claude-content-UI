@@ -124,7 +124,8 @@ export default function ClaudeTerminalView({
 
     const sendRawToPty = (data: string): boolean => {
       const w = wsRef.current;
-      if (!w || w.readyState !== WebSocket.OPEN) return false;
+      /** Server drops `input` until `create` finishes — avoid false “success” from Pretty Reply / Run. */
+      if (!sessionCreated || !w || w.readyState !== WebSocket.OPEN) return false;
       w.send(JSON.stringify({ type: 'input', data }));
       return true;
     };

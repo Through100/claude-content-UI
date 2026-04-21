@@ -198,6 +198,13 @@ export default function ResultsView({
     [prettyMode, headlessBlobForPermissionCue]
   );
 
+  /** Live PTY tail shows a numbered Esc/Tab menu — Reply UX hint (Ink rarely accepts the word “yes”). */
+  const replyPanelNumberedMenuHint = useMemo(() => {
+    const chunk = `${ptyFullSnapshotPlain}\n${ptyDisplayPlain}`.slice(-14000);
+    const plain = stripAnsiNormalizePtyMirror(chunk);
+    return plainTailShowsAnswerablePermissionMenu(plain);
+  }, [ptyFullSnapshotPlain, ptyDisplayPlain]);
+
   /** Logon buffer tail looks like Claude Code’s idle welcome — “yes” has no pending question there. */
   const replyPanelWarnWelcomeSplash = useMemo(() => {
     const chunk = `${ptyFullSnapshotPlain}\n${ptyDisplayPlain}`.slice(-12000);
@@ -510,6 +517,7 @@ export default function ResultsView({
         <PtyReplyPanel
           warnHeadlessMenuReadOnly={replyPanelWarnHeadlessMenuReadOnly}
           warnWelcomeSplash={replyPanelWarnWelcomeSplash}
+          showNumberedMenuHint={replyPanelNumberedMenuHint}
           replyOrderingPlain={replyOrderingPlain}
           onReplySent={(payload) => {
             if (!payload.text) return;
@@ -713,6 +721,8 @@ type PtyReplyPanelProps = {
   /** Finished headless output in Pretty looks like a Fetch/permission ask — Reply still targets the live PTY only. */
   warnHeadlessMenuReadOnly?: boolean;
   warnWelcomeSplash?: boolean;
+  /** Live PTY tail looks like a numbered Ink menu — show how to answer reliably. */
+  showNumberedMenuHint?: boolean;
   /** Plain transcript Pretty shows (same normalization as the thread) — snapshot length anchors bubbles. */
   replyOrderingPlain: string;
   onReplySent?: (payload: { text: string; sentAt: number; transcriptLenAtSend: number }) => void;
@@ -721,6 +731,7 @@ type PtyReplyPanelProps = {
 function PtyReplyPanel({
   warnHeadlessMenuReadOnly = false,
   warnWelcomeSplash = false,
+  showNumberedMenuHint = false,
   replyOrderingPlain,
   onReplySent
 }: PtyReplyPanelProps) {
@@ -766,9 +777,9 @@ function PtyReplyPanel({
      * yes/1/true; only LF→CR and optional trailing CR for “Append Enter”.
      */
     const tryDeliver = async (): Promise<boolean> => {
-      const interKeyMs = 14;
-      const beforeCrMs = 55;
-      const bulkBeforeCrMs = 200;
+      const interKeyMs = 22;
+      const beforeCrMs = 95;
+      const bulkBeforeCrMs = 220;
       const flatLen = normalized.replace(/\n/g, '').length;
       const shortEnough = flatLen <= 512;
 
@@ -854,6 +865,17 @@ function PtyReplyPanel({
         </div>
       )}
 
+      {showNumberedMenuHint && (
+        <div className="text-xs text-indigo-950 bg-indigo-50/90 border border-indigo-200 rounded-lg px-3 py-2 flex items-start gap-2">
+          <AlertCircle size={14} className="shrink-0 mt-0.5 text-indigo-600" aria-hidden />
+          <p className="leading-relaxed">
+            <strong>Numbered menu (❯ 1. Yes …):</strong> Ink usually accepts the <strong>digit</strong> (<code className="text-[11px] px-1 rounded bg-white/80">1</code>) or{' '}
+            <strong>Enter</strong> on the highlighted row — not the word <code className="text-[11px] px-1 rounded bg-white/80">yes</code>. Leave the box empty, keep{' '}
+            <strong>Append Enter</strong>, and Send to send Enter only. Raw / Logon may not echo your letters even when the PTY receives them.
+          </p>
+        </div>
+      )}
+
       <textarea
         value={text}
         onChange={(e) => {
@@ -862,7 +884,7 @@ function PtyReplyPanel({
         }}
         rows={4}
         spellCheck={false}
-        placeholder="Sent as typed (CRLF→LF only). Short input is sent one keystroke per message (like Logon) so Ink menus accept it; long text uses bulk + Enter."
+        placeholder="Sent as typed (CRLF→LF). Short lines go one key per message. Numbered menus: type 1 (or empty + Append Enter for Enter)."
         className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none resize-y font-mono"
       />
       
