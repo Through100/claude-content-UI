@@ -48,5 +48,18 @@ export function extractArtifactPathsFromRunText(text: string): string[] {
     push(m[1]);
   }
 
-  return [...found];
+  const filtered = [...found].filter((p) => !/CLAUDE\.md$/i.test(p));
+
+  // Deduplicate by filename: if we have both "file.md" and "/opt/path/file.md", keep the longer/absolute one
+  const byName = new Map<string, string>();
+  for (const p of filtered) {
+    const name = p.split(/[/\\]/).pop() ?? p;
+    const existing = byName.get(name);
+    // Prefer longer paths (more specific/absolute)
+    if (!existing || p.length > existing.length) {
+      byName.set(name, p);
+    }
+  }
+
+  return Array.from(byName.values());
 }
