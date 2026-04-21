@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef } from 'react';
 import { segmentPtyAssistantDisplayBlocks } from '../../shared/segmentPtyDiffBlocks';
 import { normalizeAsciiTableForPretty } from '../../shared/normalizeAsciiTableForPretty';
 import PrettyOutputBody from './PrettyOutputBody';
@@ -19,8 +19,8 @@ type PtyChoicePromptCardProps = {
   text: string;
   recorded?: boolean;
   /**
-   * Wall clock for ordering next to Reply bubbles: recorded = when the user sent; live = when Pretty
-   * last re-segmented this menu text (updates if the menu body changes).
+   * Wall clock for ordering next to Reply bubbles: recorded = when the user sent; live = first time
+   * Pretty showed this menu block (streaming updates keep the same stamp until the prompt is replaced).
    */
   shownAt?: number | null;
 };
@@ -33,7 +33,7 @@ export function PtyChoicePromptCard({ text, recorded = false, shownAt = null }: 
       ? undefined
       : recorded
         ? `Recorded when you sent your reply (${iso})`
-        : `Pretty last showed this menu block (${iso})`;
+        : `First shown in Pretty at ${iso}`;
 
   return (
     <div className="rounded-xl border border-amber-200/90 bg-amber-50/90 overflow-hidden shadow-sm">
@@ -71,62 +71,137 @@ export function PtyChoicePromptCard({ text, recorded = false, shownAt = null }: 
   );
 }
 
-/** Live menu: stamp updates when `menuText` changes so the clock tracks a new prompt in the thread. */
-function PtyLiveChoicePromptWithStamp({ menuText }: { menuText: string }) {
-  const shownAt = useMemo(() => Date.now(), [menuText]);
-  return <PtyChoicePromptCard text={menuText} shownAt={shownAt} />;
+type LiveMenuSlot = { id: number; shownAt: number; text: string };
+
+function wallMsFromPerformanceNow(): number {
+  return Math.round(performance.timeOrigin + performance.now());
+}
+
+/** Same logical menu while the PTY buffer grows or shrinks slightly; not a new prompt. */
+function sameMenuEvolution(prevText: string, curText: string): boolean {
+  if (prevText === curText) return true;
+  if (curText.startsWith(prevText)) return true;
+  if (prevText.startsWith(curText)) return true;
+  return false;
+}
+
+function findPrevSlotIndex(
+  curText: string,
+  orderIndex: number,
+  prev: LiveMenuSlot[],
+  used: Set<number>
+): number | null {
+  if (orderIndex < prev.length && !used.has(orderIndex) && sameMenuEvolution(prev[orderIndex].text, curText)) {
+    return orderIndex;
+  }
+  for (let j = 0; j < prev.length; j++) {
+    if (used.has(j)) continue;
+    if (sameMenuEvolution(prev[j].text, curText)) return j;
+  }
+  return null;
+}
+
+/**
+ * One stamp per menu *appearance*: new prompts get a fresh time as soon as segmentation exposes them;
+ * streaming the same prompt keeps the first time. Multiple new menus in one update get distinct
+ * high-resolution times via performance.now().
+ */
+function reconcileLiveMenuSlots(curTexts: string[], prevSlots: LiveMenuSlot[], nextId: { current: number }): LiveMenuSlot[] {
+  if (curTexts.length === 0) return [];
+  const used = new Set<number>();
+  const out: LiveMenuSlot[] = [];
+  for (let i = 0; i < curTexts.length; i++) {
+    const text = curTexts[i];
+    const k = findPrevSlotIndex(text, i, prevSlots, used);
+    if (k !== null) {
+      used.add(k);
+      const p = prevSlots[k];
+      out.push({ id: p.id, shownAt: p.shownAt, text });
+    } else {
+      out.push({ id: nextId.current++, shownAt: wallMsFromPerformanceNow(), text });
+    }
+  }
+  return out;
 }
 
 /** Renders Live PTY assistant text: diffs / ASCII pipe grids as monospace pre, everything else as Pretty markdown. */
 export default function PtyAssistantBody({ text }: { text: string }) {
+  const menuSlotsRef = useRef<LiveMenuSlot[]>([]);
+  const menuNextIdRef = useRef(0);
   const parts = useMemo(() => segmentPtyAssistantDisplayBlocks(text), [text]);
 
   if (parts.length === 0) {
+    menuSlotsRef.current = [];
     return <PrettyOutputBody text={text} />;
   }
 
   if (parts.length === 1 && parts[0].kind === 'prose') {
+    menuSlotsRef.current = [];
     return <PrettyOutputBody text={parts[0].text} />;
+  }
+
+  const curMenuTexts: string[] = [];
+  for (const p of parts) {
+    if (p.kind === 'menu') curMenuTexts.push(p.text);
+  }
+  menuSlotsRef.current = reconcileLiveMenuSlots(curMenuTexts, menuSlotsRef.current, menuNextIdRef);
+  const menuSlots = menuSlotsRef.current;
+
+  const menuSlotAtPartIdx = new Map<number, LiveMenuSlot>();
+  let mi = 0;
+  for (let i = 0; i < parts.length; i++) {
+    if (parts[i].kind === 'menu') {
+      const slot = menuSlots[mi++];
+      if (slot) menuSlotAtPartIdx.set(i, slot);
+    }
   }
 
   return (
     <div className="space-y-4">
-      {parts.map((p, idx) =>
-        p.kind === 'diff' ? (
-          <div
-            key={`d-${idx}`}
-            className="rounded-xl border border-zinc-800/90 bg-[#09090b] overflow-hidden shadow-inner"
-          >
-            <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-zinc-500 bg-zinc-900/95 border-b border-zinc-800">
-              Patch / diff (monospace)
-            </div>
-            <pre className="m-0 max-h-[min(65vh,720px)] overflow-auto px-3 py-3 text-[11px] sm:text-[12px] leading-[1.45] font-mono text-zinc-100 whitespace-pre tabular-nums">
-              {p.text}
-            </pre>
-          </div>
-        ) : p.kind === 'menu' ? (
-          <div key={`m-${idx}`}>
-            <PtyLiveChoicePromptWithStamp menuText={p.text} />
-          </div>
-        ) : p.kind === 'grid' ? (
-          <div
-            key={`g-${idx}`}
-            className="rounded-xl border border-slate-200 bg-slate-50/95 overflow-hidden shadow-sm"
-          >
-            <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-600 bg-slate-100/95 border-b border-slate-200">
-              Table (fixed width)
-            </div>
-            <pre
-              className="m-0 max-h-[min(70vh,680px)] overflow-x-auto px-3 py-3 text-[12px] leading-[1.35] font-mono text-slate-900 whitespace-pre break-normal [overflow-wrap:normal] tracking-normal select-text"
-              style={{ fontVariantLigatures: 'none', fontFeatureSettings: '"liga" 0, "calt" 0' }}
+      {parts.map((p, idx) => {
+        if (p.kind === 'diff') {
+          return (
+            <div
+              key={`d-${idx}`}
+              className="rounded-xl border border-zinc-800/90 bg-[#09090b] overflow-hidden shadow-inner"
             >
-              {normalizeAsciiTableForPretty(p.text)}
-            </pre>
-          </div>
-        ) : (
-          <PrettyOutputBody key={`p-${idx}`} text={p.text} />
-        )
-      )}
+              <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-zinc-500 bg-zinc-900/95 border-b border-zinc-800">
+                Patch / diff (monospace)
+              </div>
+              <pre className="m-0 max-h-[min(65vh,720px)] overflow-auto px-3 py-3 text-[11px] sm:text-[12px] leading-[1.45] font-mono text-zinc-100 whitespace-pre tabular-nums">
+                {p.text}
+              </pre>
+            </div>
+          );
+        }
+        if (p.kind === 'menu') {
+          const slot = menuSlotAtPartIdx.get(idx);
+          return (
+            <div key={slot ? `m-${slot.id}` : `m-${idx}`}>
+              <PtyChoicePromptCard text={p.text} shownAt={slot?.shownAt ?? null} />
+            </div>
+          );
+        }
+        if (p.kind === 'grid') {
+          return (
+            <div
+              key={`g-${idx}`}
+              className="rounded-xl border border-slate-200 bg-slate-50/95 overflow-hidden shadow-sm"
+            >
+              <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-600 bg-slate-100/95 border-b border-slate-200">
+                Table (fixed width)
+              </div>
+              <pre
+                className="m-0 max-h-[min(70vh,680px)] overflow-x-auto px-3 py-3 text-[12px] leading-[1.35] font-mono text-slate-900 whitespace-pre break-normal [overflow-wrap:normal] tracking-normal select-text"
+                style={{ fontVariantLigatures: 'none', fontFeatureSettings: '"liga" 0, "calt" 0' }}
+              >
+                {normalizeAsciiTableForPretty(p.text)}
+              </pre>
+            </div>
+          );
+        }
+        return <PrettyOutputBody key={`p-${idx}`} text={p.text} />;
+      })}
     </div>
   );
 }
