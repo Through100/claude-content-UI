@@ -258,7 +258,8 @@ function reconcileInterleavedAssistantHeadMenus(headPlain: string, tailRows: Mer
 function interleaveArchivedWithinLastAssistant(
   rows: MergedRow[],
   transcript: string,
-  baseFiltered: ChatTurnWithEnd[]
+  baseFiltered: ChatTurnWithEnd[],
+  sortTailBySentAt: boolean
 ): MergedRow[] {
   if (!getPtyParseNormalizedPlain(transcript).trim() || rows.length === 0) return rows;
 
@@ -408,15 +409,18 @@ function interleaveArchivedWithinLastAssistant(
     : null;
   const tailTurn: ChatTurn = { ...turn, text: tailText, id: `${turn.id}__post` };
 
-  const tailSorted = [...tail].sort((a, b) => {
-    const ta = a.kind === 'manual' ? a.manual.sentAt : a.kind === 'archivedMenu' ? a.archived.sentAt : 0;
-    const tb = b.kind === 'manual' ? b.manual.sentAt : b.kind === 'archivedMenu' ? b.archived.sentAt : 0;
-    if (ta !== tb) return ta - tb;
-    if (a.kind !== b.kind) return a.kind === 'archivedMenu' ? -1 : 1;
-    const ida = a.kind === 'manual' ? a.manual.id : a.kind === 'archivedMenu' ? a.archived.id : '';
-    const idb = b.kind === 'manual' ? b.manual.id : b.kind === 'archivedMenu' ? b.archived.id : '';
-    return ida.localeCompare(idb);
-  });
+  /** While Claude is still “thinking” (awaiting assistant), keep merge order so status/footer can stay visually stable at the bottom; re-sort by `sentAt` once thinking stops. */
+  const tailSorted = sortTailBySentAt
+    ? [...tail].sort((a, b) => {
+        const ta = a.kind === 'manual' ? a.manual.sentAt : a.kind === 'archivedMenu' ? a.archived.sentAt : 0;
+        const tb = b.kind === 'manual' ? b.manual.sentAt : b.kind === 'archivedMenu' ? b.archived.sentAt : 0;
+        if (ta !== tb) return ta - tb;
+        if (a.kind !== b.kind) return a.kind === 'archivedMenu' ? -1 : 1;
+        const ida = a.kind === 'manual' ? a.manual.id : a.kind === 'archivedMenu' ? a.archived.id : '';
+        const idb = b.kind === 'manual' ? b.manual.id : b.kind === 'archivedMenu' ? b.archived.id : '';
+        return ida.localeCompare(idb);
+      })
+    : [...tail];
 
   const out: MergedRow[] = [...rows.slice(0, mergedAsstIdx)];
   if (headTurn) out.push({ kind: 'pty', turn: headTurn });
@@ -426,32 +430,42 @@ function interleaveArchivedWithinLastAssistant(
   return out;
 }
 
+type AnchoredWithSeq = AnchoredForMerge & { mergeSeq: number };
+
 function mergeParsedTurnsWithManualAndArchived(
   base: ChatTurnWithEnd[],
   manuals: PtyManualReplyBubble[],
-  archivedMenus: PtyArchivedChoiceMenu[]
+  archivedMenus: PtyArchivedChoiceMenu[],
+  sortAnchoredBySentAt: boolean
 ): MergedRow[] {
-  const anchored: AnchoredForMerge[] = [
+  let mergeSeq = 0;
+  const anchored: AnchoredWithSeq[] = [
     ...manuals.map((m) => ({
       flavour: 'manual' as const,
       transcriptLenAtSend: m.transcriptLenAtSend,
       sentAt: m.sentAt,
       id: m.id,
-      manual: m
+      manual: m,
+      mergeSeq: mergeSeq++
     })),
     ...archivedMenus.map((a) => ({
       flavour: 'archived' as const,
       transcriptLenAtSend: a.transcriptLenAtSend,
       sentAt: a.sentAt,
       id: a.id,
-      archived: a
+      archived: a,
+      mergeSeq: mergeSeq++
     }))
   ];
   const sortedAnchored = [...anchored].sort((x, y) => {
     const sx = slotAfterTranscriptOffset(x.transcriptLenAtSend, base);
     const sy = slotAfterTranscriptOffset(y.transcriptLenAtSend, base);
     if (sx !== sy) return sx - sy;
-    if (x.sentAt !== y.sentAt) return x.sentAt - y.sentAt;
+    if (sortAnchoredBySentAt) {
+      if (x.sentAt !== y.sentAt) return x.sentAt - y.sentAt;
+    } else if (x.mergeSeq !== y.mergeSeq) {
+      return x.mergeSeq - y.mergeSeq;
+    }
     if (x.flavour === y.flavour) return x.id.localeCompare(y.id);
     return x.flavour === 'archived' ? -1 : 1;
   });
@@ -649,11 +663,22 @@ export default function PtyMessengerThread({
         .filter((m) => m.role === 'user' || m.text.trim().length > 0)
         .map((turn) => ({ kind: 'pty' as const, turn }));
     }
-    const merged = mergeParsedTurnsWithManualAndArchived(baseFiltered, manuals, archived);
+    const sortReplayBySentAt = !showThinking;
+    const merged = mergeParsedTurnsWithManualAndArchived(
+      baseFiltered,
+      manuals,
+      archived,
+      sortReplayBySentAt
+    );
     const filtered = filterArchivedMenusHiddenWhileLiveDuplicate(merged);
-    const interleaved = interleaveArchivedWithinLastAssistant(filtered, transcript, baseFiltered);
+    const interleaved = interleaveArchivedWithinLastAssistant(
+      filtered,
+      transcript,
+      baseFiltered,
+      sortReplayBySentAt
+    );
     return filterArchivedMenusHiddenWhileLiveDuplicate(interleaved);
-  }, [transcript, manualReplyBubbles, archivedChoiceMenus, displayTurns]);
+  }, [transcript, manualReplyBubbles, archivedChoiceMenus, displayTurns, showThinking]);
 
   useEffect(() => {
     const el = scrollerRef.current;
