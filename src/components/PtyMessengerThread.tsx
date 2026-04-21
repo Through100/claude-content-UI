@@ -810,17 +810,31 @@ export default function PtyMessengerThread({
             </div>
           ) : (
             <div key={row.manual.id} className="flex justify-end w-full">
-              <div className="max-w-[min(100%,85%)] sm:max-w-[32rem] pl-8 sm:pl-12 flex flex-col items-end gap-1">
-                <div className="rounded-[1.35rem] bg-indigo-100/90 text-gray-900 px-4 py-2.5 md:px-5 md:py-3 text-[15px] leading-6 whitespace-pre-wrap break-words shadow-sm border border-indigo-200/80">
-                  {row.manual.text}
-                </div>
-                <time
-                  className="text-[10px] font-medium text-gray-500 tabular-nums pr-1"
-                  dateTime={new Date(row.manual.sentAt).toISOString()}
-                  title={`Sent at ${new Date(row.manual.sentAt).toISOString()}`}
+              <div className="max-w-[min(100%,85%)] sm:max-w-[32rem] pl-8 sm:pl-12 w-full flex flex-col items-end">
+                {/*
+                  Not an “unboxed” fetch menu — this is the synthetic row from “Reply via interactive PTY”.
+                  Amber cards only come from `PtyChoicePromptCard` (live assistant menus + recorded snapshots).
+                */}
+                <article
+                  className="w-full rounded-xl border border-indigo-200/95 bg-indigo-50/50 overflow-hidden shadow-sm"
+                  aria-label="PTY reply sent from Pretty"
                 >
-                  {formatBubbleTime(row.manual.sentAt)}
-                </time>
+                  <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-indigo-950/90 bg-indigo-100/90 border-b border-indigo-200/80">
+                    PTY reply
+                  </div>
+                  <div className="px-3 py-3 flex flex-col items-end gap-1">
+                    <div className="rounded-[1.35rem] bg-indigo-100/90 text-gray-900 px-4 py-2.5 md:px-5 md:py-3 text-[15px] leading-6 whitespace-pre-wrap break-words border border-indigo-200/80">
+                      {row.manual.text}
+                    </div>
+                    <time
+                      className="text-[10px] font-medium text-gray-500 tabular-nums pr-1"
+                      dateTime={new Date(row.manual.sentAt).toISOString()}
+                      title={`Sent at ${new Date(row.manual.sentAt).toISOString()}`}
+                    >
+                      {formatBubbleTime(row.manual.sentAt)}
+                    </time>
+                  </div>
+                </article>
               </div>
             </div>
           )
