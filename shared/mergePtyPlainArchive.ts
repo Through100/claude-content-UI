@@ -55,6 +55,10 @@ function alignCutBackwardToNewline(s: string, approxCut: number): number {
   return c;
 }
 
+function countFetchConsentPrompts(s: string): number {
+  return (s.match(/\bDo you want to allow Claude to fetch\b/gi) ?? []).length;
+}
+
 /**
  * Pretty merges scrollback + live xterm snapshots; when Ink redraws a permission menu in place, the merged
  * string can keep an old tail while {@link mergePtyPlainArchive} still thinks the buffer is unchanged.
@@ -101,36 +105,100 @@ export function snapMergedPtyTailToLiveFullSnapshot(
     return merged;
   }
 
-  const t = Math.min(maxTailScan, live.length, m.length);
-  if (t < 200) {
+  let tEff = Math.min(maxTailScan, live.length, m.length);
+  if (tEff < 200) {
     return merged;
   }
 
-  const mTail = m.slice(-t);
-  const liveTail = live.slice(-t);
-  if (mTail === liveTail) {
+  const mTailEq = (t: number) => {
+    const mTail = m.slice(-t);
+    const liveTail = live.slice(-t);
+    return mTail === liveTail;
+  };
+
+  if (mTailEq(tEff)) {
     const now = Date.now();
     if (now - _snapTailMatchLogAt > 800) {
       _snapTailMatchLogAt = now;
-      dbg('early-tail-match', { t, liveLen: live.length, mLen: m.length });
+      dbg('early-tail-match', { t: tEff, liveLen: live.length, mLen: m.length });
     }
     return merged;
   }
 
-  const approxCut = m.length - t;
-  const cut = alignCutBackwardToNewline(m, approxCut);
-  const suffixLen = m.length - cut;
-  if (suffixLen <= 0 || suffixLen > live.length) {
-    dbg('abort-suffix-bounds', { cut, suffixLen, liveLen: live.length });
-    return merged;
+  /**
+   * Newline alignment can widen the replaced suffix beyond `live.length` (abort-suffix-bounds), which
+   * left Pretty stuck on an old fetch menu while Raw still showed the next prompt. Shrink the scan
+   * window until the suffix fits in `live`, then splice the live tail in.
+   */
+  while (tEff >= 200) {
+    const approxCut = m.length - tEff;
+    const cut = alignCutBackwardToNewline(m, approxCut);
+    const suffixLen = m.length - cut;
+    if (suffixLen <= 0) {
+      tEff = Math.floor(tEff * 0.82);
+      continue;
+    }
+    if (suffixLen > live.length) {
+      // #region agent log
+      fetch('http://127.0.0.1:7823/ingest/0f30680b-0aa0-4d4a-ba6d-262bf6a78290', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '456dbf' },
+        body: JSON.stringify({
+          sessionId: '456dbf',
+          hypothesisId: 'H15',
+          location: 'mergePtyPlainArchive.ts:snapMergedPtyTailToLiveFullSnapshot',
+          message: 'suffixLen exceeds live; shrinking tail scan',
+          data: { tEff, suffixLen, liveLen: live.length, mergedLen: m.length },
+          timestamp: Date.now()
+        })
+      }).catch(() => {});
+      // #endregion
+      tEff = Math.floor(tEff * 0.82);
+      continue;
+    }
+
+    const liveSuffix = live.slice(-suffixLen);
+    if (m.slice(cut) === liveSuffix) {
+      dbg('abort-slice-already-live-suffix', { suffixLen, tEff });
+      return merged;
+    }
+
+    dbg('patched', { cut, suffixLen, tEff, outLen: cut + liveSuffix.length });
+    return m.slice(0, cut) + liveSuffix;
   }
 
-  const liveSuffix = live.slice(-suffixLen);
-  if (m.slice(cut) === liveSuffix) {
-    dbg('abort-slice-already-live-suffix');
-    return merged;
+  /**
+   * Still could not align (e.g. live shorter than any line-safe window). Graft the full live buffer as
+   * the authoritative tail only when live clearly shows more fetch consent prompts than the merged
+   * tail we would replace — avoids corrupting unrelated long histories.
+   */
+  if (live.length >= 200 && m.length > live.length && !m.endsWith(live)) {
+    const tailM = m.slice(-live.length);
+    if (countFetchConsentPrompts(live) > countFetchConsentPrompts(tailM)) {
+      // #region agent log
+      fetch('http://127.0.0.1:7823/ingest/0f30680b-0aa0-4d4a-ba6d-262bf6a78290', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '456dbf' },
+        body: JSON.stringify({
+          sessionId: '456dbf',
+          hypothesisId: 'H16',
+          location: 'mergePtyPlainArchive.ts:snapMergedPtyTailToLiveFullSnapshot',
+          message: 'graft full live buffer onto merged head',
+          data: {
+            mergedLen: m.length,
+            liveLen: live.length,
+            liveFetch: countFetchConsentPrompts(live),
+            mergedTailFetch: countFetchConsentPrompts(tailM)
+          },
+          timestamp: Date.now()
+        })
+      }).catch(() => {});
+      // #endregion
+      dbg('graft-full-live', { mergedLen: m.length, liveLen: live.length });
+      return m.slice(0, m.length - live.length) + live;
+    }
   }
 
-  dbg('patched', { cut, suffixLen, outLen: cut + liveSuffix.length });
-  return m.slice(0, cut) + liveSuffix;
+  dbg('snap-gave-up', { mergedLen: m.length, liveLen: live.length });
+  return merged;
 }
