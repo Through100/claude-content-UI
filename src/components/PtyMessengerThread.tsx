@@ -12,7 +12,7 @@ import {
 } from '../../shared/parsePtyTranscriptToMessages';
 import { textContainsClaudePermissionMenu } from '../../shared/claudeCodePtyPermissionMenu';
 import { isInkSpinnerTokenStatusLine } from '../../shared/inkSpinnerTokenStatusLine';
-import { extractLastChoiceMenuSnapshotForArchive, segmentPtyAssistantDisplayBlocks } from '../../shared/segmentPtyDiffBlocks';
+import { segmentPtyAssistantDisplayBlocks } from '../../shared/segmentPtyDiffBlocks';
 import { extractPtyLiveFooterLine } from '../../shared/extractPtyLiveFooterLine';
 import PtyAssistantBody, { PtyChoicePromptCard, type PtyMenuSlotBundle } from './PtyAssistantBody';
 
@@ -203,9 +203,45 @@ function partitionInterleavedHeadNoiseToTail(raw: string): [string, string] {
   return [headJoined, pulled.join('\n')];
 }
 
+/** Last permission menu block from the **same** segmentation as Pretty cards — substring-safe in `headPlain`. */
+function findLastPermissionMenuTextFromSegments(plain: string): string | null {
+  const parts = segmentPtyAssistantDisplayBlocks(plain);
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const p = parts[i];
+    if (p.kind === 'menu' && textContainsClaudePermissionMenu(p.text)) {
+      return p.text;
+    }
+  }
+  return null;
+}
+
+function removeLastOccurrenceOfMenuFromHead(hay: string, menuText: string): [string, string] {
+  const h = hay.replace(/\r\n/g, '\n');
+  const want = menuText.replace(/\r\n/g, '\n');
+  let from = h.lastIndexOf(want);
+  let matchLen = want.length;
+  if (from < 0) {
+    const w2 = want.trim();
+    from = h.lastIndexOf(w2);
+    if (from < 0) return [hay, ''];
+    matchLen = w2.length;
+  }
+  const removed = h.slice(from, from + matchLen);
+  const before = h.slice(0, from);
+  const after = h.slice(from + matchLen);
+  const headOut = [before.replace(/\s+$/, ''), after.replace(/^\s+/, '')]
+    .filter((x) => x.length > 0)
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trimEnd();
+  return [headOut, removed];
+}
+
 /**
  * After several fetch prompts, `__pre` can still contain one or more permission menus (anchor/split
  * drift). Peel **iteratively** from the end of `head`: each pass removes the last segmented menu.
+ * Uses `segmentPtyAssistantDisplayBlocks` (not the archive tail window) so `lastIndexOf` always matches
+ * the same bytes Pretty renders — otherwise the live card stays stuck above recorded rows.
  * - Menus whose plain text matches a frozen archived snapshot are stripped from `__pre` only (dedupe
  *   with the yellow card) and are not re-appended to the tail.
  * - All other menus are collected in chronological order and prepended to the live tail.
@@ -221,26 +257,12 @@ function reconcileInterleavedAssistantHeadMenus(headPlain: string, tailRows: Mer
   let movedLiveChunks = 0;
   for (let iter = 0; iter < 12; iter++) {
     const prev = head;
-    const snapRaw = extractLastChoiceMenuSnapshotForArchive(head);
+    const snapRaw = findLastPermissionMenuTextFromSegments(head);
     if (!snapRaw?.trim() || !textContainsClaudePermissionMenu(snapRaw)) break;
-    const chunkRaw = snapRaw.replace(/\r\n/g, '\n');
-    const trimChunk = chunkRaw.trim();
-    const h = head.replace(/\r\n/g, '\n');
-    let from = h.lastIndexOf(chunkRaw);
-    let matchLen = chunkRaw.length;
-    if (from < 0) {
-      from = h.lastIndexOf(trimChunk);
-      if (from < 0) break;
-      matchLen = trimChunk.length;
-    }
-    const removed = h.slice(from, from + matchLen);
-    const before = h.slice(0, from);
-    const after = h.slice(from + matchLen);
-    head = [before.replace(/\s+$/, ''), after.replace(/^\s+/, '')]
-      .filter((x) => x.length > 0)
-      .join('\n')
-      .replace(/\n{3,}/g, '\n\n')
-      .trimEnd();
+    const trimChunk = snapRaw.replace(/\r\n/g, '\n').trim();
+    const [h2, removed] = removeLastOccurrenceOfMenuFromHead(head, snapRaw);
+    if (!removed.trim() || h2 === head) break;
+    head = h2;
     if (!archivedNorm.has(trimChunk)) {
       toTailPieces.unshift(removed);
       movedLiveChunks++;
