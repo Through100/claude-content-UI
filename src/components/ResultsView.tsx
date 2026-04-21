@@ -491,10 +491,10 @@ export default function ResultsView({
           warnHeadlessMenuReadOnly={replyPanelWarnHeadlessMenuReadOnly}
           warnWelcomeSplash={replyPanelWarnWelcomeSplash}
           onReplySent={(text) => {
-            const label = text.trim() ? text : '↵';
+            if (!text) return;
             setManualReplyBubbles((prev) => [
               ...prev,
-              { id: `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`, text: label }
+              { id: `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`, text }
             ]);
           }}
         />
@@ -702,9 +702,9 @@ function PtyReplyPanel({
   const [sending, setSending] = useState(false);
 
   const handleSend = () => {
-    /** Normalize CRLF only; do not trim — outer spaces are sent as typed. */
-    const payload = text.replace(/\r\n/g, '\n');
-    if (!payload.trim() && !appendEnter) {
+    /** Only CRLF → LF; no trim — send exactly what is in the field (spaces, digits, words). */
+    const normalized = text.replace(/\r\n/g, '\n');
+    if (normalized.length === 0 && !appendEnter) {
       setHint({ message: 'Type a reply first.', type: 'info' });
       return;
     }
@@ -719,63 +719,34 @@ function PtyReplyPanel({
     setSending(true);
     setHint(null);
 
-    const summaryForParent = payload.trim();
+    /** PTY expects CR for line breaks; optional trailing CR when “Append Enter” is checked. */
+    let toSend = normalized.replace(/\n/g, '\r');
+    if (appendEnter && !toSend.endsWith('\r')) {
+      toSend += '\r';
+    }
 
     const afterDelivered = () => {
       setHint({ message: 'Sent to the interactive PTY.', type: 'success' });
-      onReplySent?.(summaryForParent || (appendEnter ? '↵' : ''));
+      if (normalized.length > 0) {
+        onReplySent?.(normalized);
+      }
       setText('');
       setTimeout(() => setHint((h) => (h?.type === 'success' ? null : h)), 4000);
       setSending(false);
     };
 
-    /** Strip trailing blank lines so “Append Enter” does not send a second spurious newline before CR. */
-    const body = payload.replace(/\n+$/g, '');
-
-    /**
-     * Claude Code / Ink list prompts read input like a real keyboard. One WebSocket write with `yes` often does
-     * nothing; xterm sends one character per `onData`. For shorter lines we replay keystrokes with a tiny delay,
-     * then CR (when “Append Enter” is on). Long pastes stay as bulk + delayed CR.
-     */
-    const tryDeliver = async (): Promise<boolean> => {
-      const interKeyMs = 14;
-      const beforeCrMs = 45;
-      const bulkBeforeCrMs = 200;
-
-      if (appendEnter && body.trim()) {
-        const flatLen = body.replace(/\n/g, '').length;
-        if (flatLen <= 512) {
-          for (const ch of body) {
-            const out = ch === '\n' ? '\r' : ch;
-            if (!sendToPty(out)) return false;
-            await new Promise<void>((r) => setTimeout(r, interKeyMs));
-          }
-          await new Promise<void>((r) => setTimeout(r, beforeCrMs));
-          return sendToPty('\r');
-        }
-        if (!sendToPty(body.replace(/\n/g, '\r'))) return false;
-        await new Promise<void>((r) => setTimeout(r, bulkBeforeCrMs));
-        return sendToPty('\r');
-      }
-      if (appendEnter && !body.trim()) {
-        return sendToPty('\r');
-      }
-      if (body) {
-        return sendToPty(body.replace(/\n/g, '\r'));
-      }
-      return true;
-    };
+    const tryOnce = () => sendToPty(toSend);
 
     void (async () => {
       try {
-        let ok = await tryDeliver();
+        let ok = tryOnce();
         if (!ok) {
           await new Promise<void>((r) => requestAnimationFrame(() => r()));
-          ok = await tryDeliver();
+          ok = tryOnce();
         }
         if (!ok) {
           await new Promise<void>((r) => setTimeout(r, 120));
-          ok = await tryDeliver();
+          ok = tryOnce();
         }
         if (!ok) {
           setHint({
@@ -814,7 +785,7 @@ function PtyReplyPanel({
         <div className="text-xs text-slate-800 bg-white border border-slate-200 rounded-lg px-3 py-2 flex items-start gap-2">
           <TerminalIcon size={14} className="shrink-0 mt-0.5 text-slate-500" />
           <p className="leading-relaxed">
-            PTY is idling at <strong>Welcome back</strong>. Short replies like “yes” will be ignored. Describe your goal or switch to <strong>Logon</strong>.
+            PTY is idling at <strong>Welcome back</strong>. Replies only apply when the live session is waiting for input — describe your goal or switch to <strong>Logon</strong>.
           </p>
         </div>
       )}
@@ -827,7 +798,7 @@ function PtyReplyPanel({
         }}
         rows={4}
         spellCheck={false}
-        placeholder="Sent as typed (spaces preserved). Short lines are sent key-by-key like Logon, then Enter if checked. Long text is one write + Enter."
+        placeholder="Sent as typed (only CRLF normalized). Newlines become CR for the PTY; check “Append Enter” to send a final CR after your text."
         className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none resize-y font-mono"
       />
       

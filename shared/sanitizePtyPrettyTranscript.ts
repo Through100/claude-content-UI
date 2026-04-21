@@ -40,7 +40,8 @@ export function stripClaudeCodeSplashPrefix(text: string): string {
   const maxScan = Math.min(lines.length, 70);
   while (i < maxScan) {
     const L = lines[i];
-    if (/^\s*❯\s+\S/.test(L)) break;
+    /** Do not treat Ink’s `❯ 1. Yes` pointer as the shell prompt — keeps Fetch choice lines above it. */
+    if (/^\s*❯\s+(?!\d+\.\s)\S/.test(L)) break;
     if (/^\s*●\s/.test(L) && i > 10) break;
     if (!isSplashOrChromeLine(L) && L.trim().length > 0) {
       const letters = (L.match(/[A-Za-z]/g) ?? []).length;

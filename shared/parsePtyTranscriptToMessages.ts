@@ -8,6 +8,14 @@ export type ChatTurn = { role: 'user' | 'assistant'; text: string; id: string };
 export function isPtyAssistantNoiseLine(line: string): boolean {
   const l = line.trim();
   if (!l) return true;
+  /** Never strip Fetch / permission choice rows from Pretty sanitization. */
+  if (/\bClaude wants to fetch\b/i.test(l)) return false;
+  if (/\bDo you want to allow\b/i.test(l)) return false;
+  if (/\bDo you want to proceed\b/i.test(l)) return false;
+  if (/^\s*(?:[❯›>]\s*)?\d+\.\s+Yes\b/i.test(l)) return false;
+  if (/Yes, and don't ask again\b/i.test(l)) return false;
+  if (/No, and tell Claude what to do differently\b/i.test(l)) return false;
+  if (/\bEsc to cancel\b/i.test(l) && /\bTab to (?:amend|edit|change)\b/i.test(l)) return false;
   /** Keep Ink one-line status (any verb) visible in Pretty — see `isInkSpinnerTokenStatusLine`. */
   if (isInkSpinnerTokenStatusLine(l)) return false;
   if (/^[─\-_\s|]+$/.test(l)) return true;
