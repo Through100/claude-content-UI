@@ -901,7 +901,13 @@ export default function PtyMessengerThread({
     showActivityRow ? (
       <div className="space-y-3 w-full">
         {showThinking ? <PtyAssistantPending /> : null}
-        {liveFooterLineDeduped ? <TerminalLiveFooterBar text={liveFooterLineDeduped} /> : null}
+        {showThinking ? (
+          <div className="min-h-[5.25rem] w-full flex flex-col justify-end">
+            {liveFooterLineDeduped ? <TerminalLiveFooterBar text={liveFooterLineDeduped} /> : null}
+          </div>
+        ) : liveFooterLineDeduped ? (
+          <TerminalLiveFooterBar text={liveFooterLineDeduped} />
+        ) : null}
       </div>
     ) : null;
 
@@ -940,7 +946,13 @@ export default function PtyMessengerThread({
           </p>
           <div className="px-4 py-8 md:px-8 max-h-[min(75vh,720px)] overflow-y-auto bg-white space-y-4">
             {showThinking ? <PtyAssistantPending /> : null}
-            {liveFooterLineDeduped ? <TerminalLiveFooterBar text={liveFooterLineDeduped} /> : null}
+            {showThinking ? (
+              <div className="min-h-[5.25rem] w-full flex flex-col justify-end">
+                {liveFooterLineDeduped ? <TerminalLiveFooterBar text={liveFooterLineDeduped} /> : null}
+              </div>
+            ) : liveFooterLineDeduped ? (
+              <TerminalLiveFooterBar text={liveFooterLineDeduped} />
+            ) : null}
           </div>
         </div>
       );
