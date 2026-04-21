@@ -177,7 +177,24 @@ function interleaveArchivedWithinLastAssistant(
     r.kind === 'manual' ? r.manual.transcriptLenAtSend : r.kind === 'archivedMenu' ? r.archived.transcriptLenAtSend : 0
   );
   const minAnchor = Math.min(...anchorLens);
-  if (minAnchor <= turnStart || minAnchor >= turnEnd) return rows;
+  if (minAnchor <= turnStart || minAnchor >= turnEnd) {
+    // #region agent log
+    fetch('http://127.0.0.1:7823/ingest/0f30680b-0aa0-4d4a-ba6d-262bf6a78290', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '456dbf' },
+      body: JSON.stringify({
+        sessionId: '456dbf',
+        runId: 'verify-v1',
+        hypothesisId: 'H2',
+        location: 'PtyMessengerThread.tsx:interleave',
+        message: 'skip split — anchor outside turn span',
+        data: { turnId: turn.id, turnStart, turnEnd, minAnchor },
+        timestamp: Date.now()
+      })
+    }).catch(() => {});
+    // #endregion
+    return rows;
+  }
 
   /**
    * `turnStart`/`turnEnd` are offsets in the full normalized transcript; `turn.text` is a slice whose
@@ -185,11 +202,68 @@ function interleaveArchivedWithinLastAssistant(
    * coordinate system before splitting — otherwise the live tail can stay in `head` and render
    * above archived cards.
    */
+  const tFull = getPtyParseNormalizedPlain(transcript);
+  const sliceInT = tFull.slice(turnStart, turnEnd);
+  const sliceTrim = sliceInT.trimEnd();
+  const nt = getPtyParseNormalizedPlain(turn.text);
+  const tn = nt.length;
   const gSpan = turnEnd - turnStart;
-  const tn = getPtyParseNormalizedPlain(turn.text).length;
-  const relCut =
-    gSpan <= 0 ? 0 : Math.min(tn, Math.max(0, Math.round(((minAnchor - turnStart) * tn) / gSpan)));
+  const gLocal = minAnchor - turnStart;
+  /**
+   * `endOffset` spans the full normalized segment in `tFull`, while `turn.text` is the parsed assistant slice
+   * (often `trimEnd`). A linear ratio across mismatched lengths maps the anchor into the wrong place and keeps
+   * the live PTY tail in `headText` (newer menu above archived rows). Prefer exact / trim / prefix alignment.
+   */
+  let relCut: number;
+  if (gSpan > 0 && tn > 0 && nt === sliceInT) {
+    relCut = Math.max(0, Math.min(tn, gLocal));
+  } else if (gSpan > 0 && tn > 0 && nt === sliceTrim) {
+    const eff = Math.min(gLocal, sliceTrim.length);
+    relCut = Math.max(0, Math.min(tn, eff));
+  } else if (tn > 0 && sliceTrim.startsWith(nt)) {
+    relCut = Math.max(0, Math.min(tn, gLocal));
+  } else if (tn > 0 && sliceTrim.endsWith(nt)) {
+    const skip = sliceTrim.length - tn;
+    relCut = Math.max(0, Math.min(tn, gLocal - skip));
+  } else {
+    relCut = gSpan <= 0 ? 0 : Math.min(tn, Math.max(0, Math.round((gLocal * tn) / gSpan)));
+  }
   const [headText, tailText] = splitTurnAtNormalizedLength(turn.text, relCut);
+  // #region agent log
+  fetch('http://127.0.0.1:7823/ingest/0f30680b-0aa0-4d4a-ba6d-262bf6a78290', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '456dbf' },
+    body: JSON.stringify({
+      sessionId: '456dbf',
+      runId: 'verify-v1',
+      hypothesisId: 'H1',
+      location: 'PtyMessengerThread.tsx:interleave',
+      message: 'split last assistant for archived/manual',
+      data: {
+        turnId: turn.id,
+        turnStart,
+        turnEnd,
+        gSpan,
+        minAnchor,
+        gLocal,
+        sliceLen: sliceInT.length,
+        sliceTrimLen: sliceTrim.length,
+        tn,
+        eqSlice: nt === sliceInT,
+        eqTrim: nt === sliceTrim,
+        pref: sliceTrim.startsWith(nt),
+        suff: sliceTrim.endsWith(nt),
+        relCut,
+        headNormLen: getPtyParseNormalizedPlain(headText).length,
+        tailNormLen: getPtyParseNormalizedPlain(tailText).length,
+        tailHasFetch: /\bFetch\s+https?:/i.test(tailText),
+        headHasFetch: /\bFetch\s+https?:/i.test(headText),
+        tailEmpty: !tailText.trim()
+      },
+      timestamp: Date.now()
+    })
+  }).catch(() => {});
+  // #endregion
   if (!tailText.trim()) return rows;
 
   const headTurn: ChatTurn | null = headText.trim()
