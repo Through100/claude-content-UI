@@ -111,3 +111,57 @@ export function inferPermissionMenuAffirmativeIndex(plainNormalized: string): st
 
   return ranked.length ? String(ranked[0].n) : '1';
 }
+
+export type PermissionMenuReplyPayload =
+  | { mode: 'digit'; digit: string }
+  | { mode: 'enter_default' }
+  | { mode: 'verbatim'; text: string };
+
+/**
+ * Map Reply-box input to what the PTY should receive for a numbered permission / Fetch consent menu.
+ * Default Ink choice is the first “Yes” row — unknown text is treated like option 1 (digit), not raw letters.
+ */
+export function resolvePermissionMenuReplyPayload(plainHint: string, typed: string): PermissionMenuReplyPayload {
+  const slice = menuOptionSlice(plainHint) || plainHint.slice(-8000);
+  const ranked = parsePermissionMenuNumberedOptions(slice);
+  if (ranked.length === 0) {
+    return { mode: 'verbatim', text: typed };
+  }
+
+  const t = typed.trim();
+  if (!t) {
+    return { mode: 'enter_default' };
+  }
+
+  const tl = t.toLowerCase().replace(/\s+/g, ' ');
+
+  const onlyNum = t.match(/^\s*(\d{1,2})\s*[.!?…\s]*$/);
+  if (onlyNum) {
+    const n = parseInt(onlyNum[1] ?? '', 10);
+    if (ranked.some((r) => r.n === n)) {
+      return { mode: 'digit', digit: String(n) };
+    }
+  }
+
+  const noRow = ranked.find((r) => /^no\b/i.test(r.line));
+  if (noRow && /\bno\b/.test(tl) && !/\byes\b/.test(tl)) {
+    return { mode: 'digit', digit: String(noRow.n) };
+  }
+
+  const dontAskRow = ranked.find((r) => /Yes, and don['\u2019]t ask again/i.test(r.line));
+  if (dontAskRow) {
+    const needle = dontAskRow.line.toLowerCase().replace(/\s+/g, ' ');
+    const head = needle.slice(0, Math.min(80, needle.length));
+    if (
+      /don['\u2019]t ask again/.test(tl) ||
+      /dont ask again/.test(tl) ||
+      (head.length >= 14 && tl.includes(head))
+    ) {
+      return { mode: 'digit', digit: String(dontAskRow.n) };
+    }
+  }
+
+  const oneShotYes = ranked.find((r) => /^yes\b/i.test(r.line) && !/^no\b/i.test(r.line));
+  const defaultN = oneShotYes?.n ?? ranked[0]?.n ?? 1;
+  return { mode: 'digit', digit: String(defaultN) };
+}

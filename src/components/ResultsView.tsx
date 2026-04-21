@@ -24,9 +24,9 @@ import { inferClaudeActivity } from '../../shared/inferClaudeActivity';
 import { headlessOutputLooksLikeInteractivePermissionAsk } from '../../shared/headlessStalePermissionCue';
 import {
   countPtyProceedPrompts,
-  inferPermissionMenuAffirmativeIndex,
   plainTailShowsAnswerablePermissionMenu,
   plainTextShowsClaudePermissionMenu,
+  resolvePermissionMenuReplyPayload,
   stripAnsiNormalizePtyMirror
 } from '../../shared/claudeCodePtyPermissionMenu';
 import { downloadElementAsPdf } from '../utils/downloadReportPdf';
@@ -743,12 +743,32 @@ function PtyReplyPanel({
      * but does not submit for Claude Code / Ink prompts (e.g. “yes”, “1”, long URLs).
      */
     const deliverLine = (): boolean => {
-      const ptyPayload =
-        permissionMenuPlainHint && /^(y|yes)$/i.test(t)
-          ? inferPermissionMenuAffirmativeIndex(permissionMenuPlainHint)
-          : t;
+      if (permissionMenuPlainHint) {
+        const r = resolvePermissionMenuReplyPayload(permissionMenuPlainHint, t);
+        if (r.mode === 'enter_default') {
+          /** Same as pressing Enter on the Ink default (❯) — not tied to “Append Enter after text”. */
+          return sendToPty('\r');
+        }
+        const payload = r.mode === 'digit' ? r.digit : r.text;
+        if (appendEnter && payload.trim()) {
+          const ok = sendToPty(payload);
+          if (!ok) return false;
+          window.setTimeout(() => {
+            void sendToPty('\r');
+          }, 100);
+          return true;
+        }
+        if (appendEnter && !payload.trim()) {
+          return sendToPty('\r');
+        }
+        if (payload) {
+          return sendToPty(payload);
+        }
+        return true;
+      }
+
       if (appendEnter && t.trim()) {
-        const ok = sendToPty(ptyPayload);
+        const ok = sendToPty(t);
         if (!ok) return false;
         window.setTimeout(() => {
           void sendToPty('\r');
@@ -759,7 +779,7 @@ function PtyReplyPanel({
         return sendToPty('\r');
       }
       if (t) {
-        return sendToPty(ptyPayload);
+        return sendToPty(t);
       }
       return true;
     };
@@ -828,7 +848,7 @@ function PtyReplyPanel({
         }}
         rows={4}
         spellCheck={false}
-        placeholder="Permission menu: type 1–3 (or yes — we send the matching number). Longer text is sent as-is."
+        placeholder="Numbered menu: 1 / Yes / most text → option 1; 2 or “don’t ask again…” → 2; No → reject row; empty Send → Enter (default 1)."
         className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none resize-y font-mono"
       />
       
