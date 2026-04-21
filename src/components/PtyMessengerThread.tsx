@@ -898,22 +898,13 @@ export default function PtyMessengerThread({
 
   /** Indigo “responding” card, then Ink timer/tokens line — footer is the last thing in the scroll (below live menus). */
   const tailStatusStack =
-    showActivityRow ? (
-      <div className="space-y-3 w-full">
+    showActivityRow || statusWellLatched ? (
+      <div className="space-y-3 w-full flex flex-col justify-end min-h-[5.25rem]">
         {showThinking ? <PtyAssistantPending /> : null}
-        {showThinking ? (
-          <div className="min-h-[5.25rem] w-full flex flex-col justify-end">
-            {liveFooterLineDeduped ? <TerminalLiveFooterBar text={liveFooterLineDeduped} /> : null}
-          </div>
-        ) : liveFooterLineDeduped ? (
-          <TerminalLiveFooterBar text={liveFooterLineDeduped} />
-        ) : null}
+        <div className="min-h-[5.25rem] w-full flex flex-col justify-end">
+          {liveFooterLineDeduped ? <TerminalLiveFooterBar text={liveFooterLineDeduped} /> : null}
+        </div>
       </div>
-    ) : null;
-
-  const latchedEmptyReserve =
-    statusWellLatched && !showActivityRow ? (
-      <div className="min-h-[8rem] shrink-0 w-full" aria-hidden />
     ) : null;
 
   useEffect(() => {
@@ -946,13 +937,9 @@ export default function PtyMessengerThread({
           </p>
           <div className="px-4 py-8 md:px-8 max-h-[min(75vh,720px)] overflow-y-auto bg-white space-y-4">
             {showThinking ? <PtyAssistantPending /> : null}
-            {showThinking ? (
-              <div className="min-h-[5.25rem] w-full flex flex-col justify-end">
-                {liveFooterLineDeduped ? <TerminalLiveFooterBar text={liveFooterLineDeduped} /> : null}
-              </div>
-            ) : liveFooterLineDeduped ? (
-              <TerminalLiveFooterBar text={liveFooterLineDeduped} />
-            ) : null}
+            <div className="min-h-[5.25rem] w-full flex flex-col justify-end">
+              {liveFooterLineDeduped ? <TerminalLiveFooterBar text={liveFooterLineDeduped} /> : null}
+            </div>
           </div>
         </div>
       );
@@ -1036,7 +1023,6 @@ export default function PtyMessengerThread({
                 </div>
               ) : null}
               {tailStatusStack}
-              {latchedEmptyReserve}
             </div>
           </>
         ) : (
@@ -1045,7 +1031,6 @@ export default function PtyMessengerThread({
         {!prettyPinnedMenusLayout.hasLiveMenuPin && (showActivityRow || statusWellLatched) ? (
           <div className="flex flex-col justify-start shrink-0 w-full">
             {tailStatusStack}
-            {latchedEmptyReserve}
           </div>
         ) : null}
       </div>
