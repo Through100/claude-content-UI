@@ -96,6 +96,9 @@ export default function ResultsView({
   const prettyReportRef = useRef<HTMLDivElement>(null);
   const pdfAfterPrettySwitchRef = useRef(false);
   const { ptyDisplayPlain, ptyFullSnapshotPlain, ptySessionGeneration, ptySessionReady } = usePtyBridge();
+  /** `mergePtyPlainArchive` expects a full-buffer snapshot (line 0). `ptyDisplayPlain` can start mid-buffer after “From here only”, which breaks overlap and drops new tails (e.g. permission menus) from Pretty while the status bar still updates. */
+  const ptyPlainForMerge =
+    ptyFullSnapshotPlain.trim().length > 0 ? ptyFullSnapshotPlain : ptyDisplayPlain;
 
   /** Merged PTY transcript: grows with new terminal output and survives scrollback trimming; saved per topic. */
   const [ptyMergedArchive, setPtyMergedArchive] = useState(() => loadPtyPrettyArchive(chatThreadKey));
@@ -120,7 +123,7 @@ export default function ResultsView({
     setPtyMergedArchive((prev) => {
       if (generationChanged) {
         topicLiveHoldRef.current = null;
-        return mergePtyPlainArchive('', ptyDisplayPlain);
+        return mergePtyPlainArchive('', ptyPlainForMerge);
       }
       if (threadKeyChanged && !generationChanged) {
         topicLiveHoldRef.current = chatThreadKey;
@@ -129,11 +132,11 @@ export default function ResultsView({
       if (topicLiveHoldRef.current === chatThreadKey) {
         return prev;
       }
-      return mergePtyPlainArchive(prev, ptyDisplayPlain);
+      return mergePtyPlainArchive(prev, ptyPlainForMerge);
     });
 
     ptyArchiveThreadKeyRef.current = chatThreadKey;
-  }, [isHistoryEmbed, chatThreadKey, ptySessionGeneration, ptyDisplayPlain]);
+  }, [isHistoryEmbed, chatThreadKey, ptySessionGeneration, ptyPlainForMerge]);
 
   useEffect(() => {
     if (isHistoryEmbed) return;
