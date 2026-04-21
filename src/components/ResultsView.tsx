@@ -707,8 +707,9 @@ function PtyReplyPanel({
   const [sending, setSending] = useState(false);
 
   const handleSend = () => {
-    const t = text.trim();
-    if (!t && !appendEnter) {
+    /** Normalize CRLF only; do not trim — outer spaces are sent as typed. */
+    const payload = text.replace(/\r\n/g, '\n');
+    if (!payload.trim() && !appendEnter) {
       setHint({ message: 'Type a reply first.', type: 'info' });
       return;
     }
@@ -719,70 +720,83 @@ function PtyReplyPanel({
       });
       return;
     }
-    
+
     setSending(true);
     setHint(null);
 
+    const summaryForParent = payload.trim();
+
     const afterDelivered = () => {
       setHint({ message: 'Sent to the interactive PTY.', type: 'success' });
-      onReplySent?.(t);
+      onReplySent?.(summaryForParent);
       setText('');
       setTimeout(() => setHint((h) => (h?.type === 'success' ? null : h)), 4000);
       setSending(false);
     };
 
+    /** Strip trailing blank lines so “Append Enter” does not send a second spurious newline before CR. */
+    const body = payload.replace(/\n+$/g, '');
+
     /**
-     * Send exactly what the user typed, then optionally CR in a second write (Ink is picky about one combined write).
-     * Numbered menus in Claude Code usually expect `1`/`2`/`3` or Enter on the default row; raw `yes` is still sent if
-     * that is what they type.
+     * Claude Code / Ink list prompts read input like a real keyboard. One WebSocket write with `yes` often does
+     * nothing; xterm sends one character per `onData`. For shorter lines we replay keystrokes with a tiny delay,
+     * then CR (when “Append Enter” is on). Long pastes stay as bulk + delayed CR.
      */
-    const deliverLine = (): boolean => {
-      if (appendEnter && t.trim()) {
-        const ok = sendToPty(t);
-        if (!ok) return false;
-        window.setTimeout(() => {
-          void sendToPty('\r');
-        }, 100);
-        return true;
-      }
-      if (appendEnter && !t.trim()) {
+    const tryDeliver = async (): Promise<boolean> => {
+      const interKeyMs = 14;
+      const beforeCrMs = 45;
+      const bulkBeforeCrMs = 200;
+
+      if (appendEnter && body.trim()) {
+        const flatLen = body.replace(/\n/g, '').length;
+        if (flatLen <= 512) {
+          for (const ch of body) {
+            const out = ch === '\n' ? '\r' : ch;
+            if (!sendToPty(out)) return false;
+            await new Promise<void>((r) => setTimeout(r, interKeyMs));
+          }
+          await new Promise<void>((r) => setTimeout(r, beforeCrMs));
+          return sendToPty('\r');
+        }
+        if (!sendToPty(body.replace(/\n/g, '\r'))) return false;
+        await new Promise<void>((r) => setTimeout(r, bulkBeforeCrMs));
         return sendToPty('\r');
       }
-      if (t) {
-        return sendToPty(t);
+      if (appendEnter && !body.trim()) {
+        return sendToPty('\r');
+      }
+      if (body) {
+        return sendToPty(body.replace(/\n/g, '\r'));
       }
       return true;
     };
 
-    try {
-      const okFirst = deliverLine();
-      if (!okFirst) {
-        /** `ptySessionReady` can flip before the bridge transport observes `WebSocket.OPEN` for a tick or two. */
-        requestAnimationFrame(() => {
-          if (deliverLine()) {
-            afterDelivered();
-            return;
-          }
-          window.setTimeout(() => {
-            if (deliverLine()) {
-              afterDelivered();
-              return;
-            }
-            setHint({
-              message:
-                'Could not send to the PTY (socket not open yet). Wait a moment and try again, or open Logon to confirm the terminal is connected.',
-              type: 'error'
-            });
-            setSending(false);
-          }, 120);
-        });
-        return;
+    void (async () => {
+      try {
+        let ok = await tryDeliver();
+        if (!ok) {
+          await new Promise<void>((r) => requestAnimationFrame(() => r()));
+          ok = await tryDeliver();
+        }
+        if (!ok) {
+          await new Promise<void>((r) => setTimeout(r, 120));
+          ok = await tryDeliver();
+        }
+        if (!ok) {
+          setHint({
+            message:
+              'Could not send to the PTY (socket not open yet). Wait a moment and try again, or open Logon to confirm the terminal is connected.',
+            type: 'error'
+          });
+          setSending(false);
+          return;
+        }
+        afterDelivered();
+      } catch (err) {
+        setHint({ message: `Failed to send: ${String(err)}`, type: 'error' });
+        setSending(false);
       }
-      afterDelivered();
-    } catch (err) {
-      setHint({ message: `Failed to send: ${String(err)}`, type: 'error' });
-      setSending(false);
-    }
+    })();
   };
 
   return (
@@ -818,7 +832,7 @@ function PtyReplyPanel({
         }}
         rows={4}
         spellCheck={false}
-            placeholder="Sent as typed (e.g. 1, 2, yes). For Ink menus, use the option number or leave empty and Send with “Append Enter” for Enter. Raw “yes” may be ignored by Claude Code."
+        placeholder="Sent as typed (spaces preserved). Short lines are sent key-by-key like Logon, then Enter if checked. Long text is one write + Enter."
         className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none resize-y font-mono"
       />
       
