@@ -759,6 +759,8 @@ type PtyReplyPanelProps = {
   }) => void;
 };
 
+type ReplyAnchorSnap = { len: number; menu: string | null };
+
 function PtyReplyPanel({
   warnHeadlessMenuReadOnly = false,
   warnWelcomeSplash = false,
@@ -771,6 +773,15 @@ function PtyReplyPanel({
   const [appendEnter, setAppendEnter] = useState(true);
   const [hint, setHint] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [sending, setSending] = useState(false);
+  /** Snapshot when the field was focused while empty — menu may advance before Send; keep bubble under the earlier prompt. */
+  const replyAnchorEmptyFocusRef = useRef<ReplyAnchorSnap | null>(null);
+  /** Snapshot on first character of this draft (after empty) — strongest signal for “which menu I read”. */
+  const replyAnchorFirstInputRef = useRef<ReplyAnchorSnap | null>(null);
+
+  const captureReplyAnchor = (): ReplyAnchorSnap => ({
+    len: getPtyParseNormalizedPlain(replyOrderingPlain).length,
+    menu: extractLastChoiceMenuSnapshotForArchive(replyOrderingPlain)
+  });
 
   const handleSend = () => {
     /** Only CRLF → LF; no trim — send exactly what is in the field (spaces, digits, words). */
@@ -791,8 +802,15 @@ function PtyReplyPanel({
     setSending(true);
     setHint(null);
 
-    const transcriptLenAtSend = getPtyParseNormalizedPlain(replyOrderingPlain).length;
-    const choiceMenuSnapshot = extractLastChoiceMenuSnapshotForArchive(replyOrderingPlain);
+    const snapSend = captureReplyAnchor();
+    const anchorCandidates = [
+      snapSend,
+      replyAnchorEmptyFocusRef.current,
+      replyAnchorFirstInputRef.current
+    ].filter((x): x is ReplyAnchorSnap => x != null);
+    const anchorBest = anchorCandidates.reduce((a, b) => (a.len <= b.len ? a : b));
+    const transcriptLenAtSend = anchorBest.len;
+    const choiceMenuSnapshot = anchorBest.menu;
 
     /**
      * Claude Code Ink “1. Yes” lists read the digit, not the letters y-e-s. Send `1` to the PTY when the
@@ -804,6 +822,8 @@ function PtyReplyPanel({
       trimmedField.toLowerCase() === 'yes' ? '1' : /^[1-9]$/.test(trimmedField) ? trimmedField : normalized;
 
     const afterDelivered = () => {
+      replyAnchorEmptyFocusRef.current = null;
+      replyAnchorFirstInputRef.current = null;
       setHint({ message: 'Sent to the interactive PTY.', type: 'success' });
       if (normalized.length > 0) {
         onReplySent?.({ text: normalized, sentAt, transcriptLenAtSend, choiceMenuSnapshot });
@@ -911,15 +931,26 @@ function PtyReplyPanel({
           <AlertCircle size={14} className="shrink-0 mt-0.5 text-indigo-600" aria-hidden />
           <p className="leading-relaxed">
             <strong>Numbered menu (❯ 1. Yes …):</strong> You can type <code className="text-[11px] px-1 rounded bg-white/80">yes</code> — we send <code className="text-[11px] px-1 rounded bg-white/80">1</code> to Ink for you (bubble still shows “yes”). Or type <code className="text-[11px] px-1 rounded bg-white/80">1</code>, or leave the box empty with{' '}
-            <strong>Append Enter</strong> for Enter on the highlighted row. Raw / Logon may not echo every character.
+            <strong>Append Enter</strong> for Enter on the highlighted row. If a new menu appears while you type, click into this box (or type the first character) while the prompt you mean is still on screen so your reply stays anchored under it. Raw / Logon may not echo every character.
           </p>
         </div>
       )}
 
       <textarea
         value={text}
+        onFocus={() => {
+          if (text.length === 0) {
+            replyAnchorEmptyFocusRef.current = captureReplyAnchor();
+          }
+        }}
         onChange={(e) => {
-          setText(e.target.value);
+          const v = e.target.value;
+          if (v.length === 0) {
+            replyAnchorFirstInputRef.current = null;
+          } else if (text.length === 0 && v.length > 0 && !replyAnchorFirstInputRef.current) {
+            replyAnchorFirstInputRef.current = captureReplyAnchor();
+          }
+          setText(v);
           if (hint) setHint(null);
         }}
         rows={4}
