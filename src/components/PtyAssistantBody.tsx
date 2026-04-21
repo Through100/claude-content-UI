@@ -1,6 +1,7 @@
 import React, { useMemo, useRef } from 'react';
 import { segmentPtyAssistantDisplayBlocks } from '../../shared/segmentPtyDiffBlocks';
 import { normalizeAsciiTableForPretty } from '../../shared/normalizeAsciiTableForPretty';
+import { splitPinnedAssistantStreamHeadTail } from '../../shared/splitPtyPinnedThinkingTail';
 import PrettyOutputBody from './PrettyOutputBody';
 
 function formatChoiceCardTime(ms: number): string {
@@ -225,7 +226,22 @@ export default function PtyAssistantBody({
     } else {
       internalSlotsRef.current = [];
     }
-    return <PrettyOutputBody text={parts[0].text} />;
+    const { head, tail } = splitPinnedAssistantStreamHeadTail(parts[0].text);
+    return (
+      <div className="space-y-4">
+        {head.trim() ? <PrettyOutputBody text={head} /> : null}
+        {tail.trim() ? (
+          <div className="rounded-xl border border-zinc-700/95 bg-[#09090b] overflow-hidden shadow-inner ring-1 ring-zinc-800/80">
+            <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-zinc-400 bg-zinc-900/95 border-b border-zinc-800">
+              Live PTY activity
+            </div>
+            <pre className="m-0 max-h-[min(50vh,480px)] overflow-x-auto overflow-y-auto px-3 py-3 text-[11px] sm:text-[12px] leading-[1.45] font-mono text-zinc-100 whitespace-pre">
+              {tail}
+            </pre>
+          </div>
+        ) : null}
+      </div>
+    );
   }
 
   const curMenuTexts: string[] = [];
@@ -310,7 +326,23 @@ export default function PtyAssistantBody({
             </div>
           );
         }
-        return <PrettyOutputBody key={`p-${idx}`} text={p.text} />;
+        
+        const { head, tail } = splitPinnedAssistantStreamHeadTail(p.text);
+        return (
+          <React.Fragment key={`p-${idx}`}>
+            {head.trim() ? <PrettyOutputBody text={head} /> : null}
+            {tail.trim() ? (
+              <div className="rounded-xl border border-zinc-700/95 bg-[#09090b] overflow-hidden shadow-inner ring-1 ring-zinc-800/80">
+                <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-zinc-400 bg-zinc-900/95 border-b border-zinc-800">
+                  Live PTY activity
+                </div>
+                <pre className="m-0 max-h-[min(50vh,480px)] overflow-x-auto overflow-y-auto px-3 py-3 text-[11px] sm:text-[12px] leading-[1.45] font-mono text-zinc-100 whitespace-pre">
+                  {tail}
+                </pre>
+              </div>
+            ) : null}
+          </React.Fragment>
+        );
       })}
     </div>
   );
