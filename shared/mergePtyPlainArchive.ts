@@ -9,6 +9,7 @@
  * new turns — Pretty stopped after the first exchange while Raw still grew.
  */
 const MAX_OVERLAP_SCAN = 250_000;
+let _snapTailMatchLogAt = 0;
 
 export function mergePtyPlainArchive(prev: string, fullPlain: string): string {
   const p = prev.replace(/\r\n/g, '\n');
@@ -108,6 +109,11 @@ export function snapMergedPtyTailToLiveFullSnapshot(
   const mTail = m.slice(-t);
   const liveTail = live.slice(-t);
   if (mTail === liveTail) {
+    const now = Date.now();
+    if (now - _snapTailMatchLogAt > 800) {
+      _snapTailMatchLogAt = now;
+      dbg('early-tail-match', { t, liveLen: live.length, mLen: m.length });
+    }
     return merged;
   }
 
