@@ -5,25 +5,7 @@ export function textContainsClaudePermissionMenu(text: string): boolean {
   const t = (text || '').replace(/\r/g, '');
   /** Fetch consent often omits the Esc/Tab chrome line in the same PTY capture as the numbered choices. */
   if (
-    /\bDo you want to allow\b/i.test(t) &&
-    /^\s*(?:[❯›>]\s*)?1\.\s+Yes\b/im.test(t)
-  ) {
-    return true;
-  }
-  if (
-    /\bDo you want to proceed\b/i.test(t) &&
-    /^\s*(?:[❯›>]\s*)?1\.\s+Yes\b/im.test(t)
-  ) {
-    return true;
-  }
-  if (
-    /\bDo you want to make this edit\b/i.test(t) &&
-    /^\s*(?:[❯›>]\s*)?1\.\s+Yes\b/im.test(t)
-  ) {
-    return true;
-  }
-  if (
-    /\bDo you want to run this command\b/i.test(t) &&
+    /Do you want to/i.test(t) &&
     /^\s*(?:[❯›>]\s*)?1\.\s+Yes\b/im.test(t)
   ) {
     return true;
@@ -44,9 +26,7 @@ export function plainTextShowsClaudePermissionMenu(plainNormalized: string): boo
   /** Require a numbered option line so we never auto-send on stray footer text alone (e.g. after a PTY restart). */
   if (!/(^|\n)\s*(?:[❯›>]\s*)?\d+\.\s+\S/m.test(tail)) return false;
   return (
-    /Do you want to proceed\?/i.test(tail) ||
-      /Do you want to make this edit/i.test(tail) ||
-      /Do you want to run this command/i.test(tail) ||
+    /Do you want to/i.test(tail) ||
       /(^|\n)\s*(?:[❯›>]\s*)?\d+\.\s+Yes,/im.test(tail) ||
       /Yes, and don't ask again/i.test(tail) ||
       /Yes, allow all edits/i.test(tail)
@@ -63,10 +43,7 @@ export function plainTailShowsAnswerablePermissionMenu(plainNormalized: string):
   if (plainTextShowsClaudePermissionMenu(plainNormalized)) return true;
   const tail = plainNormalized.slice(-14000);
   if (!NUMBERED_MENU_ROW.test(tail)) return false;
-  if (/\bDo you want to allow\b/i.test(tail) && /^\s*(?:[❯›>]\s*)?1\.\s+Yes\b/im.test(tail)) return true;
-  if (/\bDo you want to proceed\b/i.test(tail) && /^\s*(?:[❯›>]\s*)?1\.\s+Yes\b/im.test(tail)) return true;
-  if (/\bDo you want to make this edit\b/i.test(tail) && /^\s*(?:[❯›>]\s*)?1\.\s+Yes\b/im.test(tail)) return true;
-  if (/\bDo you want to run this command\b/i.test(tail) && /^\s*(?:[❯›>]\s*)?1\.\s+Yes\b/im.test(tail)) return true;
+  if (/Do you want to/i.test(tail) && /^\s*(?:[❯›>]\s*)?1\.\s+Yes\b/im.test(tail)) return true;
   return false;
 }
 

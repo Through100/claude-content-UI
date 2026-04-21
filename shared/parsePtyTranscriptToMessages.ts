@@ -21,10 +21,7 @@ export function isPtyAssistantNoiseLine(line: string): boolean {
   if (!l) return true;
   /** Never strip Fetch / permission choice rows from Pretty sanitization. */
   if (/\bClaude wants to fetch\b/i.test(l)) return false;
-  if (/\bDo you want to allow\b/i.test(l)) return false;
-  if (/\bDo you want to proceed\b/i.test(l)) return false;
-  if (/\bDo you want to make this edit\b/i.test(l)) return false;
-  if (/\bDo you want to run this command\b/i.test(l)) return false;
+  if (/Do you want to/i.test(l)) return false;
   if (/^\s*(?:[❯›>]\s*)?\d+\.\s+Yes\b/i.test(l)) return false;
   if (/Yes, and don't ask again\b/i.test(l)) return false;
   if (/No, and tell Claude what to do differently\b/i.test(l)) return false;
