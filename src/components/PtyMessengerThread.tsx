@@ -138,23 +138,39 @@ function splitTurnAtNormalizedLength(raw: string, prefixNormLen: number): [strin
   return [raw.slice(0, lo), raw.slice(lo)];
 }
 
+/** Claude Code compact “+N more tool uses (ctrl+o…)” — live status chrome, not narrative. */
+function isPtyInlineMoreToolUsesLine(line: string): boolean {
+  const t = (line ?? '').replace(/\r/g, '').trim();
+  if (t.length < 8 || t.length > 160) return false;
+  return (
+    /^\+\d+\s+more\s+tool\s+uses\b/i.test(t) ||
+    /\bctrl\+o\s+to\s+expand\b/i.test(t) ||
+    /\bctrl\+b\s+to\s+run\s+in\s+background\b/i.test(t)
+  );
+}
+
 /**
- * Strip trailing Ink spinner / cost / “L Tip” rows from the end of `head` and return them as a suffix.
- * When the anchor split is slightly off, “* Crunching…” can remain in `__pre` above recorded menus; those
- * lines belong with the live tail and should render after settled prompts + replies.
+ * Move Ink / spinner / tip / “+N more tools” lines out of `__pre` into the live tail **in document order**.
+ * Trailing-only peel misses “* Crunching…” when a `PATCH / DIFF` banner or other non-noise line follows it
+ * in the same head chunk — those status lines must still render below recorded menus + Reply bubbles.
  */
-function extractTrailingAssistantNoiseSuffix(raw: string): [string, string] {
+function partitionInterleavedHeadNoiseToTail(raw: string): [string, string] {
   const lines = raw.replace(/\r\n/g, '\n').split('\n');
-  let end = lines.length;
-  while (end > 0) {
-    let i = end - 1;
-    while (i >= 0 && !(lines[i] ?? '').trim()) i--;
-    if (i < 0) break;
-    const line = lines[i] ?? '';
-    if (!isPtyAssistantNoiseLine(line) && !isInkSpinnerTokenStatusLine(line)) break;
-    end = i;
+  const kept: string[] = [];
+  const pulled: string[] = [];
+  for (const line of lines) {
+    if (
+      isPtyAssistantNoiseLine(line) ||
+      isInkSpinnerTokenStatusLine(line) ||
+      isPtyInlineMoreToolUsesLine(line)
+    ) {
+      pulled.push(line);
+    } else {
+      kept.push(line);
+    }
   }
-  return [lines.slice(0, end).join('\n'), lines.slice(end).join('\n')];
+  const headJoined = kept.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd();
+  return [headJoined, pulled.join('\n')];
 }
 
 /**
@@ -250,10 +266,10 @@ function interleaveArchivedWithinLastAssistant(
     relCut = gSpan <= 0 ? 0 : Math.min(tn, Math.max(0, Math.round((gLocal * tn) / gSpan)));
   }
   let [headText, tailText] = splitTurnAtNormalizedLength(turn.text, relCut);
-  const [headPeel, noiseTail] = extractTrailingAssistantNoiseSuffix(headText);
-  if (noiseTail.trim()) {
-    headText = headPeel;
-    tailText = [noiseTail, tailText].filter((x) => x.trim().length > 0).join('\n');
+  const [headParted, noisePulled] = partitionInterleavedHeadNoiseToTail(headText);
+  if (noisePulled.trim()) {
+    headText = headParted;
+    tailText = [noisePulled, tailText].filter((x) => x.trim().length > 0).join('\n');
   }
   // #region agent log
   fetch('http://127.0.0.1:7823/ingest/0f30680b-0aa0-4d4a-ba6d-262bf6a78290', {
@@ -261,8 +277,8 @@ function interleaveArchivedWithinLastAssistant(
     headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '456dbf' },
     body: JSON.stringify({
       sessionId: '456dbf',
-      runId: 'verify-v1',
-      hypothesisId: 'H3',
+      runId: 'verify-v2',
+      hypothesisId: 'H4',
       location: 'PtyMessengerThread.tsx:interleave',
       message: 'split last assistant for archived/manual',
       data: {
@@ -280,11 +296,13 @@ function interleaveArchivedWithinLastAssistant(
         pref: sliceTrim.startsWith(nt),
         suff: sliceTrim.endsWith(nt),
         relCut,
-        peelNoiseLen: noiseTail.trim().length,
+        partPulledLines: noisePulled ? noisePulled.split('\n').filter((l) => l.trim()).length : 0,
+        partPulledNormLen: getPtyParseNormalizedPlain(noisePulled).length,
         headNormLen: getPtyParseNormalizedPlain(headText).length,
         tailNormLen: getPtyParseNormalizedPlain(tailText).length,
         tailHasFetch: /\bFetch\s+https?:/i.test(tailText),
         headHasFetch: /\bFetch\s+https?:/i.test(headText),
+        headInkLineCount: headText.split('\n').filter((l) => isInkSpinnerTokenStatusLine(l)).length,
         tailEmpty: !tailText.trim()
       },
       timestamp: Date.now()
