@@ -139,7 +139,11 @@ function isPermissionPromptLeadInLine(line: string): boolean {
   const t = (line ?? '').replace(/\r$/, '').trim();
   if (!t || t.length > 260) return false;
   if (/\bClaude wants to fetch\b/i.test(t)) return true;
+  /** Raw Ink often uses a title line `Fetch` and puts the URL on the next line — not `Fetch https://…`. */
+  if (/^fetch$/i.test(t)) return true;
   if (/^Fetch\s+\S+/i.test(t)) return true;
+  /** Indented URL-only line directly under that `Fetch` title (same card as Logon / Raw). */
+  if (/^https?:\/\/\S/i.test(t) && t.length < 220) return true;
   if (/^Read\s*\(/i.test(t)) return true;
   if (/^Read\s+file\b/i.test(t)) return true;
   if (/^Listed\s+\d+\s+files?\b/i.test(t)) return true;
