@@ -358,15 +358,12 @@ export default function PtyMessengerThread({
             )
           ) : row.kind === 'archivedMenu' ? (
             <div key={row.archived.id} className="flex justify-start w-full">
-              <div className="w-full max-w-[min(100%,44rem)] md:max-w-[56rem] pr-2 md:pr-16 flex flex-col gap-1">
-                <PtyChoicePromptCard text={row.archived.menuPlain} recorded />
-                <time
-                  className="text-[10px] font-medium text-amber-900/50 tabular-nums"
-                  dateTime={new Date(row.archived.sentAt).toISOString()}
-                  title={`Recorded at ${new Date(row.archived.sentAt).toISOString()}`}
-                >
-                  {formatBubbleTime(row.archived.sentAt)}
-                </time>
+              <div className="w-full max-w-[min(100%,44rem)] md:max-w-[56rem] pr-2 md:pr-16">
+                <PtyChoicePromptCard
+                  text={row.archived.menuPlain}
+                  recorded
+                  shownAt={row.archived.sentAt}
+                />
               </div>
             </div>
           ) : (

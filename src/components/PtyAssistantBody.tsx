@@ -3,8 +3,38 @@ import { segmentPtyAssistantDisplayBlocks } from '../../shared/segmentPtyDiffBlo
 import { normalizeAsciiTableForPretty } from '../../shared/normalizeAsciiTableForPretty';
 import PrettyOutputBody from './PrettyOutputBody';
 
+function formatChoiceCardTime(ms: number): string {
+  try {
+    return new Date(ms).toLocaleTimeString(undefined, {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+  } catch {
+    return '';
+  }
+}
+
+type PtyChoicePromptCardProps = {
+  text: string;
+  recorded?: boolean;
+  /**
+   * Wall clock for ordering next to Reply bubbles: recorded = when the user sent; live = when Pretty
+   * last re-segmented this menu text (updates if the menu body changes).
+   */
+  shownAt?: number | null;
+};
+
 /** Shared amber “choice prompt” card — live menus and recorded snapshots after Reply. */
-export function PtyChoicePromptCard({ text, recorded = false }: { text: string; recorded?: boolean }) {
+export function PtyChoicePromptCard({ text, recorded = false, shownAt = null }: PtyChoicePromptCardProps) {
+  const iso = shownAt != null ? new Date(shownAt).toISOString() : '';
+  const title =
+    shownAt == null
+      ? undefined
+      : recorded
+        ? `Recorded when you sent your reply (${iso})`
+        : `Pretty last showed this menu block (${iso})`;
+
   return (
     <div className="rounded-xl border border-amber-200/90 bg-amber-50/90 overflow-hidden shadow-sm">
       <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-950/90 bg-amber-100/95 border-b border-amber-200">
@@ -28,8 +58,23 @@ export function PtyChoicePromptCard({ text, recorded = false }: { text: string; 
       <pre className="m-0 max-h-[min(40vh,420px)] overflow-auto px-3 py-3 text-[11px] sm:text-[12px] leading-[1.45] font-mono text-amber-950 whitespace-pre">
         {text}
       </pre>
+      {shownAt != null ? (
+        <time
+          className="block text-[10px] font-medium text-amber-900/55 tabular-nums px-3 pb-2.5 pt-0 border-t border-amber-100/70 bg-amber-50/90"
+          dateTime={iso}
+          title={title}
+        >
+          {formatChoiceCardTime(shownAt)}
+        </time>
+      ) : null}
     </div>
   );
+}
+
+/** Live menu: stamp updates when `menuText` changes so the clock tracks a new prompt in the thread. */
+function PtyLiveChoicePromptWithStamp({ menuText }: { menuText: string }) {
+  const shownAt = useMemo(() => Date.now(), [menuText]);
+  return <PtyChoicePromptCard text={menuText} shownAt={shownAt} />;
 }
 
 /** Renders Live PTY assistant text: diffs / ASCII pipe grids as monospace pre, everything else as Pretty markdown. */
@@ -61,7 +106,7 @@ export default function PtyAssistantBody({ text }: { text: string }) {
           </div>
         ) : p.kind === 'menu' ? (
           <div key={`m-${idx}`}>
-            <PtyChoicePromptCard text={p.text} />
+            <PtyLiveChoicePromptWithStamp menuText={p.text} />
           </div>
         ) : p.kind === 'grid' ? (
           <div
