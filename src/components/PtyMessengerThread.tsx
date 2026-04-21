@@ -418,6 +418,14 @@ function interleaveArchivedWithinLastAssistant(
       }
     }
   }
+
+  // NEW: Push the thinking stream to the tail so it renders below the recorded prompts!
+  const { head: thinkHead, tail: thinkTail } = splitPinnedAssistantStreamHeadTail(headText);
+  if (thinkTail.trim()) {
+    headText = thinkHead;
+    tailText = [thinkTail, tailText].filter((x) => x.trim().length > 0).join('\n');
+  }
+
   // #region agent log
   fetch('http://127.0.0.1:7823/ingest/0f30680b-0aa0-4d4a-ba6d-262bf6a78290', {
     method: 'POST',
@@ -772,8 +780,7 @@ export default function PtyMessengerThread({
   }, [transcript, manualReplyBubbles, archivedChoiceMenus, displayTurns, showThinking]);
 
   /**
-   * Live yellow menus: pin to bottom when present. Tool / status stream: peel from `__pre` whenever
-   * `showThinking` so after a menu becomes **recorded** (no live pin) ongoing work still sits under yellow cards.
+   * Live yellow menus: pin to bottom when present.
    */
   const prettyPinnedMenusLayout = useMemo(() => {
     const liveIdx = findLastAssistantRowIndexWithMenu(mergedRows);
@@ -783,58 +790,13 @@ export default function PtyMessengerThread({
         ? mergedRows[liveIdx]!.turn
         : null;
 
-    let thinkingSplit: { turnId: string; displayHead: string; displayTail: string } | null = null;
-    const trySplitAssistantTurn = (turn: ChatTurn) => {
-      const { head, tail } = splitPinnedAssistantStreamHeadTail(turn.text);
-      if (tail.trim()) {
-        thinkingSplit = { turnId: turn.id, displayHead: head, displayTail: tail };
-      }
-    };
-
-    if (showThinking) {
-      if (liveIdx !== null) {
-        const liveRow = mergedRows[liveIdx];
-        if (liveRow.kind === 'pty' && liveRow.turn.role === 'assistant') {
-          if (liveRow.turn.id.endsWith('__post')) {
-            const base = liveRow.turn.id.replace(/__post$/u, '');
-            const preId = `${base}__pre`;
-            const preRow = mergedRows.find(
-              (r) => r.kind === 'pty' && r.turn.role === 'assistant' && r.turn.id === preId
-            );
-            if (preRow && preRow.kind === 'pty') trySplitAssistantTurn(preRow.turn);
-          } else {
-            trySplitAssistantTurn(liveRow.turn);
-          }
-        }
-      }
-      if (!thinkingSplit) {
-        for (let i = mergedRows.length - 1; i >= 0; i--) {
-          const r = mergedRows[i];
-          if (r.kind === 'pty' && r.turn.role === 'assistant' && r.turn.id.endsWith('__pre')) {
-            trySplitAssistantTurn(r.turn);
-            break;
-          }
-        }
-      }
-      if (!thinkingSplit) {
-        const lastAsst = findLastAssistantRowIndex(mergedRows);
-        if (lastAsst !== null) {
-          const r = mergedRows[lastAsst];
-          if (r.kind === 'pty') trySplitAssistantTurn(r.turn);
-        }
-      }
-    }
-
-    const usePrettyTailWell = hasLiveMenuPin || Boolean(thinkingSplit?.displayTail.trim());
-
     return {
       hasLiveMenuPin,
-      usePrettyTailWell,
+      usePrettyTailWell: hasLiveMenuPin,
       liveIdx,
-      liveDetachTurn,
-      thinkingSplit
+      liveDetachTurn
     };
-  }, [mergedRows, showThinking]);
+  }, [mergedRows]);
 
   /**
    * Ink leaves the final timer/tokens “Thinking…” line in the xterm tail even after the answer is done;
@@ -849,14 +811,13 @@ export default function PtyMessengerThread({
     const last = turns[turns.length - 1];
     if (!last || last.role !== 'assistant') return liveFooterLine;
     const bodyRaw = last.text.replace(/\r\n/g, '\n');
-    const body =
-      prettyPinnedMenusLayout.hasLiveMenuPin || prettyPinnedMenusLayout.thinkingSplit
-        ? stripInkStatusFooterLinesFromAssistantPlain(bodyRaw)
-        : bodyRaw;
+    const body = prettyPinnedMenusLayout.hasLiveMenuPin
+      ? stripInkStatusFooterLinesFromAssistantPlain(bodyRaw)
+      : bodyRaw;
     const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
     if (norm(body).includes(norm(line))) return null;
     return liveFooterLine;
-  }, [liveFooterLine, displayTurns, prettyPinnedMenusLayout.hasLiveMenuPin, prettyPinnedMenusLayout.thinkingSplit]);
+  }, [liveFooterLine, displayTurns, prettyPinnedMenusLayout.hasLiveMenuPin]);
 
   const showActivityRow = showThinking || Boolean(liveFooterLineDeduped);
 
@@ -867,13 +828,9 @@ export default function PtyMessengerThread({
   const renderPrettyThreadRow = (row: MergedRow, detachLiveMenus: boolean): React.ReactNode =>
     row.kind === 'pty' ? (
       row.turn.role === 'assistant' ? (() => {
-        const ts = prettyPinnedMenusLayout.thinkingSplit;
-        const baseTurn =
-          ts && row.turn.id === ts.turnId ? { ...row.turn, text: ts.displayHead } : row.turn;
-        const displayTurn =
-          prettyPinnedMenusLayout.hasLiveMenuPin || prettyPinnedMenusLayout.thinkingSplit
-            ? { ...baseTurn, text: stripInkStatusFooterLinesFromAssistantPlain(baseTurn.text) }
-            : baseTurn;
+        const displayTurn = prettyPinnedMenusLayout.hasLiveMenuPin
+          ? { ...row.turn, text: stripInkStatusFooterLinesFromAssistantPlain(row.turn.text) }
+          : row.turn;
         return shouldRenderPtyAssistantBubble(displayTurn.text, detachLiveMenus ? 'omit' : 'inline') ? (
           <div key={row.turn.id} className="flex justify-start w-full">
             <div className="w-full max-w-[min(100%,44rem)] md:max-w-[56rem] pr-2 md:pr-16">
@@ -1020,7 +977,7 @@ export default function PtyMessengerThread({
         aria-live="polite"
         aria-relevant="additions"
       >
-        {prettyPinnedMenusLayout.usePrettyTailWell ? (
+        {prettyPinnedMenusLayout.hasLiveMenuPin ? (
           <>
             {mergedRows.map((row, i) =>
               renderPrettyThreadRow(
@@ -1031,9 +988,6 @@ export default function PtyMessengerThread({
               )
             )}
             <div className="flex flex-col gap-4 md:gap-5 w-full">
-              {prettyPinnedMenusLayout.thinkingSplit?.displayTail.trim() ? (
-                <PtyThinkingActivityStrip text={prettyPinnedMenusLayout.thinkingSplit.displayTail} />
-              ) : null}
               {prettyPinnedMenusLayout.liveDetachTurn &&
               shouldRenderPtyAssistantBubble(
                 stripInkStatusFooterLinesFromAssistantPlain(prettyPinnedMenusLayout.liveDetachTurn.text),
@@ -1076,7 +1030,7 @@ export default function PtyMessengerThread({
         ) : (
           mergedRows.map((row) => renderPrettyThreadRow(row, false))
         )}
-        {!prettyPinnedMenusLayout.usePrettyTailWell && (showActivityRow || statusWellLatched) ? (
+        {!prettyPinnedMenusLayout.hasLiveMenuPin && (showActivityRow || statusWellLatched) ? (
           <div className="flex flex-col justify-start shrink-0 w-full">
             {tailStatusStack}
             {latchedEmptyReserve}
