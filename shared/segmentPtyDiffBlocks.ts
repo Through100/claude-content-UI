@@ -128,6 +128,8 @@ function isClaudeMenuQuestionLine(line: string): boolean {
   if (/Do you want to[^?\n\uFF1F]*(?:\?|？)/i.test(L)) return true;
   if (/\bDo you want to allow\b/i.test(L)) return true;
   if (/\bDo you want to proceed\b/i.test(L)) return true;
+  if (/\bDo you want to make this edit\b/i.test(L)) return true;
+  if (/\bDo you want to run this command\b/i.test(L)) return true;
   return false;
 }
 
@@ -183,6 +185,12 @@ function splitProseMenuAndRest(prose: string): { kind: 'menu' | 'prose'; text: s
     }
     if (footerJ < 0) {
       footerJ = findNumberedConsentMenuFooterJ(lines, i, windowEnd, /\bDo you want to proceed\b/i);
+    }
+    if (footerJ < 0) {
+      footerJ = findNumberedConsentMenuFooterJ(lines, i, windowEnd, /\bDo you want to make this edit\b/i);
+    }
+    if (footerJ < 0) {
+      footerJ = findNumberedConsentMenuFooterJ(lines, i, windowEnd, /\bDo you want to run this command\b/i);
     }
     if (footerJ < 0) {
       /** Fetch consent body line when the explicit “Do you want…” row was redrawn away or wrapped oddly. */
