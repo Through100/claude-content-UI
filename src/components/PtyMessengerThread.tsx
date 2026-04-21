@@ -6,8 +6,13 @@ import {
   trimTrailingTrivialAssistantTurns
 } from '../../shared/parsePtyTranscriptToMessages';
 import { extractPtyLiveFooterLine } from '../../shared/extractPtyLiveFooterLine';
-import { countPtyProceedPrompts } from '../../shared/claudeCodePtyPermissionMenu';
 import PtyAssistantBody from './PtyAssistantBody';
+
+export type PtyManualReplyBubble = {
+  id: string;
+  /** Text shown in the right-aligned bubble (trimmed command text, or ↵ for Enter-only sends). */
+  text: string;
+};
 
 type PtyMessengerThreadProps = {
   transcript: string;
@@ -21,12 +26,11 @@ type PtyMessengerThreadProps = {
    * match Raw; merged archive can lag on in-place CR redraws.
    */
   liveFooterPlainSource?: string;
-  lastManualInput?: {
-    text: string;
-    time: number;
-    transcriptLenAtSend: number;
-    proceedCountAtSend: number;
-  } | null;
+  /**
+   * Each Pretty “Reply via PTY” send is appended here so back-to-back answers (e.g. multiple Fetch
+   * menus) stay visible even when the PTY capture does not echo them as `❯` lines.
+   */
+  manualReplyBubbles?: PtyManualReplyBubble[];
 };
 
 /** Re-run footer extraction on this cadence so the status bar catches buffer updates even if React skips a frame. */
@@ -81,7 +85,7 @@ export default function PtyMessengerThread({
   transcript,
   awaitingHintSource,
   liveFooterPlainSource,
-  lastManualInput
+  manualReplyBubbles = []
 }: PtyMessengerThreadProps) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const stickBottomRef = useRef(true);
@@ -119,7 +123,7 @@ export default function PtyMessengerThread({
     const el = scrollerRef.current;
     if (!el || !stickBottomRef.current) return;
     el.scrollTop = el.scrollHeight;
-  }, [transcript, showThinking, liveFooterLine]);
+  }, [transcript, showThinking, liveFooterLine, manualReplyBubbles]);
 
   const onScroll = () => {
     const el = scrollerRef.current;
@@ -130,24 +134,11 @@ export default function PtyMessengerThread({
 
   const visibleTurns = useMemo(() => {
     const base = displayTurns.filter((m) => m.role === 'user' || m.text.trim().length > 0);
-    if (!lastManualInput) return base;
-
-    const hintPlain = awaitingHintSource ?? transcript;
-    if (countPtyProceedPrompts(hintPlain) > lastManualInput.proceedCountAtSend) {
-      return base;
-    }
-    if (hintPlain.length > lastManualInput.transcriptLenAtSend + 1800) {
-      return base;
-    }
-
-    const lastUser = base.slice().reverse().find((m) => m.role === 'user');
-    const naturallyEchoed = lastUser && lastUser.text.trim() === lastManualInput.text.trim();
-
-    if (!naturallyEchoed && Date.now() - lastManualInput.time < 45000) {
-      return [...base, { id: `manual-${lastManualInput.time}`, role: 'user' as const, text: lastManualInput.text }];
-    }
-    return base;
-  }, [displayTurns, lastManualInput, transcript, awaitingHintSource]);
+    const extras = (manualReplyBubbles ?? [])
+      .filter((b) => b.text.length > 0)
+      .map((b) => ({ id: b.id, role: 'user' as const, text: b.text }));
+    return [...base, ...extras];
+  }, [displayTurns, manualReplyBubbles]);
 
   if (visibleTurns.length === 0) {
     const fallback = transcript?.trim();

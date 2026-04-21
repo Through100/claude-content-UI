@@ -23,7 +23,6 @@ import { stripAnsi } from '../../shared/stripAnsi';
 import { inferClaudeActivity } from '../../shared/inferClaudeActivity';
 import { headlessOutputLooksLikeInteractivePermissionAsk } from '../../shared/headlessStalePermissionCue';
 import {
-  countPtyProceedPrompts,
   plainTailShowsAnswerablePermissionMenu,
   plainTextShowsClaudePermissionMenu,
   stripAnsiNormalizePtyMirror
@@ -85,12 +84,9 @@ export default function ResultsView({
   const isHistoryEmbed = embedMode === 'history';
   const [activeTab, setActiveTab] = useState<'pretty' | 'raw'>('pretty');
   const [pdfExporting, setPdfExporting] = useState(false);
-  const [lastManualInput, setLastManualInput] = useState<{
-    text: string;
-    time: number;
-    transcriptLenAtSend: number;
-    proceedCountAtSend: number;
-  } | null>(null);
+  const [manualReplyBubbles, setManualReplyBubbles] = useState<
+    { id: string; text: string }[]
+  >([]);
   const livePreRef = useRef<HTMLPreElement>(null);
   const prettyReportRef = useRef<HTMLDivElement>(null);
   const pdfAfterPrettySwitchRef = useRef(false);
@@ -151,7 +147,7 @@ export default function ResultsView({
 
   useEffect(() => {
     if (isHistoryEmbed) return;
-    setLastManualInput(null);
+    setManualReplyBubbles([]);
   }, [isHistoryEmbed, chatThreadKey, ptySessionGeneration]);
 
   const hasFreshPtyCapture =
@@ -468,7 +464,7 @@ export default function ResultsView({
                   ptySessionReady={ptySessionReady}
                   ptySentAt={ptySentAt}
                   isLoading={isLoading}
-                  lastManualInput={lastManualInput}
+                  manualReplyBubbles={manualReplyBubbles}
                 />
               )}
             </div>
@@ -494,14 +490,13 @@ export default function ResultsView({
         <PtyReplyPanel
           warnHeadlessMenuReadOnly={replyPanelWarnHeadlessMenuReadOnly}
           warnWelcomeSplash={replyPanelWarnWelcomeSplash}
-          onReplySent={(text) =>
-            setLastManualInput({
-              text,
-              time: Date.now(),
-              transcriptLenAtSend: ptyMergedArchive.length,
-              proceedCountAtSend: countPtyProceedPrompts(ptyMergedArchive)
-            })
-          }
+          onReplySent={(text) => {
+            const label = text.trim() ? text : '↵';
+            setManualReplyBubbles((prev) => [
+              ...prev,
+              { id: `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`, text: label }
+            ]);
+          }}
         />
       ) : null}
     </div>
@@ -728,7 +723,7 @@ function PtyReplyPanel({
 
     const afterDelivered = () => {
       setHint({ message: 'Sent to the interactive PTY.', type: 'success' });
-      onReplySent?.(summaryForParent);
+      onReplySent?.(summaryForParent || (appendEnter ? '↵' : ''));
       setText('');
       setTimeout(() => setHint((h) => (h?.type === 'success' ? null : h)), 4000);
       setSending(false);
@@ -963,7 +958,7 @@ function PrettyOutputView({
   ptySessionReady,
   ptySentAt = null,
   isLoading = false,
-  lastManualInput = null
+  manualReplyBubbles = []
 }: {
   prettyMode: PrettyOutputMode;
   ptyTranscript: string;
@@ -976,12 +971,7 @@ function PrettyOutputView({
   ptySessionReady?: boolean;
   ptySentAt?: number | null;
   isLoading?: boolean;
-  lastManualInput?: {
-    text: string;
-    time: number;
-    transcriptLenAtSend: number;
-    proceedCountAtSend: number;
-  } | null;
+  manualReplyBubbles?: { id: string; text: string }[];
 }) {
   /** Splash + spinner lines hidden here only; Logon / Raw stay full-fidelity. */
   const ptyForPretty = useMemo(() => {
@@ -1063,7 +1053,7 @@ function PrettyOutputView({
           transcript={ptyForDisplay}
           awaitingHintSource={ptyTranscript}
           liveFooterPlainSource={liveFooterPlainSource}
-          lastManualInput={lastManualInput}
+          manualReplyBubbles={manualReplyBubbles}
         />
       </>
     ) : (
