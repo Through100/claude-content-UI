@@ -187,7 +187,24 @@ export function PtyBridgeProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const sendToPty = useCallback((text: string): boolean => {
-    return transportRef.current(text);
+    const ok = transportRef.current(text);
+    // #region agent log
+    if (!ok) {
+      fetch('http://127.0.0.1:7823/ingest/0f30680b-0aa0-4d4a-ba6d-262bf6a78290', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '456dbf' },
+        body: JSON.stringify({
+          sessionId: '456dbf',
+          hypothesisId: 'H4',
+          location: 'PtyBridgeContext.tsx:sendToPty',
+          message: 'pty transport send failed',
+          data: { len: text.length, head: text.slice(0, 8).replace(/\r/g, '\\r') },
+          timestamp: Date.now()
+        })
+      }).catch(() => {});
+    }
+    // #endregion
+    return ok;
   }, []);
 
   const value = useMemo(

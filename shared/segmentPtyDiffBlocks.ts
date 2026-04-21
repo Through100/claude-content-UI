@@ -398,20 +398,35 @@ export function segmentPtyAssistantDisplayBlocks(
   return out;
 }
 
+/** Permission menus live at the PTY tail — avoid O(full transcript) segmentation on every Reply send. */
+const MENU_ARCHIVE_TAIL_MAX = 120_000;
+
+function slicePlainTailForMenuSnapshot(plain: string): { window: string; fullLen: number } {
+  const fullLen = plain.length;
+  if (fullLen <= MENU_ARCHIVE_TAIL_MAX) return { window: plain, fullLen };
+  let start = fullLen - MENU_ARCHIVE_TAIL_MAX;
+  const nl = plain.indexOf('\n', start);
+  if (nl !== -1 && nl - start < 12_000) start = nl + 1;
+  return { window: plain.slice(start), fullLen };
+}
+
 /** Last permission-menu block from the same segmentation as Pretty — used to archive the yellow card when the user replies. */
 export function extractLastChoiceMenuSnapshotForArchive(plain: string): string | null {
-  const parts = segmentPtyAssistantDisplayBlocks(plain);
+  const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
+  const { window, fullLen } = slicePlainTailForMenuSnapshot(plain);
+  const parts = segmentPtyAssistantDisplayBlocks(window);
   for (let i = parts.length - 1; i >= 0; i--) {
     if (parts[i].kind === 'menu') {
       const t = parts[i].text.trim();
       if (t.length > 0) {
+        const ms = typeof performance !== 'undefined' ? Math.round(performance.now() - t0) : 0;
         // #region agent log
         fetch('http://127.0.0.1:7823/ingest/0f30680b-0aa0-4d4a-ba6d-262bf6a78290', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '456dbf' },
           body: JSON.stringify({
             sessionId: '456dbf',
-            hypothesisId: 'H1',
+            hypothesisId: 'H10',
             location: 'segmentPtyDiffBlocks.ts:extractLastChoiceMenuSnapshotForArchive',
             message: 'snapshot last menu',
             data: {
@@ -419,7 +434,10 @@ export function extractLastChoiceMenuSnapshotForArchive(plain: string): string |
               head: t.slice(0, 160),
               firstLine: (t.split('\n')[0] ?? '').trim().slice(0, 120),
               menuStartsWithRead: /^Read\s*\(/i.test((t.split('\n')[0] ?? '').trim()),
-              hasReadAnywhere: /^Read\s*\(/im.test(t)
+              hasReadAnywhere: /^Read\s*\(/im.test(t),
+              fullLen,
+              windowLen: window.length,
+              segmentMs: ms
             },
             timestamp: Date.now()
           })
@@ -429,6 +447,7 @@ export function extractLastChoiceMenuSnapshotForArchive(plain: string): string |
       }
     }
   }
+  const ms = typeof performance !== 'undefined' ? Math.round(performance.now() - t0) : 0;
   // #region agent log
   fetch('http://127.0.0.1:7823/ingest/0f30680b-0aa0-4d4a-ba6d-262bf6a78290', {
     method: 'POST',
@@ -438,7 +457,7 @@ export function extractLastChoiceMenuSnapshotForArchive(plain: string): string |
       hypothesisId: 'H2',
       location: 'segmentPtyDiffBlocks.ts:extractLastChoiceMenuSnapshotForArchive',
       message: 'no menu in plain',
-      data: { plainLen: plain.length },
+      data: { fullLen, windowLen: window.length, segmentMs: ms },
       timestamp: Date.now()
     })
   }).catch(() => {});

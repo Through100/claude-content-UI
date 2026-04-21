@@ -793,11 +793,11 @@ function PtyReplyPanel({
       return;
     }
 
-    const transcriptLenAtSend = getPtyParseNormalizedPlain(replyOrderingPlain).length;
-    const choiceMenuSnapshot = extractLastChoiceMenuSnapshotForArchive(replyOrderingPlain);
-
     setSending(true);
     setHint(null);
+
+    const transcriptLenAtSend = getPtyParseNormalizedPlain(replyOrderingPlain).length;
+    const choiceMenuSnapshot = extractLastChoiceMenuSnapshotForArchive(replyOrderingPlain);
 
     /**
      * Claude Code Ink “1. Yes” lists read the digit, not the letters y-e-s. Send `1` to the PTY when the
@@ -812,7 +812,6 @@ function PtyReplyPanel({
       }
       setText('');
       setTimeout(() => setHint((h) => (h?.type === 'success' ? null : h)), 4000);
-      setSending(false);
     };
 
     /**
@@ -872,12 +871,12 @@ function PtyReplyPanel({
               'Could not send to the PTY (socket not open yet). Wait a moment and try again, or open Logon to confirm the terminal is connected.',
             type: 'error'
           });
-          setSending(false);
           return;
         }
         afterDelivered();
       } catch (err) {
         setHint({ message: `Failed to send: ${String(err)}`, type: 'error' });
+      } finally {
         setSending(false);
       }
     })();
