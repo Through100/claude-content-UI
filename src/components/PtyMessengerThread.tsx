@@ -171,14 +171,25 @@ function interleaveArchivedWithinLastAssistant(
     tail.push(rows[j]);
     j++;
   }
-  const archivedOnly = tail.filter((r): r is Extract<MergedRow, { kind: 'archivedMenu' }> => r.kind === 'archivedMenu');
-  if (archivedOnly.length === 0) return rows;
+  if (tail.length === 0) return rows;
 
-  const minAnchor = Math.min(...archivedOnly.map((r) => r.archived.transcriptLenAtSend));
+  const anchorLens = tail.map((r) =>
+    r.kind === 'manual' ? r.manual.transcriptLenAtSend : r.kind === 'archivedMenu' ? r.archived.transcriptLenAtSend : 0
+  );
+  const minAnchor = Math.min(...anchorLens);
   if (minAnchor <= turnStart || minAnchor >= turnEnd) return rows;
 
-  const prefixLen = minAnchor - turnStart;
-  const [headText, tailText] = splitTurnAtNormalizedLength(turn.text, prefixLen);
+  /**
+   * `turnStart`/`turnEnd` are offsets in the full normalized transcript; `turn.text` is a slice whose
+   * own normalized length can differ (trimEnd, etc.). Map the global anchor into this turn’s
+   * coordinate system before splitting — otherwise the live tail can stay in `head` and render
+   * above archived cards.
+   */
+  const gSpan = turnEnd - turnStart;
+  const tn = getPtyParseNormalizedPlain(turn.text).length;
+  const relCut =
+    gSpan <= 0 ? 0 : Math.min(tn, Math.max(0, Math.round(((minAnchor - turnStart) * tn) / gSpan)));
+  const [headText, tailText] = splitTurnAtNormalizedLength(turn.text, relCut);
   if (!tailText.trim()) return rows;
 
   const headTurn: ChatTurn | null = headText.trim()

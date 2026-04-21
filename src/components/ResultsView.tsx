@@ -1266,7 +1266,6 @@ function PrettyOutputView({
             output reaches the PTY tail. Full fidelity stays in <strong>Logon</strong> / <strong>Raw</strong>. Reply
             below uses the same session.
           </span>
-          <PtyNarrativeLiveBadge rawOutput={ptyForDisplay} executing={isPtyActivelyExecuting} />
         </div>
         <PtyMessengerThread
           transcript={ptyForDisplay}
@@ -1275,6 +1274,9 @@ function PrettyOutputView({
           manualReplyBubbles={manualReplyBubbles}
           archivedChoiceMenus={archivedChoiceMenus}
         />
+        <div className="flex flex-wrap items-center justify-end gap-x-2 px-1 pt-0.5">
+          <PtyNarrativeLiveBadge rawOutput={ptyForDisplay} executing={isPtyActivelyExecuting} />
+        </div>
       </>
     ) : (
       emptySection
