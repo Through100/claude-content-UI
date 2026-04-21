@@ -811,13 +811,11 @@ export default function PtyMessengerThread({
     const last = turns[turns.length - 1];
     if (!last || last.role !== 'assistant') return liveFooterLine;
     const bodyRaw = last.text.replace(/\r\n/g, '\n');
-    const body = prettyPinnedMenusLayout.hasLiveMenuPin
-      ? stripInkStatusFooterLinesFromAssistantPlain(bodyRaw)
-      : bodyRaw;
+    const body = stripInkStatusFooterLinesFromAssistantPlain(bodyRaw);
     const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
     if (norm(body).includes(norm(line))) return null;
     return liveFooterLine;
-  }, [liveFooterLine, displayTurns, prettyPinnedMenusLayout.hasLiveMenuPin]);
+  }, [liveFooterLine, displayTurns]);
 
   const showActivityRow = showThinking || Boolean(liveFooterLineDeduped);
 
@@ -828,9 +826,7 @@ export default function PtyMessengerThread({
   const renderPrettyThreadRow = (row: MergedRow, detachLiveMenus: boolean): React.ReactNode =>
     row.kind === 'pty' ? (
       row.turn.role === 'assistant' ? (() => {
-        const displayTurn = prettyPinnedMenusLayout.hasLiveMenuPin
-          ? { ...row.turn, text: stripInkStatusFooterLinesFromAssistantPlain(row.turn.text) }
-          : row.turn;
+        const displayTurn = { ...row.turn, text: stripInkStatusFooterLinesFromAssistantPlain(row.turn.text) };
         return shouldRenderPtyAssistantBubble(displayTurn.text, detachLiveMenus ? 'omit' : 'inline') ? (
           <div key={row.turn.id} className="flex justify-start w-full">
             <div className="w-full max-w-[min(100%,44rem)] md:max-w-[56rem] pr-2 md:pr-16">
