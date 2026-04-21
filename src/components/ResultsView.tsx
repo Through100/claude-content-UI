@@ -761,6 +761,12 @@ function PtyReplyPanel({
     setSending(true);
     setHint(null);
 
+    /**
+     * Claude Code Ink “1. Yes” lists read the digit, not the letters y-e-s. Send `1` to the PTY when the
+     * field is only “yes” (trimmed, case-insensitive); bubbles still record what they typed.
+     */
+    const forPty = normalized.trim().toLowerCase() === 'yes' ? '1' : normalized;
+
     const afterDelivered = () => {
       setHint({ message: 'Sent to the interactive PTY.', type: 'success' });
       if (normalized.length > 0) {
@@ -773,18 +779,17 @@ function PtyReplyPanel({
 
     /**
      * Ink / Claude Code list prompts often ignore one big WebSocket write (unlike Logon xterm, which
-     * sends one message per key). Replay the same bytes one character at a time — no remapping of
-     * yes/1/true; only LF→CR and optional trailing CR for “Append Enter”.
+     * sends one message per key). Replay one character at a time; lone “yes” uses `forPty` (`1`).
      */
     const tryDeliver = async (): Promise<boolean> => {
       const interKeyMs = 22;
       const beforeCrMs = 95;
       const bulkBeforeCrMs = 220;
-      const flatLen = normalized.replace(/\n/g, '').length;
+      const flatLen = forPty.replace(/\n/g, '').length;
       const shortEnough = flatLen <= 512;
 
-      if (normalized.length > 0 && shortEnough) {
-        for (const ch of normalized) {
+      if (forPty.length > 0 && shortEnough) {
+        for (const ch of forPty) {
           const out = ch === '\n' ? '\r' : ch;
           if (!sendToPty(out)) return false;
           await new Promise<void>((r) => setTimeout(r, interKeyMs));
@@ -796,15 +801,15 @@ function PtyReplyPanel({
         return true;
       }
 
-      let bulk = normalized.replace(/\n/g, '\r');
+      let bulk = forPty.replace(/\n/g, '\r');
       if (appendEnter && !bulk.endsWith('\r')) {
         bulk += '\r';
       }
       if (!bulk) {
         return true;
       }
-      if (appendEnter && normalized.length > 0 && !shortEnough) {
-        const body = normalized.replace(/\n/g, '\r');
+      if (appendEnter && forPty.length > 0 && !shortEnough) {
+        const body = forPty.replace(/\n/g, '\r');
         if (!sendToPty(body)) return false;
         await new Promise<void>((r) => setTimeout(r, bulkBeforeCrMs));
         return sendToPty('\r');
@@ -869,9 +874,8 @@ function PtyReplyPanel({
         <div className="text-xs text-indigo-950 bg-indigo-50/90 border border-indigo-200 rounded-lg px-3 py-2 flex items-start gap-2">
           <AlertCircle size={14} className="shrink-0 mt-0.5 text-indigo-600" aria-hidden />
           <p className="leading-relaxed">
-            <strong>Numbered menu (❯ 1. Yes …):</strong> Ink usually accepts the <strong>digit</strong> (<code className="text-[11px] px-1 rounded bg-white/80">1</code>) or{' '}
-            <strong>Enter</strong> on the highlighted row — not the word <code className="text-[11px] px-1 rounded bg-white/80">yes</code>. Leave the box empty, keep{' '}
-            <strong>Append Enter</strong>, and Send to send Enter only. Raw / Logon may not echo your letters even when the PTY receives them.
+            <strong>Numbered menu (❯ 1. Yes …):</strong> You can type <code className="text-[11px] px-1 rounded bg-white/80">yes</code> — we send <code className="text-[11px] px-1 rounded bg-white/80">1</code> to Ink for you (bubble still shows “yes”). Or type <code className="text-[11px] px-1 rounded bg-white/80">1</code>, or leave the box empty with{' '}
+            <strong>Append Enter</strong> for Enter on the highlighted row. Raw / Logon may not echo every character.
           </p>
         </div>
       )}
@@ -884,7 +888,7 @@ function PtyReplyPanel({
         }}
         rows={4}
         spellCheck={false}
-        placeholder="Sent as typed (CRLF→LF). Short lines go one key per message. Numbered menus: type 1 (or empty + Append Enter for Enter)."
+        placeholder="Sent as typed (CRLF→LF). Lone “yes” → 1 for Ink menus. Short lines one key per message; empty + Append Enter = Enter."
         className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none resize-y font-mono"
       />
       
