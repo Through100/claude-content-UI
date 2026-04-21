@@ -31,6 +31,23 @@ export function mergePtyPlainArchive(prev: string, fullPlain: string): string {
   const fallback = f.length > p.length ? f : p;
   // #region agent log
   if (fallback === p && f.trim() && f !== p) {
+    /** Overlap can miss rapid stacked Ink prompts; align tail to live before keeping stale `prev`. */
+    const healed = snapMergedPtyTailToLiveFullSnapshot(p, f, 280_000);
+    if (healed !== p) {
+      fetch('http://127.0.0.1:7823/ingest/0f30680b-0aa0-4d4a-ba6d-262bf6a78290', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '456dbf' },
+        body: JSON.stringify({
+          sessionId: '456dbf',
+          hypothesisId: 'H17',
+          location: 'mergePtyPlainArchive.ts:mergePtyPlainArchive',
+          message: 'merge fallback healed via snap tail',
+          data: { pLen: p.length, fLen: f.length, healedLen: healed.length },
+          timestamp: Date.now()
+        })
+      }).catch(() => {});
+      return healed;
+    }
     fetch('http://127.0.0.1:7823/ingest/0f30680b-0aa0-4d4a-ba6d-262bf6a78290', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '456dbf' },
@@ -57,6 +74,13 @@ function alignCutBackwardToNewline(s: string, approxCut: number): number {
 
 function countFetchConsentPrompts(s: string): number {
   return (s.match(/\bDo you want to allow Claude to fetch\b/gi) ?? []).length;
+}
+
+/** Rough signal for stacked fetch consent UIs (3rd/4th prompt in one Ink run). */
+function countMenuMarkersInTail(s: string, tailBytes: number): number {
+  const t = s.slice(-Math.min(tailBytes, s.length));
+  const fetchLines = (t.match(/\bFetch\s+https?:\/\//gi) ?? []).length;
+  return fetchLines + countFetchConsentPrompts(t);
 }
 
 /**
@@ -100,7 +124,31 @@ export function snapMergedPtyTailToLiveFullSnapshot(
     dbg('early-empty-merged');
     return merged;
   }
-  if (m === live || m.endsWith(live)) {
+
+  const markerWin = Math.min(280_000, maxTailScan, m.length, live.length);
+  const liveMarkers = countMenuMarkersInTail(live, markerWin);
+  const mergedMarkers = countMenuMarkersInTail(m, markerWin);
+  /** Live shows more stacked consent UIs than merged in the same tail window — do not trust cheap exits. */
+  const forceTailResync = liveMarkers > mergedMarkers;
+  if (forceTailResync) {
+    // #region agent log
+    fetch('http://127.0.0.1:7823/ingest/0f30680b-0aa0-4d4a-ba6d-262bf6a78290', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '456dbf' },
+      body: JSON.stringify({
+        sessionId: '456dbf',
+        hypothesisId: 'H18',
+        location: 'mergePtyPlainArchive.ts:snapMergedPtyTailToLiveFullSnapshot',
+        message: 'live tail has more menu markers than merged; forcing tail resync',
+        data: { liveMarkers, mergedMarkers, markerWin, mergedLen: m.length, liveLen: live.length },
+        timestamp: Date.now()
+      })
+    }).catch(() => {});
+    // #endregion
+    dbg('force-tail-resync-markers', { liveMarkers, mergedMarkers, markerWin });
+  }
+
+  if (!forceTailResync && (m === live || m.endsWith(live))) {
     dbg(m === live ? 'early-m-eq-live' : 'early-m-endsWith-live', { mLen: m.length, liveLen: live.length });
     return merged;
   }
@@ -116,7 +164,7 @@ export function snapMergedPtyTailToLiveFullSnapshot(
     return mTail === liveTail;
   };
 
-  if (mTailEq(tEff)) {
+  if (!forceTailResync && mTailEq(tEff)) {
     const now = Date.now();
     if (now - _snapTailMatchLogAt > 800) {
       _snapTailMatchLogAt = now;
@@ -174,7 +222,10 @@ export function snapMergedPtyTailToLiveFullSnapshot(
    */
   if (live.length >= 200 && m.length > live.length && !m.endsWith(live)) {
     const tailM = m.slice(-live.length);
-    if (countFetchConsentPrompts(live) > countFetchConsentPrompts(tailM)) {
+    if (
+      countMenuMarkersInTail(live, live.length) > countMenuMarkersInTail(tailM, tailM.length) ||
+      countFetchConsentPrompts(live) > countFetchConsentPrompts(tailM)
+    ) {
       // #region agent log
       fetch('http://127.0.0.1:7823/ingest/0f30680b-0aa0-4d4a-ba6d-262bf6a78290', {
         method: 'POST',
