@@ -348,7 +348,7 @@ function interleaveArchivedWithinLastAssistant(
     r.kind === 'manual' ? r.manual.transcriptLenAtSend : r.kind === 'archivedMenu' ? r.archived.transcriptLenAtSend : 0
   );
   const minAnchor = Math.min(...anchorLens);
-  if (minAnchor <= turnStart || minAnchor >= turnEnd) {
+  if (minAnchor <= turnStart) {
     // #region agent log
     fetch('http://127.0.0.1:7823/ingest/0f30680b-0aa0-4d4a-ba6d-262bf6a78290', {
       method: 'POST',
