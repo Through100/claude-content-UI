@@ -39,11 +39,9 @@ export default function PtyAssistantBody({ text }: { text: string }) {
               PTY choice prompt (display only)
             </div>
             <p className="m-0 px-3 py-2 text-[11px] leading-snug text-amber-950 border-b border-amber-100/80 bg-amber-50/95">
-              This is what the terminal is showing — Pretty does not send input. <strong>Logon</strong> usually auto-sends
-              the best matching <strong>Yes</strong> line once (often <kbd className="px-1 py-0.5 rounded bg-amber-200/80 text-[10px] font-mono">2</kbd> when{' '}
-              <span className="font-mono text-[10px]">Yes, and do not ask again</span> is option 2); if it stays stuck,
-              use <strong>Reply below</strong> or type in Logon. Disable auto-pick with{' '}
-              <code className="text-[10px] bg-amber-200/70 px-1 rounded">VITE_DISABLE_PTY_AUTO_OPTION_ONE=1</code>.
+              This is what the terminal is showing — Pretty does not send input. Choose an option in{' '}
+              <strong>Logon</strong>, or use <strong>Reply below</strong> to send text to the same PTY (Claude Code
+              interprets your reply against the menu).
             </p>
             <pre className="m-0 max-h-[min(40vh,420px)] overflow-auto px-3 py-3 text-[11px] sm:text-[12px] leading-[1.45] font-mono text-amber-950 whitespace-pre">
               {p.text}

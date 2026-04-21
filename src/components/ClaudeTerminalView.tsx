@@ -14,11 +14,6 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { PtyWelcomeNameScanner } from '../../shared/ptyWelcomeDetect';
-import {
-  inferPermissionMenuAffirmativeIndex,
-  plainTailShowsAnswerablePermissionMenu,
-  stripAnsiNormalizePtyMirror
-} from '../../shared/claudeCodePtyPermissionMenu';
 import { usePtyBridge } from '../context/PtyBridgeContext';
 
 function wsUrl(): string {
@@ -118,9 +113,6 @@ export default function ClaudeTerminalView({
 
     let sessionCreated = false;
     let destroyed = false;
-    /** Rolling recent PTY bytes (for detecting permission menus across chunk boundaries). */
-    let ptyRawMirror = '';
-    let permissionMenuAutoChoiceSent = false;
     const welcomeScanner = new PtyWelcomeNameScanner();
     let ptyHeaderEnded = false;
     const endPtyHeader = () => {
@@ -159,8 +151,6 @@ export default function ClaudeTerminalView({
 
       if (msg.type === 'created') {
         sessionCreated = true;
-        ptyRawMirror = '';
-        permissionMenuAutoChoiceSent = false;
         // Don't call clearLiveTranscript here; App.tsx handles it for new runs.
         // Calling it here while the parent is also updating state can lead to render loops.
         ptyBridgeRef.current.setSessionConnected(true);
@@ -178,42 +168,6 @@ export default function ClaudeTerminalView({
         term.write(d);
         ptyBridgeRef.current.appendTerminalOutput(d);
         ptyBridgeRef.current.refreshPtyScreenSnapshot();
-
-        ptyRawMirror += d;
-        ptyRawMirror = ptyRawMirror.slice(-24_000);
-        const plainNorm = stripAnsiNormalizePtyMirror(ptyRawMirror);
-        
-        const autoDisable = 
-          import.meta.env.VITE_DISABLE_PTY_AUTO_OPTION_ONE === '1' || 
-          (window as any).VITE_DISABLE_PTY_AUTO_OPTION_ONE === '1';
-
-        if (!plainTailShowsAnswerablePermissionMenu(plainNorm)) {
-          permissionMenuAutoChoiceSent = false;
-        } else if (
-          !permissionMenuAutoChoiceSent &&
-          sessionCreated &&
-          ws.readyState === WebSocket.OPEN &&
-          !autoDisable
-        ) {
-          permissionMenuAutoChoiceSent = true;
-          const choice = inferPermissionMenuAffirmativeIndex(plainNorm);
-          console.log(`[claude-seo-ui] Auto-choosing permission option "${choice}" for menu in PTY in 500ms.`);
-          // Send the number + CR. If Claude is in raw mode waiting for one key, 
-          // the '1' satisfies it and the '\r' is usually ignored or consumed by the next prompt.
-          // Add delay so CLI buffers can flush/ready the prompt before processing input
-          setTimeout(() => {
-            const w1 = wsRef.current;
-            if (w1?.readyState === WebSocket.OPEN) {
-              w1.send(JSON.stringify({ type: 'input', data: String(choice) }));
-              setTimeout(() => {
-                const w2 = wsRef.current;
-                if (w2?.readyState === WebSocket.OPEN) {
-                  w2.send(JSON.stringify({ type: 'input', data: '\r' }));
-                }
-              }, 150);
-            }
-          }, 500);
-        }
         return;
       }
 
