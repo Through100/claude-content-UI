@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import {
+  getPtyParseNormalizedPlain,
   isAwaitingPtyAssistantResponse,
   parsePtyTranscriptToMessages,
   parsePtyTranscriptToMessagesForPrettyLayout,
@@ -115,6 +116,93 @@ function filterArchivedMenusHiddenWhileLiveDuplicate(rows: MergedRow[]): MergedR
 type AnchoredForMerge =
   | { flavour: 'manual'; transcriptLenAtSend: number; sentAt: number; id: string; manual: PtyManualReplyBubble }
   | { flavour: 'archived'; transcriptLenAtSend: number; sentAt: number; id: string; archived: PtyArchivedChoiceMenu };
+
+/**
+ * Split raw assistant text so the normalized prefix up to `prefixNormLen` maps to the first chunk
+ * (monotonic in raw length after stripAnsi / normalize).
+ */
+function splitTurnAtNormalizedLength(raw: string, prefixNormLen: number): [string, string] {
+  if (prefixNormLen <= 0) return ['', raw];
+  const fullLen = getPtyParseNormalizedPlain(raw).length;
+  if (prefixNormLen >= fullLen) return [raw, ''];
+  let lo = 0;
+  let hi = raw.length;
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi + 1) / 2);
+    const len = getPtyParseNormalizedPlain(raw.slice(0, mid)).length;
+    if (len <= prefixNormLen) lo = mid;
+    else hi = mid - 1;
+  }
+  return [raw.slice(0, lo), raw.slice(lo)];
+}
+
+/**
+ * When Pretty Reply archives land in the bucket *after* a growing assistant turn, the live PTY tail
+ * (newer fetch) appears above older yellow cards. Split the assistant at the earliest archived anchor
+ * so chronological order is: assistant prefix → recorded menus / replies → assistant tail (live menus).
+ */
+function interleaveArchivedWithinLastAssistant(
+  rows: MergedRow[],
+  transcript: string,
+  baseFiltered: ChatTurnWithEnd[]
+): MergedRow[] {
+  if (!getPtyParseNormalizedPlain(transcript).trim() || rows.length === 0) return rows;
+
+  const asstRowIdx: number[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (row.kind === 'pty' && row.turn.role === 'assistant') asstRowIdx.push(i);
+  }
+  if (asstRowIdx.length === 0) return rows;
+  const mergedAsstIdx = asstRowIdx[asstRowIdx.length - 1]!;
+  const asstRow = rows[mergedAsstIdx];
+  if (asstRow.kind !== 'pty') return rows;
+  const turn = asstRow.turn;
+  if (turn.role !== 'assistant' || turn.id.includes('__')) return rows;
+
+  const kb = baseFiltered.findIndex((b) => b.role === 'assistant' && b.id === turn.id);
+  if (kb < 0) return rows;
+  const turnStart = kb > 0 ? baseFiltered[kb - 1].endOffset : 0;
+  const turnEnd = baseFiltered[kb].endOffset;
+
+  const tail: MergedRow[] = [];
+  let j = mergedAsstIdx + 1;
+  while (j < rows.length && (rows[j].kind === 'archivedMenu' || rows[j].kind === 'manual')) {
+    tail.push(rows[j]);
+    j++;
+  }
+  const archivedOnly = tail.filter((r): r is Extract<MergedRow, { kind: 'archivedMenu' }> => r.kind === 'archivedMenu');
+  if (archivedOnly.length === 0) return rows;
+
+  const minAnchor = Math.min(...archivedOnly.map((r) => r.archived.transcriptLenAtSend));
+  if (minAnchor <= turnStart || minAnchor >= turnEnd) return rows;
+
+  const prefixLen = minAnchor - turnStart;
+  const [headText, tailText] = splitTurnAtNormalizedLength(turn.text, prefixLen);
+  if (!tailText.trim()) return rows;
+
+  const headTurn: ChatTurn | null = headText.trim()
+    ? { ...turn, text: headText, id: `${turn.id}__pre` }
+    : null;
+  const tailTurn: ChatTurn = { ...turn, text: tailText, id: `${turn.id}__post` };
+
+  const tailSorted = [...tail].sort((a, b) => {
+    const ta = a.kind === 'manual' ? a.manual.sentAt : a.kind === 'archivedMenu' ? a.archived.sentAt : 0;
+    const tb = b.kind === 'manual' ? b.manual.sentAt : b.kind === 'archivedMenu' ? b.archived.sentAt : 0;
+    if (ta !== tb) return ta - tb;
+    if (a.kind !== b.kind) return a.kind === 'archivedMenu' ? -1 : 1;
+    const ida = a.kind === 'manual' ? a.manual.id : a.kind === 'archivedMenu' ? a.archived.id : '';
+    const idb = b.kind === 'manual' ? b.manual.id : b.kind === 'archivedMenu' ? b.archived.id : '';
+    return ida.localeCompare(idb);
+  });
+
+  const out: MergedRow[] = [...rows.slice(0, mergedAsstIdx)];
+  if (headTurn) out.push({ kind: 'pty', turn: headTurn });
+  for (const r of tailSorted) out.push(r);
+  out.push({ kind: 'pty', turn: tailTurn });
+  out.push(...rows.slice(mergedAsstIdx + 1 + tail.length));
+  return out;
+}
 
 function mergeParsedTurnsWithManualAndArchived(
   base: ChatTurnWithEnd[],
@@ -294,9 +382,10 @@ export default function PtyMessengerThread({
         .filter((m) => m.role === 'user' || m.text.trim().length > 0)
         .map((turn) => ({ kind: 'pty' as const, turn }));
     }
-    return filterArchivedMenusHiddenWhileLiveDuplicate(
+    const merged = filterArchivedMenusHiddenWhileLiveDuplicate(
       mergeParsedTurnsWithManualAndArchived(baseFiltered, manuals, archived)
     );
+    return interleaveArchivedWithinLastAssistant(merged, transcript, baseFiltered);
   }, [transcript, manualReplyBubbles, archivedChoiceMenus, displayTurns]);
 
   useEffect(() => {
