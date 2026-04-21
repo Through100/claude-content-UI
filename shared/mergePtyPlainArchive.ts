@@ -1,3 +1,5 @@
+import { plainTailShowsAnswerablePermissionMenu } from './claudeCodePtyPermissionMenu';
+
 /**
  * Merge a saved PTY plain transcript with the latest full xterm snapshot (from line 0).
  * When scrollback drops lines from the top, `fullPlain` is a suffix of `prev` — keep `prev`.
@@ -217,14 +219,18 @@ export function snapMergedPtyTailToLiveFullSnapshot(
 
   /**
    * Still could not align (e.g. live shorter than any line-safe window). Graft the full live buffer as
-   * the authoritative tail only when live clearly shows more fetch consent prompts than the merged
-   * tail we would replace — avoids corrupting unrelated long histories.
+   * the authoritative tail if live clearly shows more fetch consent prompts than the merged
+   * tail we would replace, OR if live ends with an answerable permission menu that the merged tail lacks.
    */
   if (live.length >= 200 && m.length > live.length && !m.endsWith(live)) {
     const tailM = m.slice(-live.length);
+    const liveHasMenuAtTail = plainTailShowsAnswerablePermissionMenu(live);
+    const mergedHasSameMenuAtTail = plainTailShowsAnswerablePermissionMenu(tailM) && tailM.slice(-1000) === live.slice(-1000);
+    
     if (
       countMenuMarkersInTail(live, live.length) > countMenuMarkersInTail(tailM, tailM.length) ||
-      countFetchConsentPrompts(live) > countFetchConsentPrompts(tailM)
+      countFetchConsentPrompts(live) > countFetchConsentPrompts(tailM) ||
+      (liveHasMenuAtTail && !mergedHasSameMenuAtTail)
     ) {
       // #region agent log
       fetch('http://127.0.0.1:7823/ingest/0f30680b-0aa0-4d4a-ba6d-262bf6a78290', {
