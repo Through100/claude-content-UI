@@ -13,7 +13,10 @@ import {
 import { textContainsClaudePermissionMenu } from '../../shared/claudeCodePtyPermissionMenu';
 import { isInkSpinnerTokenStatusLine } from '../../shared/inkSpinnerTokenStatusLine';
 import { segmentPtyAssistantDisplayBlocks } from '../../shared/segmentPtyDiffBlocks';
-import { extractPtyLiveFooterLine } from '../../shared/extractPtyLiveFooterLine';
+import {
+  extractPtyLiveFooterLine,
+  stripInkStatusFooterLinesFromAssistantPlain
+} from '../../shared/extractPtyLiveFooterLine';
 import PtyAssistantBody, {
   PtyChoicePromptCard,
   shouldRenderPtyAssistantBubble,
@@ -700,34 +703,12 @@ export default function PtyMessengerThread({
     [footerPlainSource, footerPollTick]
   );
 
-  /**
-   * Ink leaves the final timer/tokens “Thinking…” line in the xterm tail even after the answer is done;
-   * the same line is often already inside the last assistant bubble. Hide the duplicate mirror footer.
-   */
-  const liveFooterLineDeduped = useMemo(() => {
-    const line = liveFooterLine?.trim();
-    if (!line || line.length < 16) return liveFooterLine;
-    const turns = displayTurns;
-    const last = turns[turns.length - 1];
-    if (!last || last.role !== 'assistant') return liveFooterLine;
-    const body = last.text.replace(/\r\n/g, '\n');
-    const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
-    if (norm(body).includes(norm(line))) return null;
-    return liveFooterLine;
-  }, [liveFooterLine, displayTurns]);
-
   useEffect(() => {
     const id = window.setInterval(() => {
       setFooterPollTick((n) => n + 1);
     }, PRETTY_FOOTER_POLL_MS);
     return () => window.clearInterval(id);
   }, []);
-
-  const showActivityRow = showThinking || Boolean(liveFooterLineDeduped);
-
-  useEffect(() => {
-    if (showActivityRow) setStatusWellLatched(true);
-  }, [showActivityRow]);
 
   const mergedRows = useMemo(() => {
     const baseWithEnds = parsePtyTranscriptToMessagesForPrettyLayout(transcript);
@@ -793,14 +774,44 @@ export default function PtyMessengerThread({
     return { usePinned, archivedSorted, mainRows, liveDetachTurn };
   }, [mergedRows]);
 
+  /**
+   * Ink leaves the final timer/tokens “Thinking…” line in the xterm tail even after the answer is done;
+   * the same line is often already inside the last assistant bubble. Hide the duplicate mirror footer.
+   * When menus are pinned, assistant text is stripped of those lines for display — dedupe against stripped text
+   * so the mirrored footer still shows at the bottom.
+   */
+  const liveFooterLineDeduped = useMemo(() => {
+    const line = liveFooterLine?.trim();
+    if (!line || line.length < 16) return liveFooterLine;
+    const turns = displayTurns;
+    const last = turns[turns.length - 1];
+    if (!last || last.role !== 'assistant') return liveFooterLine;
+    const bodyRaw = last.text.replace(/\r\n/g, '\n');
+    const body = prettyPinnedMenusLayout.usePinned
+      ? stripInkStatusFooterLinesFromAssistantPlain(bodyRaw)
+      : bodyRaw;
+    const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
+    if (norm(body).includes(norm(line))) return null;
+    return liveFooterLine;
+  }, [liveFooterLine, displayTurns, prettyPinnedMenusLayout.usePinned]);
+
+  const showActivityRow = showThinking || Boolean(liveFooterLineDeduped);
+
+  useEffect(() => {
+    if (showActivityRow) setStatusWellLatched(true);
+  }, [showActivityRow]);
+
   const renderPrettyThreadRow = (row: MergedRow, detachLiveMenus: boolean): React.ReactNode =>
     row.kind === 'pty' ? (
-      row.turn.role === 'assistant' ? (
-        shouldRenderPtyAssistantBubble(row.turn.text, detachLiveMenus ? 'omit' : 'inline') ? (
+      row.turn.role === 'assistant' ? (() => {
+        const displayTurn = prettyPinnedMenusLayout.usePinned
+          ? { ...row.turn, text: stripInkStatusFooterLinesFromAssistantPlain(row.turn.text) }
+          : row.turn;
+        return shouldRenderPtyAssistantBubble(displayTurn.text, detachLiveMenus ? 'omit' : 'inline') ? (
           <div key={row.turn.id} className="flex justify-start w-full">
             <div className="w-full max-w-[min(100%,44rem)] md:max-w-[56rem] pr-2 md:pr-16">
               <PtyThreadAssistantBubble
-                turn={row.turn}
+                turn={displayTurn}
                 menuSlotBundle={menuSlotBundleForTurn(row.turn.id)}
                 menusRender={detachLiveMenus ? 'omit' : 'inline'}
               />
@@ -808,8 +819,8 @@ export default function PtyMessengerThread({
           </div>
         ) : (
           <Fragment key={row.turn.id} />
-        )
-      ) : (
+        );
+      })() : (
         <div key={row.turn.id} className="flex justify-end w-full">
           <div className="max-w-[min(100%,85%)] sm:max-w-[32rem] pl-8 sm:pl-12">
             <div className="rounded-[1.35rem] bg-[#ececec] text-gray-900 px-4 py-2.5 md:px-5 md:py-3 text-[15px] leading-6 whitespace-pre-wrap break-words shadow-sm">
@@ -950,7 +961,10 @@ export default function PtyMessengerThread({
             {prettyPinnedMenusLayout.archivedSorted.map((row) => renderPrettyThreadRow(row, false))}
             <div className="flex flex-col gap-4 md:gap-5 w-full">
               {prettyPinnedMenusLayout.liveDetachTurn &&
-              shouldRenderPtyAssistantBubble(prettyPinnedMenusLayout.liveDetachTurn.text, 'menusOnly') ? (
+              shouldRenderPtyAssistantBubble(
+                stripInkStatusFooterLinesFromAssistantPlain(prettyPinnedMenusLayout.liveDetachTurn.text),
+                'menusOnly'
+              ) ? (
                 <div
                   key={`${prettyPinnedMenusLayout.liveDetachTurn.id}--pinned-live-menus`}
                   className="flex justify-start w-full"
@@ -958,12 +972,24 @@ export default function PtyMessengerThread({
                   <div className="w-full max-w-[min(100%,44rem)] md:max-w-[56rem] pr-2 md:pr-16">
                     <PtyThreadAssistantShell>
                       <PtyAssistantBody
-                        text={prettyPinnedMenusLayout.liveDetachTurn.text}
+                        text={stripInkStatusFooterLinesFromAssistantPlain(
+                          prettyPinnedMenusLayout.liveDetachTurn.text
+                        )}
                         menuSlotBundle={menuSlotBundleForTurn(prettyPinnedMenusLayout.liveDetachTurn.id)}
                         menusRender="menusOnly"
                       />
-                      {!shouldRenderPtyAssistantBubble(prettyPinnedMenusLayout.liveDetachTurn.text, 'omit') ? (
-                        <PtyLivePostTailStampUnderShell turn={prettyPinnedMenusLayout.liveDetachTurn} />
+                      {!shouldRenderPtyAssistantBubble(
+                        stripInkStatusFooterLinesFromAssistantPlain(prettyPinnedMenusLayout.liveDetachTurn.text),
+                        'omit'
+                      ) ? (
+                        <PtyLivePostTailStampUnderShell
+                          turn={{
+                            ...prettyPinnedMenusLayout.liveDetachTurn,
+                            text: stripInkStatusFooterLinesFromAssistantPlain(
+                              prettyPinnedMenusLayout.liveDetachTurn.text
+                            )
+                          }}
+                        />
                       ) : null}
                     </PtyThreadAssistantShell>
                   </div>

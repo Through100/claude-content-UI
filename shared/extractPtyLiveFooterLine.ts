@@ -59,3 +59,21 @@ export function extractPtyLiveFooterLine(raw: string): string | null {
   }
   return null;
 }
+
+/**
+ * Removes Claude Code / Ink one-line status rows (`* Shenaniganing… (1m · ↓ 4k tokens)`) from assistant text so
+ * Pretty can show them only in `TerminalLiveFooterBar` at the thread bottom (pinned layout).
+ */
+export function stripInkStatusFooterLinesFromAssistantPlain(raw: string): string {
+  const lines = (raw ?? '').replace(/\r\n/g, '\n').split('\n');
+  const out: string[] = [];
+  for (const line of lines) {
+    const t = normalizeTeletypeLines(stripAnsi(line)).replace(/\r/g, '').trim();
+    if (t && isTokenTimerFooterLine(t)) continue;
+    out.push(line);
+  }
+  return out
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trimEnd();
+}
