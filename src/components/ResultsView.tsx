@@ -488,7 +488,6 @@ export default function ResultsView({
             className="space-y-6"
           >
             <LivePtyRawMirror
-              mergedPtyPlain={ptyMergedArchive}
               headlessStdout={result?.rawOutput}
               headlessError={result?.error}
               livePtyMirror={!isHistoryEmbed}
@@ -517,8 +516,6 @@ export default function ResultsView({
 }
 
 type LivePtyRawMirrorProps = {
-  /** Same merged plain buffer Pretty uses (xterm serialize + localStorage); seeds Raw mirror when longer than byte replay. */
-  mergedPtyPlain?: string;
   /** When provided, last `claude -p` capture is shown below the PTY in the same card (no separate panel). */
   headlessStdout?: string;
   headlessError?: string;
@@ -527,7 +524,6 @@ type LivePtyRawMirrorProps = {
 };
 
 function LivePtyRawMirror({
-  mergedPtyPlain = '',
   headlessStdout,
   headlessError,
   livePtyMirror = true
@@ -541,8 +537,6 @@ function LivePtyRawMirror({
     subscribePtyMirrorReset
   } = usePtyBridge();
   const hostRef = useRef<HTMLDivElement>(null);
-  const mergedRef = useRef(mergedPtyPlain);
-  mergedRef.current = mergedPtyPlain;
 
   const headlessBody =
     headlessStdout?.trim() ||
@@ -576,14 +570,14 @@ function LivePtyRawMirror({
 
     const replay = () => {
       const buf = peekPtyTranscriptBuffer();
-      const merged = mergedRef.current ?? '';
-      const mergedT = stripAnsi(merged).trim();
-      const bufT = stripAnsi(buf).trim();
       term.reset();
       fitAddon.fit();
-      if (mergedT.length >= bufT.length && mergedT.length > 0) {
-        term.write(merged.endsWith('\n') ? merged : `${merged}\n`);
-      } else if (buf) {
+      /**
+       * Only replay the rolling **raw** PTY capture. Pretty’s merged plain buffer is ANSI-free; feeding it here
+       * then streaming live escape sequences corrupts cursor state (fragmented Ink UI), especially at session start
+       * when merged history can be longer than the byte buffer.
+       */
+      if (buf.length > 0) {
         term.write(buf);
       }
     };
@@ -655,10 +649,10 @@ function LivePtyRawMirror({
       <p className="text-[11px] text-gray-500 px-4 py-2 bg-[#111] border-b border-gray-800 leading-relaxed">
         {livePtyMirror ? (
           <>
-            xterm.js fed from the same WebSocket PTY as Logon — type here or on Logon. The PTY area below prefers the
-            same <strong>merged plain transcript</strong> as Pretty (when it is longer than the byte replay buffer) so
-            Raw and Pretty usually match after reconnect. <strong>From here only</strong> clears the byte buffer and
-            resets this mirror; Pretty may still keep older merged lines until you start a new topic or session.
+            xterm.js is driven by the same <strong>raw PTY stream</strong> as Logon (ANSI and cursor control preserved).
+            This mirror only replays that byte buffer, not the merged plain buffer from Pretty Output, so the layout stays aligned
+            with Logon at cold start. <strong>From here only</strong> clears the byte buffer and resets this mirror; use
+            Pretty Output for long merged scrollback after scrollback trims.
             {mergeHeadless ? (
               <>
                 {' '}
