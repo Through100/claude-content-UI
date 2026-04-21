@@ -1226,10 +1226,12 @@ function PrettyOutputView({
   // Show the temporary banner if we're in a loading state and the assistant hasn't replied with any real text yet.
   const isRecentSent = ptySentAt != null && Date.now() - ptySentAt < 15000;
   const showSentWaiting = isLoading && isRecentSent && (!ptyForDisplay.trim() || ptyForDisplay.trim() === ptyTranscript.trim());
+  /** Use the same plain Pretty renders so “awaiting assistant” matches the thread after merge/sanitize. */
   const isPtyActivelyExecuting = useMemo(() => {
-    if (!ptyTranscript.trim()) return isLoading;
-    return isAwaitingPtyAssistantResponse(parsePtyTranscriptToMessages(ptyTranscript));
-  }, [ptyTranscript, isLoading]);
+    const t = ptyForDisplay;
+    if (!t.trim()) return isLoading;
+    return isLoading || isAwaitingPtyAssistantResponse(parsePtyTranscriptToMessages(t));
+  }, [ptyForDisplay, isLoading]);
 
 
   const emptySection = showSentWaiting ? (

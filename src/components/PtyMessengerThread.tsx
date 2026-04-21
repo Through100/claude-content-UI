@@ -259,6 +259,22 @@ export default function PtyMessengerThread({
     [footerPlainSource, footerPollTick]
   );
 
+  /**
+   * Ink leaves the final timer/tokens “Thinking…” line in the xterm tail even after the answer is done;
+   * the same line is often already inside the last assistant bubble. Hide the duplicate mirror footer.
+   */
+  const liveFooterLineDeduped = useMemo(() => {
+    const line = liveFooterLine?.trim();
+    if (!line || line.length < 16) return liveFooterLine;
+    const turns = displayTurns;
+    const last = turns[turns.length - 1];
+    if (!last || last.role !== 'assistant') return liveFooterLine;
+    const body = last.text.replace(/\r\n/g, '\n');
+    const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
+    if (norm(body).includes(norm(line))) return null;
+    return liveFooterLine;
+  }, [liveFooterLine, displayTurns]);
+
   useEffect(() => {
     const id = window.setInterval(() => {
       setFooterPollTick((n) => n + 1);
@@ -266,7 +282,7 @@ export default function PtyMessengerThread({
     return () => window.clearInterval(id);
   }, []);
 
-  const showActivityRow = showThinking || Boolean(liveFooterLine);
+  const showActivityRow = showThinking || Boolean(liveFooterLineDeduped);
 
   const mergedRows = useMemo(() => {
     const baseWithEnds = parsePtyTranscriptToMessagesForPrettyLayout(transcript);
@@ -287,7 +303,7 @@ export default function PtyMessengerThread({
     const el = scrollerRef.current;
     if (!el || !stickBottomRef.current) return;
     el.scrollTop = el.scrollHeight;
-  }, [transcript, showThinking, liveFooterLine, manualReplyBubbles, archivedChoiceMenus, mergedRows]);
+  }, [transcript, showThinking, liveFooterLineDeduped, manualReplyBubbles, archivedChoiceMenus, mergedRows]);
 
   const onScroll = () => {
     const el = scrollerRef.current;
@@ -312,8 +328,8 @@ export default function PtyMessengerThread({
             Live PTY — waiting for the assistant after your last line.
           </p>
           <div className="px-4 py-8 md:px-8 max-h-[min(75vh,720px)] overflow-y-auto bg-white space-y-4">
-            {liveFooterLine ? <TerminalLiveFooterBar text={liveFooterLine} /> : null}
-            {!liveFooterLine ? <PtyAssistantPending /> : null}
+            {liveFooterLineDeduped ? <TerminalLiveFooterBar text={liveFooterLineDeduped} /> : null}
+            {!liveFooterLineDeduped ? <PtyAssistantPending /> : null}
           </div>
         </div>
       );
@@ -398,8 +414,8 @@ export default function PtyMessengerThread({
         )}
         {showActivityRow ? (
           <div className="space-y-3">
-            {liveFooterLine ? <TerminalLiveFooterBar text={liveFooterLine} /> : null}
-            {showThinking && !liveFooterLine ? <PtyAssistantPending /> : null}
+            {liveFooterLineDeduped ? <TerminalLiveFooterBar text={liveFooterLineDeduped} /> : null}
+            {showThinking && !liveFooterLineDeduped ? <PtyAssistantPending /> : null}
           </div>
         ) : null}
       </div>
