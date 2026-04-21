@@ -6,13 +6,13 @@ export function textContainsClaudePermissionMenu(text: string): boolean {
   /** Fetch consent often omits the Esc/Tab chrome line in the same PTY capture as the numbered choices. */
   if (
     /\bDo you want to allow\b/i.test(t) &&
-    /^\s*(?:❯\s*|[>]\s*)?1\.\s+Yes\b/im.test(t)
+    /^\s*(?:[❯›>]\s*)?1\.\s+Yes\b/im.test(t)
   ) {
     return true;
   }
   if (
     /\bDo you want to proceed\b/i.test(t) &&
-    /^\s*(?:❯\s*|[>]\s*)?1\.\s+Yes\b/im.test(t)
+    /^\s*(?:[❯›>]\s*)?1\.\s+Yes\b/im.test(t)
   ) {
     return true;
   }
@@ -30,15 +30,15 @@ export function plainTextShowsClaudePermissionMenu(plainNormalized: string): boo
   const tail = plainNormalized.slice(-8000);
   if (!/\bEsc to cancel\b/i.test(tail) || !/\bTab to (?:amend|edit|change)\b/i.test(tail)) return false;
   /** Require a numbered option line so we never auto-send on stray footer text alone (e.g. after a PTY restart). */
-  if (!/(^|\n)\s*(?:(?:❯|[>])\s*)?\d+\.\s+\S/m.test(tail)) return false;
+  if (!/(^|\n)\s*(?:[❯›>]\s*)?\d+\.\s+\S/m.test(tail)) return false;
   return (
     /Do you want to proceed\?/i.test(tail) ||
-      /(^|\n)\s*(?:(?:❯|[>])\s*)?\d+\.\s+Yes,/im.test(tail) ||
+      /(^|\n)\s*(?:[❯›>]\s*)?\d+\.\s+Yes,/im.test(tail) ||
       /Yes, and don't ask again/i.test(tail)
   );
 }
 
-const NUMBERED_MENU_ROW = /(^|\n)\s*(?:(?:❯|[>])\s*)?\d+\.\s+\S/m;
+const NUMBERED_MENU_ROW = /(^|\n)\s*(?:[❯›>]\s*)?\d+\.\s+\S/m;
 
 /**
  * True when the PTY tail shows a permission menu we can answer (Esc/Tab “proceed” UI **or** Fetch / compact consent
@@ -48,8 +48,8 @@ export function plainTailShowsAnswerablePermissionMenu(plainNormalized: string):
   if (plainTextShowsClaudePermissionMenu(plainNormalized)) return true;
   const tail = plainNormalized.slice(-14000);
   if (!NUMBERED_MENU_ROW.test(tail)) return false;
-  if (/\bDo you want to allow\b/i.test(tail) && /^\s*(?:❯\s*|[>]\s*)?1\.\s+Yes\b/im.test(tail)) return true;
-  if (/\bDo you want to proceed\b/i.test(tail) && /^\s*(?:❯\s*|[>]\s*)?1\.\s+Yes\b/im.test(tail)) return true;
+  if (/\bDo you want to allow\b/i.test(tail) && /^\s*(?:[❯›>]\s*)?1\.\s+Yes\b/im.test(tail)) return true;
+  if (/\bDo you want to proceed\b/i.test(tail) && /^\s*(?:[❯›>]\s*)?1\.\s+Yes\b/im.test(tail)) return true;
   return false;
 }
 
@@ -67,7 +67,7 @@ export function countPtyProceedPrompts(raw: string): number {
 export function parsePermissionMenuNumberedOptions(menuSlice: string): { n: number; line: string }[] {
   const ranked: { n: number; line: string }[] = [];
   for (const line of menuSlice.split('\n')) {
-    const m = line.trim().match(/^(?:(?:❯|[>])\s*)?(\d+)\.\s+(.+)$/);
+    const m = line.trim().match(/^(?:[❯›>]\s*)?(\d+)\.\s+(.+)$/);
     if (!m) continue;
     const n = parseInt(m[1] ?? '', 10);
     const rest = (m[2] ?? '').trim();

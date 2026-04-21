@@ -113,8 +113,8 @@ function findNumberedConsentMenuFooterJ(
     let lastNum = -1;
     for (let k = j; k < maxK; k++) {
       const u = (lines[k] ?? '').trim();
-      if (/^\s*(?:❯\s*|[>]\s*)?1\.\s+Yes\b/i.test(u)) sawYes1 = true;
-      if (/^\s*(?:❯\s*|[>]\s*)?\d+\.\s+\S/m.test(u)) lastNum = k;
+      if (/^\s*(?:[❯›>]\s*)?1\.\s+Yes\b/i.test(u)) sawYes1 = true;
+      if (/^\s*(?:[❯›>]\s*)?\d+\.\s+\S/m.test(u)) lastNum = k;
     }
     if (sawYes1 && lastNum >= j) return lastNum;
   }
@@ -124,7 +124,11 @@ function findNumberedConsentMenuFooterJ(
 /** Any single-line “Do you want to …?” used before numbered Yes/No rows (proceed, make this edit, run tool, …). */
 function isClaudeMenuQuestionLine(line: string): boolean {
   const L = line ?? '';
-  return /Do you want to[^?\n]*\?/i.test(L);
+  /** ASCII `?` or fullwidth `？` (Ink / locale); fetch consent often uses “allow … ?”. */
+  if (/Do you want to[^?\n\uFF1F]*(?:\?|？)/i.test(L)) return true;
+  if (/\bDo you want to allow\b/i.test(L)) return true;
+  if (/\bDo you want to proceed\b/i.test(L)) return true;
+  return false;
 }
 
 /**
@@ -159,6 +163,10 @@ function splitProseMenuAndRest(prose: string): { kind: 'menu' | 'prose'; text: s
       footerJ = findNumberedConsentMenuFooterJ(lines, i, windowEnd, /\bDo you want to proceed\b/i);
     }
     if (footerJ < 0) {
+      /** Fetch consent body line when the explicit “Do you want…” row was redrawn away or wrapped oddly. */
+      footerJ = findNumberedConsentMenuFooterJ(lines, i, windowEnd, /\bClaude wants to fetch\b/i);
+    }
+    if (footerJ < 0) {
       const rest = lines.slice(i).join('\n');
       if (rest.trim()) out.push({ kind: 'prose', text: rest });
       break;
@@ -174,7 +182,7 @@ function splitProseMenuAndRest(prose: string): { kind: 'menu' | 'prose'; text: s
 
     let firstYesLine = -1;
     for (let s = i; s < footerJ; s++) {
-      if (/^\s*(?:❯\s*|[>]\s*)?1\.\s+Yes\b/i.test(lines[s] ?? '')) {
+      if (/^\s*(?:[❯›>]\s*)?1\.\s+Yes\b/i.test(lines[s] ?? '')) {
         firstYesLine = s;
         break;
       }
@@ -188,7 +196,7 @@ function splitProseMenuAndRest(prose: string): { kind: 'menu' | 'prose'; text: s
     } else {
       /** Legacy: numbered “Yes,” rows without a matched question line (comma required to avoid false positives). */
       for (let s = footerJ - 1; s >= i; s--) {
-        if (/^\s*(?:❯\s*|[>]\s*)?\d+\.\s+Yes,/i.test(lines[s] ?? '')) {
+        if (/^\s*(?:[❯›>]\s*)?\d+\.\s+Yes,/i.test(lines[s] ?? '')) {
           start = s;
           break;
         }
@@ -197,9 +205,9 @@ function splitProseMenuAndRest(prose: string): { kind: 'menu' | 'prose'; text: s
 
     const candidate = lines.slice(start, footerJ + 1).join('\n');
     const looksMenu =
-      /Do you want to[^?\n]*\?/i.test(candidate) ||
+      /Do you want to[^?\n\uFF1F]*(?:\?|？)/i.test(candidate) ||
       /\bDo you want to allow\b/i.test(candidate) ||
-      /^\s*(?:❯\s*|[>]\s*)?\d+\.\s+Yes\b/im.test(candidate);
+      /^\s*(?:[❯›>]\s*)?\d+\.\s+Yes\b/im.test(candidate);
 
     if (!looksMenu) {
       const buf: string[] = [];
