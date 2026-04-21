@@ -97,7 +97,9 @@ export default function ResultsView({
   const livePreRef = useRef<HTMLPreElement>(null);
   const prettyReportRef = useRef<HTMLDivElement>(null);
   const pdfAfterPrettySwitchRef = useRef(false);
-  const { ptyDisplayPlain, ptyFullSnapshotPlain, ptySessionGeneration, ptySessionReady } = usePtyBridge();
+  const { ptyDisplayPlain, ptyFullSnapshotPlain, ptySessionGeneration, ptySessionReady, sendToPty } = usePtyBridge();
+  const [autoApproveChoicePrompts, setAutoApproveChoicePrompts] = useState(false);
+  const lastAutoApproveMenuRef = useRef<string | null>(null);
   /** `mergePtyPlainArchive` expects a full-buffer snapshot (line 0). `ptyDisplayPlain` can start mid-buffer after “From here only”, which breaks overlap and drops new tails (e.g. permission menus) from Pretty while the status bar still updates. */
   const ptyPlainForMerge =
     ptyFullSnapshotPlain.trim().length > 0 ? ptyFullSnapshotPlain : ptyDisplayPlain;
@@ -285,6 +287,54 @@ export default function ResultsView({
     const plain = stripAnsiNormalizePtyMirror(chunk);
     return plainTailShowsAnswerablePermissionMenu(plain);
   }, [ptyFullSnapshotPlain, ptyDisplayPlain]);
+
+  useEffect(() => {
+    if (!autoApproveChoicePrompts || !replyPanelNumberedMenuHint || !ptySessionReady || isHistoryEmbed) return;
+
+    const menuSnapshot = extractLastChoiceMenuSnapshotForArchive(replyOrderingPlain);
+    if (!menuSnapshot) return;
+
+    // Prevent double-sending for the exact same menu snapshot
+    if (lastAutoApproveMenuRef.current === menuSnapshot) return;
+    lastAutoApproveMenuRef.current = menuSnapshot;
+
+    const tryDeliver = async () => {
+      sendToPty('1');
+      await new Promise((r) => setTimeout(r, 95));
+      sendToPty('\r');
+    };
+
+    void tryDeliver();
+
+    const sentAt = Date.now();
+    const transcriptLenAtSend = getPtyParseNormalizedPlain(replyOrderingPlain).length;
+
+    setManualReplyBubbles((prev) => [
+      ...prev,
+      {
+        id: `auto-${sentAt}-${Math.random().toString(36).slice(2, 7)}`,
+        text: '1',
+        sentAt,
+        transcriptLenAtSend
+      }
+    ]);
+    setArchivedChoiceMenus((prev) => [
+      ...prev,
+      {
+        id: `auto-menu-${sentAt}-${Math.random().toString(36).slice(2, 7)}`,
+        menuPlain: menuSnapshot,
+        sentAt,
+        transcriptLenAtSend
+      }
+    ]);
+  }, [
+    autoApproveChoicePrompts,
+    replyPanelNumberedMenuHint,
+    ptySessionReady,
+    isHistoryEmbed,
+    replyOrderingPlain,
+    sendToPty
+  ]);
 
   /** Logon buffer tail looks like Claude Code’s idle welcome — “yes” has no pending question there. */
   const replyPanelWarnWelcomeSplash = useMemo(() => {
@@ -518,6 +568,20 @@ export default function ResultsView({
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3 flex-wrap justify-end">
+          {!isHistoryEmbed ? (
+            <label
+              className="flex items-center gap-2 text-sm font-semibold text-emerald-800 cursor-pointer mr-2 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 hover:bg-emerald-100 transition-colors"
+              title="Automatically answer '1. Yes' to all choice prompts"
+            >
+              <input
+                type="checkbox"
+                checked={autoApproveChoicePrompts}
+                onChange={(e) => setAutoApproveChoicePrompts(e.target.checked)}
+                className="rounded border-emerald-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
+              />
+              Auto-Approve Prompts
+            </label>
+          ) : null}
           <button
             type="button"
             onClick={handlePdfClick}
