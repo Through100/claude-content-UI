@@ -27,7 +27,24 @@ export function mergePtyPlainArchive(prev: string, fullPlain: string): string {
     }
   }
 
-  return f.length > p.length ? f : p;
+  const fallback = f.length > p.length ? f : p;
+  // #region agent log
+  if (fallback === p && f.trim() && f !== p) {
+    fetch('http://127.0.0.1:7823/ingest/0f30680b-0aa0-4d4a-ba6d-262bf6a78290', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '456dbf' },
+      body: JSON.stringify({
+        sessionId: '456dbf',
+        hypothesisId: 'H3',
+        location: 'mergePtyPlainArchive.ts:mergePtyPlainArchive',
+        message: 'merge fallback kept prev',
+        data: { pLen: p.length, fLen: f.length },
+        timestamp: Date.now()
+      })
+    }).catch(() => {});
+  }
+  // #endregion
+  return fallback;
 }
 
 function alignCutBackwardToNewline(s: string, approxCut: number): number {
@@ -48,26 +65,66 @@ export function snapMergedPtyTailToLiveFullSnapshot(
   liveFullPlain: string,
   maxTailScan: number
 ): string {
-  if (!liveFullPlain?.trim()) return merged;
+  // #region agent log
+  const dbg = (branch: string, extra: Record<string, unknown> = {}) => {
+    fetch('http://127.0.0.1:7823/ingest/0f30680b-0aa0-4d4a-ba6d-262bf6a78290', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '456dbf' },
+      body: JSON.stringify({
+        sessionId: '456dbf',
+        hypothesisId: 'H1',
+        location: 'mergePtyPlainArchive.ts:snapMergedPtyTailToLiveFullSnapshot',
+        message: branch,
+        data: {
+          mergedLen: merged.length,
+          liveLen: (liveFullPlain ?? '').length,
+          ...extra
+        },
+        timestamp: Date.now()
+      })
+    }).catch(() => {});
+  };
+  // #endregion
+  if (!liveFullPlain?.trim()) {
+    dbg('early-no-live');
+    return merged;
+  }
   const m = merged.replace(/\r\n/g, '\n');
   const live = liveFullPlain.replace(/\r\n/g, '\n');
-  if (!m.trim()) return merged;
-  if (m === live || m.endsWith(live)) return merged;
+  if (!m.trim()) {
+    dbg('early-empty-merged');
+    return merged;
+  }
+  if (m === live || m.endsWith(live)) {
+    dbg(m === live ? 'early-m-eq-live' : 'early-m-endsWith-live', { mLen: m.length, liveLen: live.length });
+    return merged;
+  }
 
   const t = Math.min(maxTailScan, live.length, m.length);
-  if (t < 200) return merged;
+  if (t < 200) {
+    return merged;
+  }
 
   const mTail = m.slice(-t);
   const liveTail = live.slice(-t);
-  if (mTail === liveTail) return merged;
+  if (mTail === liveTail) {
+    return merged;
+  }
 
   const approxCut = m.length - t;
   const cut = alignCutBackwardToNewline(m, approxCut);
   const suffixLen = m.length - cut;
-  if (suffixLen <= 0 || suffixLen > live.length) return merged;
+  if (suffixLen <= 0 || suffixLen > live.length) {
+    dbg('abort-suffix-bounds', { cut, suffixLen, liveLen: live.length });
+    return merged;
+  }
 
   const liveSuffix = live.slice(-suffixLen);
-  if (m.slice(cut) === liveSuffix) return merged;
+  if (m.slice(cut) === liveSuffix) {
+    dbg('abort-slice-already-live-suffix');
+    return merged;
+  }
 
+  dbg('patched', { cut, suffixLen, outLen: cut + liveSuffix.length });
   return m.slice(0, cut) + liveSuffix;
 }

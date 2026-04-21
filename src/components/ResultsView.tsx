@@ -132,6 +132,25 @@ export default function ResultsView({
         return loadPtyPrettyArchive(chatThreadKey);
       }
       if (topicLiveHoldRef.current === chatThreadKey) {
+        // #region agent log
+        fetch('http://127.0.0.1:7823/ingest/0f30680b-0aa0-4d4a-ba6d-262bf6a78290', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '456dbf' },
+          body: JSON.stringify({
+            sessionId: '456dbf',
+            hypothesisId: 'H2',
+            location: 'ResultsView.tsx:ptyMergeEffect',
+            message: 'merge skipped topicLiveHold',
+            data: {
+              hold: topicLiveHoldRef.current,
+              chatThreadKey,
+              prevLen: prev.length,
+              plainLen: ptyPlainForMerge.length
+            },
+            timestamp: Date.now()
+          })
+        }).catch(() => {});
+        // #endregion
         return prev;
       }
       return mergePtyPlainArchive(prev, ptyPlainForMerge);
@@ -188,6 +207,26 @@ export default function ResultsView({
     const ptyForPretty = (() => {
       const s = sanitizePtyPrettyTranscript(ptyMergedDisplayPlain);
       if (!s.trim() && ptyMergedDisplayPlain.trim()) return ptyMergedDisplayPlain;
+      // #region agent log
+      if (s.length !== ptyMergedDisplayPlain.length) {
+        fetch('http://127.0.0.1:7823/ingest/0f30680b-0aa0-4d4a-ba6d-262bf6a78290', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '456dbf' },
+          body: JSON.stringify({
+            sessionId: '456dbf',
+            hypothesisId: 'H7',
+            location: 'ResultsView.tsx:replyOrderingPlain',
+            message: 'sanitize changed length',
+            data: {
+              beforeLen: ptyMergedDisplayPlain.length,
+              afterLen: s.length,
+              tailHasFetch: /Fetch\s+https?:\/\//i.test(ptyMergedDisplayPlain.slice(-6000))
+            },
+            timestamp: Date.now()
+          })
+        }).catch(() => {});
+      }
+      // #endregion
       return s;
     })();
     return buildPtyForDisplayPlain({
