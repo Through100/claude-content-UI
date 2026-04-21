@@ -10,8 +10,9 @@ import {
   type ChatTurn,
   type ChatTurnWithEnd
 } from '../../shared/parsePtyTranscriptToMessages';
+import { textContainsClaudePermissionMenu } from '../../shared/claudeCodePtyPermissionMenu';
 import { isInkSpinnerTokenStatusLine } from '../../shared/inkSpinnerTokenStatusLine';
-import { segmentPtyAssistantDisplayBlocks } from '../../shared/segmentPtyDiffBlocks';
+import { extractLastChoiceMenuSnapshotForArchive, segmentPtyAssistantDisplayBlocks } from '../../shared/segmentPtyDiffBlocks';
 import { extractPtyLiveFooterLine } from '../../shared/extractPtyLiveFooterLine';
 import PtyAssistantBody, { PtyChoicePromptCard, type PtyMenuSlotBundle } from './PtyAssistantBody';
 
@@ -96,16 +97,35 @@ function menuSnapshotStillInAssistantText(assistantPlain: string, menuPlain: str
   return false;
 }
 
-/** Avoid two identical yellow cards while the live buffer still contains the same menu block. */
+/**
+ * Avoid two identical yellow cards while the live buffer still contains the same menu block.
+ * After interleave, the live menu may sit in the `__post` assistant while archived rows sit between
+ * `__pre` and `__post`, so we also scan **forward** for the next assistant chunk.
+ */
 function filterArchivedMenusHiddenWhileLiveDuplicate(rows: MergedRow[]): MergedRow[] {
   const out: MergedRow[] = [];
-  for (const row of rows) {
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
     if (row.kind === 'archivedMenu') {
-      const prev = out[out.length - 1];
+      let prevAsst = '';
+      for (let j = out.length - 1; j >= 0; j--) {
+        const r = out[j];
+        if (r.kind === 'pty' && r.turn.role === 'assistant') {
+          prevAsst = r.turn.text;
+          break;
+        }
+      }
+      let nextAsst = '';
+      for (let j = i + 1; j < rows.length; j++) {
+        const r = rows[j];
+        if (r.kind === 'pty' && r.turn.role === 'assistant') {
+          nextAsst = r.turn.text;
+          break;
+        }
+      }
       if (
-        prev?.kind === 'pty' &&
-        prev.turn.role === 'assistant' &&
-        menuSnapshotStillInAssistantText(prev.turn.text, row.archived.menuPlain)
+        menuSnapshotStillInAssistantText(prevAsst, row.archived.menuPlain) ||
+        menuSnapshotStillInAssistantText(nextAsst, row.archived.menuPlain)
       ) {
         continue;
       }
@@ -171,6 +191,36 @@ function partitionInterleavedHeadNoiseToTail(raw: string): [string, string] {
   }
   const headJoined = kept.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd();
   return [headJoined, pulled.join('\n')];
+}
+
+/**
+ * When the anchor split is off after several prompts, the **newest** permission menu can remain in
+ * `__pre` so the LIVE yellow card appears **above** older RECORDED cards. Peel the last menu block
+ * (same segmentation as archives) from `head` into `__post` when we are interleaving replies.
+ */
+function peelLastPermissionMenuChunkFromHead(headPlain: string): [string, string] {
+  const snapRaw = extractLastChoiceMenuSnapshotForArchive(headPlain);
+  if (!snapRaw?.trim() || !textContainsClaudePermissionMenu(snapRaw)) return [headPlain, ''];
+  const want = snapRaw.replace(/\r\n/g, '\n');
+  const h = headPlain.replace(/\r\n/g, '\n');
+  let from = h.lastIndexOf(want);
+  let matchLen = want.length;
+  if (from < 0) {
+    const w2 = want.trim();
+    from = h.lastIndexOf(w2);
+    if (from < 0) return [headPlain, ''];
+    matchLen = w2.length;
+  }
+  const end = from + matchLen;
+  const chunk = h.slice(from, end);
+  const before = h.slice(0, from);
+  const after = h.slice(end);
+  const headOut = [before.replace(/\s+$/, ''), after.replace(/^\s+/, '')]
+    .filter((x) => x.length > 0)
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trimEnd();
+  return [headOut, chunk];
 }
 
 /**
@@ -271,14 +321,23 @@ function interleaveArchivedWithinLastAssistant(
     headText = headParted;
     tailText = [noisePulled, tailText].filter((x) => x.trim().length > 0).join('\n');
   }
+  let menuPeelLen = 0;
+  if (tail.length > 0) {
+    const [hMenu, menuChunk] = peelLastPermissionMenuChunkFromHead(headText);
+    if (menuChunk.trim()) {
+      menuPeelLen = menuChunk.trim().length;
+      headText = hMenu;
+      tailText = [menuChunk, tailText].filter((x) => x.trim().length > 0).join('\n');
+    }
+  }
   // #region agent log
   fetch('http://127.0.0.1:7823/ingest/0f30680b-0aa0-4d4a-ba6d-262bf6a78290', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '456dbf' },
     body: JSON.stringify({
       sessionId: '456dbf',
-      runId: 'verify-v2',
-      hypothesisId: 'H4',
+      runId: 'verify-v3',
+      hypothesisId: 'H5',
       location: 'PtyMessengerThread.tsx:interleave',
       message: 'split last assistant for archived/manual',
       data: {
@@ -298,6 +357,7 @@ function interleaveArchivedWithinLastAssistant(
         relCut,
         partPulledLines: noisePulled ? noisePulled.split('\n').filter((l) => l.trim()).length : 0,
         partPulledNormLen: getPtyParseNormalizedPlain(noisePulled).length,
+        menuPeelLen,
         headNormLen: getPtyParseNormalizedPlain(headText).length,
         tailNormLen: getPtyParseNormalizedPlain(tailText).length,
         tailHasFetch: /\bFetch\s+https?:/i.test(tailText),
@@ -553,10 +613,10 @@ export default function PtyMessengerThread({
         .filter((m) => m.role === 'user' || m.text.trim().length > 0)
         .map((turn) => ({ kind: 'pty' as const, turn }));
     }
-    const merged = filterArchivedMenusHiddenWhileLiveDuplicate(
-      mergeParsedTurnsWithManualAndArchived(baseFiltered, manuals, archived)
-    );
-    return interleaveArchivedWithinLastAssistant(merged, transcript, baseFiltered);
+    const merged = mergeParsedTurnsWithManualAndArchived(baseFiltered, manuals, archived);
+    const filtered = filterArchivedMenusHiddenWhileLiveDuplicate(merged);
+    const interleaved = interleaveArchivedWithinLastAssistant(filtered, transcript, baseFiltered);
+    return filterArchivedMenusHiddenWhileLiveDuplicate(interleaved);
   }, [transcript, manualReplyBubbles, archivedChoiceMenus, displayTurns]);
 
   useEffect(() => {
