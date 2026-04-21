@@ -26,7 +26,6 @@ import {
   countPtyProceedPrompts,
   plainTailShowsAnswerablePermissionMenu,
   plainTextShowsClaudePermissionMenu,
-  resolvePermissionMenuReplyPayload,
   stripAnsiNormalizePtyMirror
 } from '../../shared/claudeCodePtyPermissionMenu';
 import { downloadElementAsPdf } from '../utils/downloadReportPdf';
@@ -184,14 +183,6 @@ export default function ResultsView({
   );
 
   /** Logon buffer tail looks like Claude Code’s idle welcome — “yes” has no pending question there. */
-  /** When set, Reply can map plain “yes”/“y” to the numbered choice Ink expects (verbatim letters are otherwise ignored by Claude Code). */
-  const permissionMenuPlainHint = useMemo(() => {
-    const chunk = `${ptyFullSnapshotPlain}\n${ptyDisplayPlain}`.slice(-28000);
-    const plain = stripAnsiNormalizePtyMirror(chunk);
-    /** Fetch / later prompts often omit Esc+Tab in the mirrored tail; still map yes/y → menu index. */
-    return plainTailShowsAnswerablePermissionMenu(plain) ? plain : null;
-  }, [ptyFullSnapshotPlain, ptyDisplayPlain]);
-
   const replyPanelWarnWelcomeSplash = useMemo(() => {
     const chunk = `${ptyFullSnapshotPlain}\n${ptyDisplayPlain}`.slice(-12000);
     /** Welcome text can linger in scrollback while a live permission menu is at the tail — don’t warn then. */
@@ -503,7 +494,6 @@ export default function ResultsView({
         <PtyReplyPanel
           warnHeadlessMenuReadOnly={replyPanelWarnHeadlessMenuReadOnly}
           warnWelcomeSplash={replyPanelWarnWelcomeSplash}
-          permissionMenuPlainHint={permissionMenuPlainHint}
           onReplySent={(text) =>
             setLastManualInput({
               text,
@@ -702,15 +692,12 @@ type PtyReplyPanelProps = {
   /** Finished headless output in Pretty looks like a Fetch/permission ask — Reply still targets the live PTY only. */
   warnHeadlessMenuReadOnly?: boolean;
   warnWelcomeSplash?: boolean;
-  /** Normalized PTY tail when Claude Code’s numbered permission menu is visible; used only to map yes/y → menu index. */
-  permissionMenuPlainHint?: string | null;
   onReplySent?: (text: string) => void;
 };
 
 function PtyReplyPanel({
   warnHeadlessMenuReadOnly = false,
   warnWelcomeSplash = false,
-  permissionMenuPlainHint = null,
   onReplySent
 }: PtyReplyPanelProps) {
   const { sendToPty, ptySessionReady } = usePtyBridge();
@@ -745,34 +732,11 @@ function PtyReplyPanel({
     };
 
     /**
-     * Send text then CR in separate writes (same as dashboard Run). A single buffer with text plus CR often echoes
-     * but does not submit for Claude Code / Ink prompts (e.g. “yes”, “1”, long URLs).
+     * Send exactly what the user typed, then optionally CR in a second write (Ink is picky about one combined write).
+     * Numbered menus in Claude Code usually expect `1`/`2`/`3` or Enter on the default row; raw `yes` is still sent if
+     * that is what they type.
      */
     const deliverLine = (): boolean => {
-      if (permissionMenuPlainHint) {
-        const r = resolvePermissionMenuReplyPayload(permissionMenuPlainHint, t);
-        if (r.mode === 'enter_default') {
-          /** Same as pressing Enter on the Ink default (❯) — not tied to “Append Enter after text”. */
-          return sendToPty('\r');
-        }
-        const payload = r.mode === 'digit' ? r.digit : r.text;
-        if (appendEnter && payload.trim()) {
-          const ok = sendToPty(payload);
-          if (!ok) return false;
-          window.setTimeout(() => {
-            void sendToPty('\r');
-          }, 100);
-          return true;
-        }
-        if (appendEnter && !payload.trim()) {
-          return sendToPty('\r');
-        }
-        if (payload) {
-          return sendToPty(payload);
-        }
-        return true;
-      }
-
       if (appendEnter && t.trim()) {
         const ok = sendToPty(t);
         if (!ok) return false;
@@ -854,7 +818,7 @@ function PtyReplyPanel({
         }}
         rows={4}
         spellCheck={false}
-        placeholder="Numbered menu: 1 / Yes / most text → option 1; 2 or “don’t ask again…” → 2; No → reject row; empty Send → Enter (default 1)."
+            placeholder="Sent as typed (e.g. 1, 2, yes). For Ink menus, use the option number or leave empty and Send with “Append Enter” for Enter. Raw “yes” may be ignored by Claude Code."
         className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none resize-y font-mono"
       />
       
