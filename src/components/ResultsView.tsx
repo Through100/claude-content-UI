@@ -22,6 +22,8 @@ import {
   isAwaitingPtyAssistantResponse,
   parsePtyTranscriptToMessages
 } from '../../shared/parsePtyTranscriptToMessages';
+import { extractLastChoiceMenuSnapshotForArchive } from '../../shared/segmentPtyDiffBlocks';
+import type { PtyArchivedChoiceMenu } from './PtyMessengerThread';
 import { motion, AnimatePresence } from 'motion/react';
 import { stripAnsi } from '../../shared/stripAnsi';
 import { inferClaudeActivity } from '../../shared/inferClaudeActivity';
@@ -91,6 +93,7 @@ export default function ResultsView({
   const [manualReplyBubbles, setManualReplyBubbles] = useState<
     { id: string; text: string; sentAt: number; transcriptLenAtSend: number }[]
   >([]);
+  const [archivedChoiceMenus, setArchivedChoiceMenus] = useState<PtyArchivedChoiceMenu[]>([]);
   const livePreRef = useRef<HTMLPreElement>(null);
   const prettyReportRef = useRef<HTMLDivElement>(null);
   const pdfAfterPrettySwitchRef = useRef(false);
@@ -152,6 +155,7 @@ export default function ResultsView({
   useEffect(() => {
     if (isHistoryEmbed) return;
     setManualReplyBubbles([]);
+    setArchivedChoiceMenus([]);
   }, [isHistoryEmbed, chatThreadKey, ptySessionGeneration]);
 
   const hasFreshPtyCapture =
@@ -492,6 +496,7 @@ export default function ResultsView({
                   ptySentAt={ptySentAt}
                   isLoading={isLoading}
                   manualReplyBubbles={manualReplyBubbles}
+                  archivedChoiceMenus={archivedChoiceMenus}
                 />
               )}
             </div>
@@ -520,6 +525,32 @@ export default function ResultsView({
           showNumberedMenuHint={replyPanelNumberedMenuHint}
           replyOrderingPlain={replyOrderingPlain}
           onReplySent={(payload) => {
+            const snap = payload.choiceMenuSnapshot?.trim();
+            if (snap) {
+              // #region agent log
+              fetch('http://127.0.0.1:7823/ingest/0f30680b-0aa0-4d4a-ba6d-262bf6a78290', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '456dbf' },
+                body: JSON.stringify({
+                  sessionId: '456dbf',
+                  hypothesisId: 'H3',
+                  location: 'ResultsView.tsx:onReplySent',
+                  message: 'archived choice menu',
+                  data: { snapLen: snap.length, snapHead: snap.slice(0, 100) },
+                  timestamp: Date.now()
+                })
+              }).catch(() => {});
+              // #endregion
+              setArchivedChoiceMenus((prev) => [
+                ...prev,
+                {
+                  id: `${Date.now()}-${Math.random().toString(36).slice(2, 11)}-menu`,
+                  menuPlain: snap,
+                  sentAt: payload.sentAt,
+                  transcriptLenAtSend: payload.transcriptLenAtSend
+                }
+              ]);
+            }
             if (!payload.text) return;
             setManualReplyBubbles((prev) => [
               ...prev,
@@ -725,7 +756,12 @@ type PtyReplyPanelProps = {
   showNumberedMenuHint?: boolean;
   /** Plain transcript Pretty shows (same normalization as the thread) — snapshot length anchors bubbles. */
   replyOrderingPlain: string;
-  onReplySent?: (payload: { text: string; sentAt: number; transcriptLenAtSend: number }) => void;
+  onReplySent?: (payload: {
+    text: string;
+    sentAt: number;
+    transcriptLenAtSend: number;
+    choiceMenuSnapshot?: string | null;
+  }) => void;
 };
 
 function PtyReplyPanel({
@@ -744,7 +780,6 @@ function PtyReplyPanel({
   const handleSend = () => {
     /** Only CRLF → LF; no trim — send exactly what is in the field (spaces, digits, words). */
     const normalized = text.replace(/\r\n/g, '\n');
-    const transcriptLenAtSend = getPtyParseNormalizedPlain(replyOrderingPlain).length;
     const sentAt = Date.now();
     if (normalized.length === 0 && !appendEnter) {
       setHint({ message: 'Type a reply first.', type: 'info' });
@@ -758,6 +793,9 @@ function PtyReplyPanel({
       return;
     }
 
+    const transcriptLenAtSend = getPtyParseNormalizedPlain(replyOrderingPlain).length;
+    const choiceMenuSnapshot = extractLastChoiceMenuSnapshotForArchive(replyOrderingPlain);
+
     setSending(true);
     setHint(null);
 
@@ -770,7 +808,7 @@ function PtyReplyPanel({
     const afterDelivered = () => {
       setHint({ message: 'Sent to the interactive PTY.', type: 'success' });
       if (normalized.length > 0) {
-        onReplySent?.({ text: normalized, sentAt, transcriptLenAtSend });
+        onReplySent?.({ text: normalized, sentAt, transcriptLenAtSend, choiceMenuSnapshot });
       }
       setText('');
       setTimeout(() => setHint((h) => (h?.type === 'success' ? null : h)), 4000);
@@ -1042,7 +1080,8 @@ function PrettyOutputView({
   ptySessionReady,
   ptySentAt = null,
   isLoading = false,
-  manualReplyBubbles = []
+  manualReplyBubbles = [],
+  archivedChoiceMenus = []
 }: {
   prettyMode: PrettyOutputMode;
   ptyTranscript: string;
@@ -1056,6 +1095,7 @@ function PrettyOutputView({
   ptySentAt?: number | null;
   isLoading?: boolean;
   manualReplyBubbles?: { id: string; text: string; sentAt: number; transcriptLenAtSend: number }[];
+  archivedChoiceMenus?: PtyArchivedChoiceMenu[];
 }) {
   /** Splash + spinner lines hidden here only; Logon / Raw stay full-fidelity. */
   const ptyForPretty = useMemo(() => {
@@ -1134,6 +1174,7 @@ function PrettyOutputView({
           awaitingHintSource={ptyTranscript}
           liveFooterPlainSource={liveFooterPlainSource}
           manualReplyBubbles={manualReplyBubbles}
+          archivedChoiceMenus={archivedChoiceMenus}
         />
       </>
     ) : (

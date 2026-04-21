@@ -132,13 +132,20 @@ function isClaudeMenuQuestionLine(line: string): boolean {
 }
 
 /**
- * One or two lines above “Do you want to allow…” that belong in the yellow PTY menu card (fetch URL + Claude line).
+ * Lines directly above “Do you want to …?” that belong in the yellow PTY menu card (fetch URL, tool read line, etc.).
+ * Kept narrow (length + patterns) so random prose above a menu is not swallowed.
  */
-function isFetchConsentLeadInLine(line: string): boolean {
+function isPermissionPromptLeadInLine(line: string): boolean {
   const t = (line ?? '').replace(/\r$/, '').trim();
   if (!t || t.length > 260) return false;
   if (/\bClaude wants to fetch\b/i.test(t)) return true;
   if (/^Fetch\s+\S+/i.test(t)) return true;
+  if (/^Read\s*\(/i.test(t)) return true;
+  if (/^Read\s+file\b/i.test(t)) return true;
+  if (/^Listed\s+\d+\s+files?\b/i.test(t)) return true;
+  if (/^Globbed\s+\S+/i.test(t)) return true;
+  if (/^Grep\s+\S+/i.test(t) && t.length < 140) return true;
+  if (/^⎿/.test(t)) return true;
   return false;
 }
 
@@ -228,12 +235,15 @@ function splitProseMenuAndRest(prose: string): { kind: 'menu' | 'prose'; text: s
       continue;
     }
 
-    /** Pull up to two fetch-context lines above the question (e.g. `Fetch https://…`, `Claude wants to fetch…`). */
+    /** Pull short tool/fetch context lines above the question (skip blank lines between). */
     let menuStart = start;
-    for (let step = 0; step < 2 && menuStart > i; step++) {
-      const prev = lines[menuStart - 1] ?? '';
-      if (isFetchConsentLeadInLine(prev)) {
-        menuStart--;
+    for (let step = 0; step < 4 && menuStart > i; step++) {
+      let scan = menuStart - 1;
+      while (scan >= i && !(lines[scan] ?? '').trim()) scan--;
+      if (scan < i) break;
+      const prev = lines[scan] ?? '';
+      if (isPermissionPromptLeadInLine(prev)) {
+        menuStart = scan;
       } else {
         break;
       }
@@ -243,7 +253,8 @@ function splitProseMenuAndRest(prose: string): { kind: 'menu' | 'prose'; text: s
       const before = lines.slice(i, menuStart);
       flushProse(before);
     }
-    out.push({ kind: 'menu', text: lines.slice(menuStart, footerJ + 1).join('\n') });
+    const menuText = lines.slice(menuStart, footerJ + 1).join('\n');
+    out.push({ kind: 'menu', text: menuText });
     i = footerJ + 1;
   }
 
@@ -385,4 +396,52 @@ export function segmentPtyAssistantDisplayBlocks(
     }
   }
   return out;
+}
+
+/** Last permission-menu block from the same segmentation as Pretty — used to archive the yellow card when the user replies. */
+export function extractLastChoiceMenuSnapshotForArchive(plain: string): string | null {
+  const parts = segmentPtyAssistantDisplayBlocks(plain);
+  for (let i = parts.length - 1; i >= 0; i--) {
+    if (parts[i].kind === 'menu') {
+      const t = parts[i].text.trim();
+      if (t.length > 0) {
+        // #region agent log
+        fetch('http://127.0.0.1:7823/ingest/0f30680b-0aa0-4d4a-ba6d-262bf6a78290', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '456dbf' },
+          body: JSON.stringify({
+            sessionId: '456dbf',
+            hypothesisId: 'H1',
+            location: 'segmentPtyDiffBlocks.ts:extractLastChoiceMenuSnapshotForArchive',
+            message: 'snapshot last menu',
+            data: {
+              menuLen: t.length,
+              head: t.slice(0, 160),
+              firstLine: (t.split('\n')[0] ?? '').trim().slice(0, 120),
+              menuStartsWithRead: /^Read\s*\(/i.test((t.split('\n')[0] ?? '').trim()),
+              hasReadAnywhere: /^Read\s*\(/im.test(t)
+            },
+            timestamp: Date.now()
+          })
+        }).catch(() => {});
+        // #endregion
+        return parts[i].text;
+      }
+    }
+  }
+  // #region agent log
+  fetch('http://127.0.0.1:7823/ingest/0f30680b-0aa0-4d4a-ba6d-262bf6a78290', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '456dbf' },
+    body: JSON.stringify({
+      sessionId: '456dbf',
+      hypothesisId: 'H2',
+      location: 'segmentPtyDiffBlocks.ts:extractLastChoiceMenuSnapshotForArchive',
+      message: 'no menu in plain',
+      data: { plainLen: plain.length },
+      timestamp: Date.now()
+    })
+  }).catch(() => {});
+  // #endregion
+  return null;
 }

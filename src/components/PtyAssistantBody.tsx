@@ -3,6 +3,34 @@ import { segmentPtyAssistantDisplayBlocks } from '../../shared/segmentPtyDiffBlo
 import { normalizeAsciiTableForPretty } from '../../shared/normalizeAsciiTableForPretty';
 import PrettyOutputBody from './PrettyOutputBody';
 
+/** Shared amber “choice prompt” card — live menus and recorded snapshots after Reply. */
+export function PtyChoicePromptCard({ text, recorded = false }: { text: string; recorded?: boolean }) {
+  return (
+    <div className="rounded-xl border border-amber-200/90 bg-amber-50/90 overflow-hidden shadow-sm">
+      <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-950/90 bg-amber-100/95 border-b border-amber-200">
+        {recorded ? 'PTY choice prompt (recorded)' : 'PTY choice prompt (display only)'}
+      </div>
+      <p className="m-0 px-3 py-2 text-[11px] leading-snug text-amber-950 border-b border-amber-100/80 bg-amber-50/95">
+        {recorded ? (
+          <>
+            Frozen copy from when you sent your reply below — the live PTY buffer may redraw; this keeps the menu
+            visible in the thread for context.
+          </>
+        ) : (
+          <>
+            This is what the terminal is showing (including fetch or tool lines above the question when present) —
+            Pretty does not send input. Choose an option in <strong>Logon</strong>, or use <strong>Reply below</strong>{' '}
+            to send text to the same PTY (Claude Code interprets your reply against the menu).
+          </>
+        )}
+      </p>
+      <pre className="m-0 max-h-[min(40vh,420px)] overflow-auto px-3 py-3 text-[11px] sm:text-[12px] leading-[1.45] font-mono text-amber-950 whitespace-pre">
+        {text}
+      </pre>
+    </div>
+  );
+}
+
 /** Renders Live PTY assistant text: diffs / ASCII pipe grids as monospace pre, everything else as Pretty markdown. */
 export default function PtyAssistantBody({ text }: { text: string }) {
   const parts = useMemo(() => segmentPtyAssistantDisplayBlocks(text), [text]);
@@ -31,21 +59,8 @@ export default function PtyAssistantBody({ text }: { text: string }) {
             </pre>
           </div>
         ) : p.kind === 'menu' ? (
-          <div
-            key={`m-${idx}`}
-            className="rounded-xl border border-amber-200/90 bg-amber-50/90 overflow-hidden shadow-sm"
-          >
-            <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-950/90 bg-amber-100/95 border-b border-amber-200">
-              PTY choice prompt (display only)
-            </div>
-            <p className="m-0 px-3 py-2 text-[11px] leading-snug text-amber-950 border-b border-amber-100/80 bg-amber-50/95">
-              This is what the terminal is showing (including fetch lines above the question when present) — Pretty
-              does not send input. Choose an option in <strong>Logon</strong>, or use <strong>Reply below</strong> to
-              send text to the same PTY (Claude Code interprets your reply against the menu).
-            </p>
-            <pre className="m-0 max-h-[min(40vh,420px)] overflow-auto px-3 py-3 text-[11px] sm:text-[12px] leading-[1.45] font-mono text-amber-950 whitespace-pre">
-              {p.text}
-            </pre>
+          <div key={`m-${idx}`}>
+            <PtyChoicePromptCard text={p.text} />
           </div>
         ) : p.kind === 'grid' ? (
           <div

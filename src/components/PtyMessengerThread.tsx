@@ -8,8 +8,9 @@ import {
   type ChatTurn,
   type ChatTurnWithEnd
 } from '../../shared/parsePtyTranscriptToMessages';
+import { segmentPtyAssistantDisplayBlocks } from '../../shared/segmentPtyDiffBlocks';
 import { extractPtyLiveFooterLine } from '../../shared/extractPtyLiveFooterLine';
-import PtyAssistantBody from './PtyAssistantBody';
+import PtyAssistantBody, { PtyChoicePromptCard } from './PtyAssistantBody';
 
 export type PtyManualReplyBubble = {
   id: string;
@@ -21,6 +22,14 @@ export type PtyManualReplyBubble = {
    * `getPtyParseNormalizedPlain(transcript)` length at send time — places the bubble after the PTY
    * content that was already on screen.
    */
+  transcriptLenAtSend: number;
+};
+
+export type PtyArchivedChoiceMenu = {
+  id: string;
+  /** Plain text of the yellow menu card at send time (same segmentation as live Pretty). */
+  menuPlain: string;
+  sentAt: number;
   transcriptLenAtSend: number;
 };
 
@@ -41,6 +50,8 @@ type PtyMessengerThreadProps = {
    * after the menu they answered, not at the very bottom.
    */
   manualReplyBubbles?: PtyManualReplyBubble[];
+  /** Frozen yellow menus captured when the user replied (live buffer may clear the menu). */
+  archivedChoiceMenus?: PtyArchivedChoiceMenu[];
 };
 
 /** Re-run footer extraction on this cadence so the status bar catches buffer updates even if React skips a frame. */
@@ -59,37 +70,102 @@ function formatBubbleTime(sentAt: number): string {
 }
 
 /** After turn index `i` (0-based), i.e. before turn `i+1`; `-1` = before all parsed turns. */
-function slotAfterTurn(manual: PtyManualReplyBubble, base: ChatTurnWithEnd[]): number {
+function slotAfterTranscriptOffset(offset: number, base: ChatTurnWithEnd[]): number {
   let slot = -1;
   for (let i = 0; i < base.length; i++) {
-    if (base[i].endOffset <= manual.transcriptLenAtSend) slot = i;
+    if (base[i].endOffset <= offset) slot = i;
     else break;
   }
   return slot;
 }
 
-function mergeParsedTurnsWithManualBubbles(
-  base: ChatTurnWithEnd[],
-  manuals: PtyManualReplyBubble[]
-): Array<{ kind: 'pty'; turn: ChatTurn } | { kind: 'manual'; manual: PtyManualReplyBubble }> {
-  const sorted = [...manuals].sort((a, b) => a.sentAt - b.sentAt || a.id.localeCompare(b.id));
-  const buckets: PtyManualReplyBubble[][] = Array.from({ length: base.length }, () => []);
-  const beforeAll: PtyManualReplyBubble[] = [];
-  for (const m of sorted) {
-    const s = slotAfterTurn(m, base);
-    if (s < 0) beforeAll.push(m);
-    else buckets[s].push(m);
+type MergedRow =
+  | { kind: 'pty'; turn: ChatTurn }
+  | { kind: 'manual'; manual: PtyManualReplyBubble }
+  | { kind: 'archivedMenu'; archived: PtyArchivedChoiceMenu };
+
+function menuSnapshotStillInAssistantText(assistantPlain: string, menuPlain: string): boolean {
+  const want = menuPlain.replace(/\r\n/g, '\n').trim();
+  if (!want) return false;
+  for (const p of segmentPtyAssistantDisplayBlocks(assistantPlain)) {
+    if (p.kind === 'menu' && p.text.replace(/\r\n/g, '\n').trim() === want) return true;
   }
-  const out: Array<{ kind: 'pty'; turn: ChatTurn } | { kind: 'manual'; manual: PtyManualReplyBubble }> = [];
-  for (const m of beforeAll) {
-    out.push({ kind: 'manual', manual: m });
+  return false;
+}
+
+/** Avoid two identical yellow cards while the live buffer still contains the same menu block. */
+function filterArchivedMenusHiddenWhileLiveDuplicate(rows: MergedRow[]): MergedRow[] {
+  const out: MergedRow[] = [];
+  for (const row of rows) {
+    if (row.kind === 'archivedMenu') {
+      const prev = out[out.length - 1];
+      if (
+        prev?.kind === 'pty' &&
+        prev.turn.role === 'assistant' &&
+        menuSnapshotStillInAssistantText(prev.turn.text, row.archived.menuPlain)
+      ) {
+        continue;
+      }
+    }
+    out.push(row);
+  }
+  return out;
+}
+
+type AnchoredForMerge =
+  | { flavour: 'manual'; transcriptLenAtSend: number; sentAt: number; id: string; manual: PtyManualReplyBubble }
+  | { flavour: 'archived'; transcriptLenAtSend: number; sentAt: number; id: string; archived: PtyArchivedChoiceMenu };
+
+function mergeParsedTurnsWithManualAndArchived(
+  base: ChatTurnWithEnd[],
+  manuals: PtyManualReplyBubble[],
+  archivedMenus: PtyArchivedChoiceMenu[]
+): MergedRow[] {
+  const anchored: AnchoredForMerge[] = [
+    ...manuals.map((m) => ({
+      flavour: 'manual' as const,
+      transcriptLenAtSend: m.transcriptLenAtSend,
+      sentAt: m.sentAt,
+      id: m.id,
+      manual: m
+    })),
+    ...archivedMenus.map((a) => ({
+      flavour: 'archived' as const,
+      transcriptLenAtSend: a.transcriptLenAtSend,
+      sentAt: a.sentAt,
+      id: a.id,
+      archived: a
+    }))
+  ];
+  const sortedAnchored = [...anchored].sort((x, y) => {
+    const sx = slotAfterTranscriptOffset(x.transcriptLenAtSend, base);
+    const sy = slotAfterTranscriptOffset(y.transcriptLenAtSend, base);
+    if (sx !== sy) return sx - sy;
+    if (x.sentAt !== y.sentAt) return x.sentAt - y.sentAt;
+    if (x.flavour === y.flavour) return x.id.localeCompare(y.id);
+    return x.flavour === 'archived' ? -1 : 1;
+  });
+
+  const buckets: AnchoredForMerge[][] = Array.from({ length: base.length }, () => []);
+  const beforeAll: AnchoredForMerge[] = [];
+  for (const item of sortedAnchored) {
+    const s = slotAfterTranscriptOffset(item.transcriptLenAtSend, base);
+    if (s < 0) beforeAll.push(item);
+    else buckets[s].push(item);
+  }
+
+  const out: MergedRow[] = [];
+  for (const item of beforeAll) {
+    if (item.flavour === 'manual') out.push({ kind: 'manual', manual: item.manual });
+    else out.push({ kind: 'archivedMenu', archived: item.archived });
   }
   for (let i = 0; i < base.length; i++) {
     const { endOffset, ...turn } = base[i];
     void endOffset;
     out.push({ kind: 'pty', turn });
-    for (const m of buckets[i]) {
-      out.push({ kind: 'manual', manual: m });
+    for (const item of buckets[i]) {
+      if (item.flavour === 'manual') out.push({ kind: 'manual', manual: item.manual });
+      else out.push({ kind: 'archivedMenu', archived: item.archived });
     }
   }
   return out;
@@ -144,7 +220,8 @@ export default function PtyMessengerThread({
   transcript,
   awaitingHintSource,
   liveFooterPlainSource,
-  manualReplyBubbles = []
+  manualReplyBubbles = [],
+  archivedChoiceMenus = []
 }: PtyMessengerThreadProps) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const stickBottomRef = useRef(true);
@@ -182,19 +259,22 @@ export default function PtyMessengerThread({
     const baseWithEnds = parsePtyTranscriptToMessagesForPrettyLayout(transcript);
     const baseFiltered = baseWithEnds.filter((m) => m.role === 'user' || m.text.trim().length > 0);
     const manuals = (manualReplyBubbles ?? []).filter((b) => b.text.length > 0);
-    if (manuals.length === 0) {
+    const archived = (archivedChoiceMenus ?? []).filter((a) => a.menuPlain.trim().length > 0);
+    if (manuals.length === 0 && archived.length === 0) {
       return displayTurns
         .filter((m) => m.role === 'user' || m.text.trim().length > 0)
         .map((turn) => ({ kind: 'pty' as const, turn }));
     }
-    return mergeParsedTurnsWithManualBubbles(baseFiltered, manuals);
-  }, [transcript, manualReplyBubbles, displayTurns]);
+    return filterArchivedMenusHiddenWhileLiveDuplicate(
+      mergeParsedTurnsWithManualAndArchived(baseFiltered, manuals, archived)
+    );
+  }, [transcript, manualReplyBubbles, archivedChoiceMenus, displayTurns]);
 
   useEffect(() => {
     const el = scrollerRef.current;
     if (!el || !stickBottomRef.current) return;
     el.scrollTop = el.scrollHeight;
-  }, [transcript, showThinking, liveFooterLine, manualReplyBubbles, mergedRows]);
+  }, [transcript, showThinking, liveFooterLine, manualReplyBubbles, archivedChoiceMenus, mergedRows]);
 
   const onScroll = () => {
     const el = scrollerRef.current;
@@ -276,6 +356,19 @@ export default function PtyMessengerThread({
                 </div>
               </div>
             )
+          ) : row.kind === 'archivedMenu' ? (
+            <div key={row.archived.id} className="flex justify-start w-full">
+              <div className="w-full max-w-[min(100%,44rem)] md:max-w-[56rem] pr-2 md:pr-16 flex flex-col gap-1">
+                <PtyChoicePromptCard text={row.archived.menuPlain} recorded />
+                <time
+                  className="text-[10px] font-medium text-amber-900/50 tabular-nums"
+                  dateTime={new Date(row.archived.sentAt).toISOString()}
+                  title={`Recorded at ${new Date(row.archived.sentAt).toISOString()}`}
+                >
+                  {formatBubbleTime(row.archived.sentAt)}
+                </time>
+              </div>
+            </div>
           ) : (
             <div key={row.manual.id} className="flex justify-end w-full">
               <div className="max-w-[min(100%,85%)] sm:max-w-[32rem] pl-8 sm:pl-12 flex flex-col items-end gap-1">
