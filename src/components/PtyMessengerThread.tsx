@@ -118,6 +118,14 @@ function findLastAssistantRowIndexWithMenu(rows: MergedRow[]): number | null {
   return null;
 }
 
+function findLastAssistantRowIndex(rows: MergedRow[]): number | null {
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const r = rows[i];
+    if (r.kind === 'pty' && r.turn.role === 'assistant') return i;
+  }
+  return null;
+}
+
 function menuSnapshotStillInAssistantText(assistantPlain: string, menuPlain: string): boolean {
   const want = menuPlain.replace(/\r\n/g, '\n').trim();
   if (!want) return false;
@@ -758,36 +766,68 @@ export default function PtyMessengerThread({
   }, [transcript, manualReplyBubbles, archivedChoiceMenus, displayTurns, showThinking]);
 
   /**
-   * When a live choice menu exists: keep **merge order** for recorded yellow cards; detach live menus; while
-   * thinking, peel the `__pre` tool stream into `thinkingSplit` so it renders above the pinned live card.
+   * Live yellow menus: pin to bottom when present. Tool / status stream: peel from `__pre` whenever
+   * `showThinking` so after a menu becomes **recorded** (no live pin) ongoing work still sits under yellow cards.
    */
   const prettyPinnedMenusLayout = useMemo(() => {
     const liveIdx = findLastAssistantRowIndexWithMenu(mergedRows);
-    const usePinned = liveIdx !== null;
+    const hasLiveMenuPin = liveIdx !== null;
     const liveDetachTurn =
-      usePinned && liveIdx !== null && mergedRows[liveIdx]!.kind === 'pty'
+      hasLiveMenuPin && liveIdx !== null && mergedRows[liveIdx]!.kind === 'pty'
         ? mergedRows[liveIdx]!.turn
         : null;
 
     let thinkingSplit: { turnId: string; displayHead: string; displayTail: string } | null = null;
-    if (usePinned && showThinking && liveIdx !== null) {
-      const liveRow = mergedRows[liveIdx];
-      if (liveRow.kind === 'pty' && liveRow.turn.role === 'assistant' && liveRow.turn.id.endsWith('__post')) {
-        const base = liveRow.turn.id.replace(/__post$/u, '');
-        const preId = `${base}__pre`;
-        const preRow = mergedRows.find(
-          (r) => r.kind === 'pty' && r.turn.role === 'assistant' && r.turn.id === preId
-        );
-        if (preRow && preRow.kind === 'pty') {
-          const { head, tail } = splitPinnedAssistantStreamHeadTail(preRow.turn.text);
-          if (tail.trim()) {
-            thinkingSplit = { turnId: preRow.turn.id, displayHead: head, displayTail: tail };
+    const trySplitAssistantTurn = (turn: ChatTurn) => {
+      const { head, tail } = splitPinnedAssistantStreamHeadTail(turn.text);
+      if (tail.trim()) {
+        thinkingSplit = { turnId: turn.id, displayHead: head, displayTail: tail };
+      }
+    };
+
+    if (showThinking) {
+      if (liveIdx !== null) {
+        const liveRow = mergedRows[liveIdx];
+        if (liveRow.kind === 'pty' && liveRow.turn.role === 'assistant') {
+          if (liveRow.turn.id.endsWith('__post')) {
+            const base = liveRow.turn.id.replace(/__post$/u, '');
+            const preId = `${base}__pre`;
+            const preRow = mergedRows.find(
+              (r) => r.kind === 'pty' && r.turn.role === 'assistant' && r.turn.id === preId
+            );
+            if (preRow && preRow.kind === 'pty') trySplitAssistantTurn(preRow.turn);
+          } else {
+            trySplitAssistantTurn(liveRow.turn);
           }
+        }
+      }
+      if (!thinkingSplit) {
+        for (let i = mergedRows.length - 1; i >= 0; i--) {
+          const r = mergedRows[i];
+          if (r.kind === 'pty' && r.turn.role === 'assistant' && r.turn.id.endsWith('__pre')) {
+            trySplitAssistantTurn(r.turn);
+            break;
+          }
+        }
+      }
+      if (!thinkingSplit) {
+        const lastAsst = findLastAssistantRowIndex(mergedRows);
+        if (lastAsst !== null) {
+          const r = mergedRows[lastAsst];
+          if (r.kind === 'pty') trySplitAssistantTurn(r.turn);
         }
       }
     }
 
-    return { usePinned, liveIdx, liveDetachTurn, thinkingSplit };
+    const usePrettyTailWell = hasLiveMenuPin || Boolean(thinkingSplit?.displayTail.trim());
+
+    return {
+      hasLiveMenuPin,
+      usePrettyTailWell,
+      liveIdx,
+      liveDetachTurn,
+      thinkingSplit
+    };
   }, [mergedRows, showThinking]);
 
   /**
@@ -803,13 +843,14 @@ export default function PtyMessengerThread({
     const last = turns[turns.length - 1];
     if (!last || last.role !== 'assistant') return liveFooterLine;
     const bodyRaw = last.text.replace(/\r\n/g, '\n');
-    const body = prettyPinnedMenusLayout.usePinned
-      ? stripInkStatusFooterLinesFromAssistantPlain(bodyRaw)
-      : bodyRaw;
+    const body =
+      prettyPinnedMenusLayout.hasLiveMenuPin || prettyPinnedMenusLayout.thinkingSplit
+        ? stripInkStatusFooterLinesFromAssistantPlain(bodyRaw)
+        : bodyRaw;
     const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
     if (norm(body).includes(norm(line))) return null;
     return liveFooterLine;
-  }, [liveFooterLine, displayTurns, prettyPinnedMenusLayout.usePinned]);
+  }, [liveFooterLine, displayTurns, prettyPinnedMenusLayout.hasLiveMenuPin, prettyPinnedMenusLayout.thinkingSplit]);
 
   const showActivityRow = showThinking || Boolean(liveFooterLineDeduped);
 
@@ -823,9 +864,10 @@ export default function PtyMessengerThread({
         const ts = prettyPinnedMenusLayout.thinkingSplit;
         const baseTurn =
           ts && row.turn.id === ts.turnId ? { ...row.turn, text: ts.displayHead } : row.turn;
-        const displayTurn = prettyPinnedMenusLayout.usePinned
-          ? { ...baseTurn, text: stripInkStatusFooterLinesFromAssistantPlain(baseTurn.text) }
-          : baseTurn;
+        const displayTurn =
+          prettyPinnedMenusLayout.hasLiveMenuPin || prettyPinnedMenusLayout.thinkingSplit
+            ? { ...baseTurn, text: stripInkStatusFooterLinesFromAssistantPlain(baseTurn.text) }
+            : baseTurn;
         return shouldRenderPtyAssistantBubble(displayTurn.text, detachLiveMenus ? 'omit' : 'inline') ? (
           <div key={row.turn.id} className="flex justify-start w-full">
             <div className="w-full max-w-[min(100%,44rem)] md:max-w-[56rem] pr-2 md:pr-16">
@@ -972,7 +1014,7 @@ export default function PtyMessengerThread({
         aria-live="polite"
         aria-relevant="additions"
       >
-        {prettyPinnedMenusLayout.usePinned ? (
+        {prettyPinnedMenusLayout.usePrettyTailWell ? (
           <>
             {mergedRows.map((row, i) =>
               renderPrettyThreadRow(
@@ -1028,7 +1070,7 @@ export default function PtyMessengerThread({
         ) : (
           mergedRows.map((row) => renderPrettyThreadRow(row, false))
         )}
-        {!prettyPinnedMenusLayout.usePinned && (showActivityRow || statusWellLatched) ? (
+        {!prettyPinnedMenusLayout.usePrettyTailWell && (showActivityRow || statusWellLatched) ? (
           <div className="flex flex-col justify-start shrink-0 w-full">
             {tailStatusStack}
             {latchedEmptyReserve}

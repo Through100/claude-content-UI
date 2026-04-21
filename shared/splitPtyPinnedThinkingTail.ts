@@ -7,6 +7,13 @@ function isThinkingActivityStartLine(line: string): boolean {
   const t = (line ?? '').replace(/\r/g, '').trim();
   if (!t) return false;
   if (/^\s*●\s+.+\(/u.test(t) && t.length < 420) return true;
+  if (
+    /^\s*●\s+[A-Za-z]{4,40}ing\b/i.test(t) &&
+    t.length < 420 &&
+    (/\b\d+\s*tokens?\b/i.test(t) || /\(\s*\d+[smh]/i.test(t))
+  ) {
+    return true;
+  }
   if (/^\s*Web Search\(/i.test(t)) return true;
   if (/^\s*WebFetch\(/i.test(t)) return true;
   if (/^\s*⎿\s*Fetch\b/i.test(t)) return true;
