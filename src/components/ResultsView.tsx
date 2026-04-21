@@ -536,20 +536,6 @@ export default function ResultsView({
           onReplySent={(payload) => {
             const snap = payload.choiceMenuSnapshot?.trim();
             if (snap) {
-              // #region agent log
-              fetch('http://127.0.0.1:7823/ingest/0f30680b-0aa0-4d4a-ba6d-262bf6a78290', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '456dbf' },
-                body: JSON.stringify({
-                  sessionId: '456dbf',
-                  hypothesisId: 'H3',
-                  location: 'ResultsView.tsx:onReplySent',
-                  message: 'archived choice menu',
-                  data: { snapLen: snap.length, snapHead: snap.slice(0, 100) },
-                  timestamp: Date.now()
-                })
-              }).catch(() => {});
-              // #endregion
               setArchivedChoiceMenus((prev) => [
                 ...prev,
                 {
@@ -837,29 +823,6 @@ function PtyReplyPanel({
       const bulkBeforeCrMs = 220;
       const flatLen = forPty.replace(/\n/g, '').length;
       const shortEnough = flatLen <= 512;
-
-      // #region agent log
-      if (/^[2-9]$/.test(forPty)) {
-        fetch('http://127.0.0.1:7823/ingest/0f30680b-0aa0-4d4a-ba6d-262bf6a78290', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '456dbf' },
-          body: JSON.stringify({
-            sessionId: '456dbf',
-            hypothesisId: 'H11',
-            location: 'ResultsView.tsx:tryDeliver',
-            message: 'menu digit 2-9 path',
-            data: {
-              forPty,
-              beforeCrMs,
-              appendEnter,
-              normalizedLen: normalized.length,
-              trimmedLen: trimmedField.length
-            },
-            timestamp: Date.now()
-          })
-        }).catch(() => {});
-      }
-      // #endregion
 
       if (forPty.length > 0 && shortEnough) {
         for (const ch of forPty) {

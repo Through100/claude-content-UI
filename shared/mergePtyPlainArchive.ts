@@ -69,20 +69,5 @@ export function snapMergedPtyTailToLiveFullSnapshot(
   const liveSuffix = live.slice(-suffixLen);
   if (m.slice(cut) === liveSuffix) return merged;
 
-  const patched = m.slice(0, cut) + liveSuffix;
-  // #region agent log
-  fetch('http://127.0.0.1:7823/ingest/0f30680b-0aa0-4d4a-ba6d-262bf6a78290', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '456dbf' },
-    body: JSON.stringify({
-      sessionId: '456dbf',
-      hypothesisId: 'H13',
-      location: 'mergePtyPlainArchive.ts:snapMergedPtyTailToLiveFullSnapshot',
-      message: 'pretty tail snapped to live snapshot',
-      data: { mergedLen: m.length, liveLen: live.length, cut, suffixLen },
-      timestamp: Date.now()
-    })
-  }).catch(() => {});
-  // #endregion
-  return patched;
+  return m.slice(0, cut) + liveSuffix;
 }
