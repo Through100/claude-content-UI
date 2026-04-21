@@ -802,8 +802,11 @@ function PtyReplyPanel({
     /**
      * Claude Code Ink “1. Yes” lists read the digit, not the letters y-e-s. Send `1` to the PTY when the
      * field is only “yes” (trimmed, case-insensitive); bubbles still record what they typed.
+     * Lone digits 1–9 must use trimmed text only — a trailing `\n` in the textarea would otherwise send `2\r\r`.
      */
-    const forPty = normalized.trim().toLowerCase() === 'yes' ? '1' : normalized;
+    const trimmedField = normalized.trim();
+    const forPty =
+      trimmedField.toLowerCase() === 'yes' ? '1' : /^[1-9]$/.test(trimmedField) ? trimmedField : normalized;
 
     const afterDelivered = () => {
       setHint({ message: 'Sent to the interactive PTY.', type: 'success' });
@@ -820,10 +823,34 @@ function PtyReplyPanel({
      */
     const tryDeliver = async (): Promise<boolean> => {
       const interKeyMs = 22;
-      const beforeCrMs = 95;
+      /** Options 2–9 often need a beat after the digit before CR so Ink applies the choice (1 stays snappier). */
+      const beforeCrMs = /^[2-9]$/.test(forPty) ? 320 : 95;
       const bulkBeforeCrMs = 220;
       const flatLen = forPty.replace(/\n/g, '').length;
       const shortEnough = flatLen <= 512;
+
+      // #region agent log
+      if (/^[2-9]$/.test(forPty)) {
+        fetch('http://127.0.0.1:7823/ingest/0f30680b-0aa0-4d4a-ba6d-262bf6a78290', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '456dbf' },
+          body: JSON.stringify({
+            sessionId: '456dbf',
+            hypothesisId: 'H11',
+            location: 'ResultsView.tsx:tryDeliver',
+            message: 'menu digit 2-9 path',
+            data: {
+              forPty,
+              beforeCrMs,
+              appendEnter,
+              normalizedLen: normalized.length,
+              trimmedLen: trimmedField.length
+            },
+            timestamp: Date.now()
+          })
+        }).catch(() => {});
+      }
+      // #endregion
 
       if (forPty.length > 0 && shortEnough) {
         for (const ch of forPty) {
