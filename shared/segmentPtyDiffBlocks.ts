@@ -132,6 +132,17 @@ function isClaudeMenuQuestionLine(line: string): boolean {
 }
 
 /**
+ * One or two lines above “Do you want to allow…” that belong in the yellow PTY menu card (fetch URL + Claude line).
+ */
+function isFetchConsentLeadInLine(line: string): boolean {
+  const t = (line ?? '').replace(/\r$/, '').trim();
+  if (!t || t.length > 260) return false;
+  if (/\bClaude wants to fetch\b/i.test(t)) return true;
+  if (/^Fetch\s+\S+/i.test(t)) return true;
+  return false;
+}
+
+/**
  * Split prose segments so Claude Code permission rows (`Do you want to …?`, `1. Yes`, `Esc to cancel`) are not fed
  * through markdown list rendering (which looked like an auto-sent user choice).
  */
@@ -217,11 +228,22 @@ function splitProseMenuAndRest(prose: string): { kind: 'menu' | 'prose'; text: s
       continue;
     }
 
-    if (start > i) {
-      const before = lines.slice(i, start);
+    /** Pull up to two fetch-context lines above the question (e.g. `Fetch https://…`, `Claude wants to fetch…`). */
+    let menuStart = start;
+    for (let step = 0; step < 2 && menuStart > i; step++) {
+      const prev = lines[menuStart - 1] ?? '';
+      if (isFetchConsentLeadInLine(prev)) {
+        menuStart--;
+      } else {
+        break;
+      }
+    }
+
+    if (menuStart > i) {
+      const before = lines.slice(i, menuStart);
       flushProse(before);
     }
-    out.push({ kind: 'menu', text: lines.slice(start, footerJ + 1).join('\n') });
+    out.push({ kind: 'menu', text: lines.slice(menuStart, footerJ + 1).join('\n') });
     i = footerJ + 1;
   }
 
