@@ -615,12 +615,14 @@ export default function ResultsView({
               ]);
             }
             if (!payload.text) return;
+            /** Same `Date.now()` as the archived snapshot in one Send — nudge so bubble time ≠ card time. */
+            const bubbleSentAt = snap ? payload.sentAt + 1 : payload.sentAt;
             setManualReplyBubbles((prev) => [
               ...prev,
               {
                 id: `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
                 text: payload.text,
-                sentAt: payload.sentAt,
+                sentAt: bubbleSentAt,
                 transcriptLenAtSend: payload.transcriptLenAtSend
               }
             ]);

@@ -8,10 +8,19 @@ function formatChoiceCardTime(ms: number): string {
     return new Date(ms).toLocaleTimeString(undefined, {
       hour: '2-digit',
       minute: '2-digit',
-      second: '2-digit'
+      second: '2-digit',
+      fractionalSecondDigits: 3
     });
   } catch {
-    return '';
+    try {
+      return new Date(ms).toLocaleTimeString(undefined, {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      });
+    } catch {
+      return '';
+    }
   }
 }
 
@@ -117,6 +126,8 @@ function reconcileLiveMenuSlots(
   if (curTexts.length === 0) return [];
   const used = new Set<number>();
   const out: PtyLiveMenuSlot[] = [];
+  /** Several new menus in one render tick share the same `Date` second; stagger ms so labels differ. */
+  let newSlotStaggerMs = 0;
   for (let i = 0; i < curTexts.length; i++) {
     const text = curTexts[i];
     const k = findPrevSlotIndex(text, i, prevSlots, used);
@@ -125,7 +136,11 @@ function reconcileLiveMenuSlots(
       const p = prevSlots[k];
       out.push({ id: p.id, shownAt: p.shownAt, text });
     } else {
-      out.push({ id: nextId.current++, shownAt: wallMsFromPerformanceNow(), text });
+      out.push({
+        id: nextId.current++,
+        shownAt: Math.round(wallMsFromPerformanceNow()) + newSlotStaggerMs++,
+        text
+      });
     }
   }
   return out;

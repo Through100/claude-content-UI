@@ -61,15 +61,25 @@ type PtyMessengerThreadProps = {
 /** Re-run footer extraction on this cadence so the status bar catches buffer updates even if React skips a frame. */
 const PRETTY_FOOTER_POLL_MS = 4000;
 
+/** PTY thread labels — include milliseconds so back-to-back menus/replies in the same second stay distinguishable. */
 function formatBubbleTime(sentAt: number): string {
   try {
     return new Date(sentAt).toLocaleTimeString(undefined, {
       hour: '2-digit',
       minute: '2-digit',
-      second: '2-digit'
+      second: '2-digit',
+      fractionalSecondDigits: 3
     });
   } catch {
-    return '';
+    try {
+      return new Date(sentAt).toLocaleTimeString(undefined, {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      });
+    } catch {
+      return '';
+    }
   }
 }
 
@@ -574,10 +584,14 @@ export default function PtyMessengerThread({
     if (!transcript.trim()) ptyMenuSlotBundlesRef.current.clear();
   }, [transcript]);
 
+  /** `interleaveArchivedWithinLastAssistant` uses `a-3__pre` / `a-3__post`; share one slot bundle so menu clocks survive the split. */
+  const menuBundleTurnKey = (turnId: string) => turnId.replace(/__(?:pre|post)$/u, '');
+
   const menuSlotBundleForTurn = (turnId: string): PtyMenuSlotBundle => {
     const m = ptyMenuSlotBundlesRef.current;
-    if (!m.has(turnId)) m.set(turnId, { slots: [], nextId: 0 });
-    return m.get(turnId)!;
+    const key = menuBundleTurnKey(turnId);
+    if (!m.has(key)) m.set(key, { slots: [], nextId: 0 });
+    return m.get(key)!;
   };
 
   const turnsRaw = useMemo(() => parsePtyTranscriptToMessages(transcript), [transcript]);
