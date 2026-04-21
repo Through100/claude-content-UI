@@ -198,9 +198,38 @@ export default function ResultsView({
    * to the live xterm full snapshot so Pretty matches Raw / Logon.
    */
   const ptyMergedDisplayPlain = useMemo(
-    () => snapMergedPtyTailToLiveFullSnapshot(ptyMergedArchive, ptyPlainForMerge, 36_000),
+    () => snapMergedPtyTailToLiveFullSnapshot(ptyMergedArchive, ptyPlainForMerge, 96_000),
     [ptyMergedArchive, ptyPlainForMerge]
   );
+
+  // #region agent log
+  useEffect(() => {
+    if (isHistoryEmbed) return;
+    const tail = (s: string) => s.replace(/\r\n/g, '\n').slice(-14_000);
+    const countFetchAsks = (s: string) => ((tail(s).match(/\bDo you want to allow Claude to fetch\b/gi) ?? []).length);
+    const mc = countFetchAsks(ptyMergedDisplayPlain);
+    const lc = countFetchAsks(ptyPlainForMerge);
+    if (lc > mc) {
+      fetch('http://127.0.0.1:7823/ingest/0f30680b-0aa0-4d4a-ba6d-262bf6a78290', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '456dbf' },
+        body: JSON.stringify({
+          sessionId: '456dbf',
+          hypothesisId: 'H14',
+          location: 'ResultsView.tsx:fetchAskTailDrift',
+          message: 'live tail has more fetch consent asks than merged Pretty tail',
+          data: {
+            mergedLen: ptyMergedDisplayPlain.length,
+            liveLen: ptyPlainForMerge.length,
+            mergedFetchAsksInTail: mc,
+            liveFetchAsksInTail: lc
+          },
+          timestamp: Date.now()
+        })
+      }).catch(() => {});
+    }
+  }, [isHistoryEmbed, ptyMergedDisplayPlain, ptyPlainForMerge]);
+  // #endregion
 
   /** Same plain string Pretty uses for the thread — anchors Reply bubbles in transcript order. */
   const replyOrderingPlain = useMemo(() => {
@@ -532,7 +561,7 @@ export default function ResultsView({
                 </div>
               ) : (
                 <PrettyOutputView
-                  key={`pretty-${prettyMode}-${chatThreadKey}`}
+                  key={`pretty-${chatThreadKey}`}
                   prettyMode={prettyMode}
                   ptyTranscript={ptyMergedDisplayPlain}
                   liveFooterPlainSource={ptyDisplayPlain}

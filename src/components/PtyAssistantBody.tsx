@@ -71,7 +71,10 @@ export function PtyChoicePromptCard({ text, recorded = false, shownAt = null }: 
   );
 }
 
-type LiveMenuSlot = { id: number; shownAt: number; text: string };
+export type PtyLiveMenuSlot = { id: number; shownAt: number; text: string };
+
+/** Mutable bundle so first-seen menu clocks survive `PtyAssistantBody` remounts (parent key changes). */
+export type PtyMenuSlotBundle = { slots: PtyLiveMenuSlot[]; nextId: number };
 
 function wallMsFromPerformanceNow(): number {
   return Math.round(performance.timeOrigin + performance.now());
@@ -88,7 +91,7 @@ function sameMenuEvolution(prevText: string, curText: string): boolean {
 function findPrevSlotIndex(
   curText: string,
   orderIndex: number,
-  prev: LiveMenuSlot[],
+  prev: PtyLiveMenuSlot[],
   used: Set<number>
 ): number | null {
   if (orderIndex < prev.length && !used.has(orderIndex) && sameMenuEvolution(prev[orderIndex].text, curText)) {
@@ -106,10 +109,14 @@ function findPrevSlotIndex(
  * streaming the same prompt keeps the first time. Multiple new menus in one update get distinct
  * high-resolution times via performance.now().
  */
-function reconcileLiveMenuSlots(curTexts: string[], prevSlots: LiveMenuSlot[], nextId: { current: number }): LiveMenuSlot[] {
+function reconcileLiveMenuSlots(
+  curTexts: string[],
+  prevSlots: PtyLiveMenuSlot[],
+  nextId: { current: number }
+): PtyLiveMenuSlot[] {
   if (curTexts.length === 0) return [];
   const used = new Set<number>();
-  const out: LiveMenuSlot[] = [];
+  const out: PtyLiveMenuSlot[] = [];
   for (let i = 0; i < curTexts.length; i++) {
     const text = curTexts[i];
     const k = findPrevSlotIndex(text, i, prevSlots, used);
@@ -124,19 +131,38 @@ function reconcileLiveMenuSlots(curTexts: string[], prevSlots: LiveMenuSlot[], n
   return out;
 }
 
+type PtyAssistantBodyProps = {
+  text: string;
+  /**
+   * When provided, live menu first-seen timestamps are stored on this object (keyed by parent turn),
+   * so they survive remounts when the Pretty pane’s React key changes.
+   */
+  menuSlotBundle?: PtyMenuSlotBundle | null;
+};
+
 /** Renders Live PTY assistant text: diffs / ASCII pipe grids as monospace pre, everything else as Pretty markdown. */
-export default function PtyAssistantBody({ text }: { text: string }) {
-  const menuSlotsRef = useRef<LiveMenuSlot[]>([]);
-  const menuNextIdRef = useRef(0);
+export default function PtyAssistantBody({ text, menuSlotBundle = null }: PtyAssistantBodyProps) {
+  const internalSlotsRef = useRef<PtyLiveMenuSlot[]>([]);
+  const internalNextIdRef = useRef(0);
   const parts = useMemo(() => segmentPtyAssistantDisplayBlocks(text), [text]);
 
   if (parts.length === 0) {
-    menuSlotsRef.current = [];
+    if (menuSlotBundle) {
+      menuSlotBundle.slots = [];
+      menuSlotBundle.nextId = 0;
+    } else {
+      internalSlotsRef.current = [];
+    }
     return <PrettyOutputBody text={text} />;
   }
 
   if (parts.length === 1 && parts[0].kind === 'prose') {
-    menuSlotsRef.current = [];
+    if (menuSlotBundle) {
+      menuSlotBundle.slots = [];
+      menuSlotBundle.nextId = 0;
+    } else {
+      internalSlotsRef.current = [];
+    }
     return <PrettyOutputBody text={parts[0].text} />;
   }
 
@@ -144,10 +170,25 @@ export default function PtyAssistantBody({ text }: { text: string }) {
   for (const p of parts) {
     if (p.kind === 'menu') curMenuTexts.push(p.text);
   }
-  menuSlotsRef.current = reconcileLiveMenuSlots(curMenuTexts, menuSlotsRef.current, menuNextIdRef);
-  const menuSlots = menuSlotsRef.current;
 
-  const menuSlotAtPartIdx = new Map<number, LiveMenuSlot>();
+  const nextIdRef = menuSlotBundle
+    ? { get current() {
+        return menuSlotBundle.nextId;
+      }, set current(v: number) {
+        menuSlotBundle.nextId = v;
+      } }
+    : internalNextIdRef;
+
+  const slotsRefTarget = menuSlotBundle ? menuSlotBundle.slots : internalSlotsRef.current;
+  const reconciled = reconcileLiveMenuSlots(curMenuTexts, slotsRefTarget, nextIdRef);
+  if (menuSlotBundle) {
+    menuSlotBundle.slots = reconciled;
+  } else {
+    internalSlotsRef.current = reconciled;
+  }
+  const menuSlots = reconciled;
+
+  const menuSlotAtPartIdx = new Map<number, PtyLiveMenuSlot>();
   let mi = 0;
   for (let i = 0; i < parts.length; i++) {
     if (parts[i].kind === 'menu') {

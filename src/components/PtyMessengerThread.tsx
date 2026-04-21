@@ -10,7 +10,7 @@ import {
 } from '../../shared/parsePtyTranscriptToMessages';
 import { segmentPtyAssistantDisplayBlocks } from '../../shared/segmentPtyDiffBlocks';
 import { extractPtyLiveFooterLine } from '../../shared/extractPtyLiveFooterLine';
-import PtyAssistantBody, { PtyChoicePromptCard } from './PtyAssistantBody';
+import PtyAssistantBody, { PtyChoicePromptCard, type PtyMenuSlotBundle } from './PtyAssistantBody';
 
 export type PtyManualReplyBubble = {
   id: string;
@@ -225,7 +225,20 @@ export default function PtyMessengerThread({
 }: PtyMessengerThreadProps) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const stickBottomRef = useRef(true);
+  /** Per assistant `turn.id` — survives `PtyAssistantBody` remounts so menu clocks stay honest. */
+  const ptyMenuSlotBundlesRef = useRef(new Map<string, PtyMenuSlotBundle>());
   const [footerPollTick, setFooterPollTick] = useState(0);
+
+  useEffect(() => {
+    if (!transcript.trim()) ptyMenuSlotBundlesRef.current.clear();
+  }, [transcript]);
+
+  const menuSlotBundleForTurn = (turnId: string): PtyMenuSlotBundle => {
+    const m = ptyMenuSlotBundlesRef.current;
+    if (!m.has(turnId)) m.set(turnId, { slots: [], nextId: 0 });
+    return m.get(turnId)!;
+  };
+
   const turnsRaw = useMemo(() => parsePtyTranscriptToMessages(transcript), [transcript]);
   const displayTurns = useMemo(() => trimTrailingTrivialAssistantTurns(turnsRaw), [turnsRaw]);
   const turnsForAwaiting = useMemo(
@@ -343,7 +356,7 @@ export default function PtyMessengerThread({
               <div key={row.turn.id} className="flex justify-start w-full">
                 <div className="w-full max-w-[min(100%,44rem)] md:max-w-[56rem] pr-2 md:pr-16">
                   <div className="rounded-2xl border border-gray-100 bg-white px-4 py-5 md:px-6 md:py-5 shadow-sm">
-                    <PtyAssistantBody text={row.turn.text} />
+                    <PtyAssistantBody text={row.turn.text} menuSlotBundle={menuSlotBundleForTurn(row.turn.id)} />
                   </div>
                 </div>
               </div>
