@@ -16,7 +16,7 @@ import '@xterm/xterm/css/xterm.css';
 import { PtyWelcomeNameScanner } from '../../shared/ptyWelcomeDetect';
 import {
   inferPermissionMenuAffirmativeIndex,
-  plainTextShowsClaudePermissionMenu,
+  plainTailShowsAnswerablePermissionMenu,
   stripAnsiNormalizePtyMirror
 } from '../../shared/claudeCodePtyPermissionMenu';
 import { usePtyBridge } from '../context/PtyBridgeContext';
@@ -187,7 +187,7 @@ export default function ClaudeTerminalView({
           import.meta.env.VITE_DISABLE_PTY_AUTO_OPTION_ONE === '1' || 
           (window as any).VITE_DISABLE_PTY_AUTO_OPTION_ONE === '1';
 
-        if (!plainTextShowsClaudePermissionMenu(plainNorm)) {
+        if (!plainTailShowsAnswerablePermissionMenu(plainNorm)) {
           permissionMenuAutoChoiceSent = false;
         } else if (
           !permissionMenuAutoChoiceSent &&

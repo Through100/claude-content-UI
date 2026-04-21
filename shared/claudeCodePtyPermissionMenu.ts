@@ -10,6 +10,12 @@ export function textContainsClaudePermissionMenu(text: string): boolean {
   ) {
     return true;
   }
+  if (
+    /\bDo you want to proceed\b/i.test(t) &&
+    /^\s*(?:❯\s*|[>]\s*)?1\.\s+Yes\b/im.test(t)
+  ) {
+    return true;
+  }
   if (!/\bEsc to cancel\b/i.test(t) || !/\bTab to (?:amend|edit|change)\b/i.test(t)) return false;
   return (
     /Do you want/i.test(t) ||
@@ -30,6 +36,21 @@ export function plainTextShowsClaudePermissionMenu(plainNormalized: string): boo
       /(^|\n)\s*(?:(?:❯|[>])\s*)?\d+\.\s+Yes,/im.test(tail) ||
       /Yes, and don't ask again/i.test(tail)
   );
+}
+
+const NUMBERED_MENU_ROW = /(^|\n)\s*(?:(?:❯|[>])\s*)?\d+\.\s+\S/m;
+
+/**
+ * True when the PTY tail shows a permission menu we can answer (Esc/Tab “proceed” UI **or** Fetch / compact consent
+ * without that footer in the same capture). Used for Reply yes→digit mapping and Logon auto-pick reset/trigger.
+ */
+export function plainTailShowsAnswerablePermissionMenu(plainNormalized: string): boolean {
+  if (plainTextShowsClaudePermissionMenu(plainNormalized)) return true;
+  const tail = plainNormalized.slice(-14000);
+  if (!NUMBERED_MENU_ROW.test(tail)) return false;
+  if (/\bDo you want to allow\b/i.test(tail) && /^\s*(?:❯\s*|[>]\s*)?1\.\s+Yes\b/im.test(tail)) return true;
+  if (/\bDo you want to proceed\b/i.test(tail) && /^\s*(?:❯\s*|[>]\s*)?1\.\s+Yes\b/im.test(tail)) return true;
+  return false;
 }
 
 export function stripAnsiNormalizePtyMirror(raw: string): string {
@@ -56,15 +77,21 @@ export function parsePermissionMenuNumberedOptions(menuSlice: string): { n: numb
 }
 
 function menuOptionSlice(plainNormalized: string): string {
-  const tail = plainNormalized.slice(-8000);
-  if (!/\bEsc to cancel\b/i.test(tail)) return '';
-  const footerMatch = tail.match(/\bEsc to cancel\b/i);
-  const footerIdx = footerMatch?.index ?? tail.length;
-  const menuBody = tail.slice(0, footerIdx);
-  const proceed = /Do you want to proceed\?/i.exec(menuBody);
-  const sliceStart =
-    proceed && proceed.index !== undefined ? proceed.index : Math.max(0, menuBody.length - 2800);
-  return menuBody.slice(sliceStart);
+  const tail = plainNormalized.slice(-12000);
+  if (/\bEsc to cancel\b/i.test(tail)) {
+    const footerMatch = tail.match(/\bEsc to cancel\b/i);
+    const footerIdx = footerMatch?.index ?? tail.length;
+    const menuBody = tail.slice(0, footerIdx);
+    const proceed = /Do you want to proceed\?/i.exec(menuBody);
+    const sliceStart =
+      proceed && proceed.index !== undefined ? proceed.index : Math.max(0, menuBody.length - 2800);
+    return menuBody.slice(sliceStart);
+  }
+  const allow = /\bDo you want to allow\b/i.exec(tail);
+  if (allow && allow.index !== undefined) return tail.slice(allow.index);
+  const proc = /\bDo you want to proceed\b/i.exec(tail);
+  if (proc && proc.index !== undefined) return tail.slice(proc.index);
+  return '';
 }
 
 /**

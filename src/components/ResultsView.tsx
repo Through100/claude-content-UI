@@ -25,6 +25,7 @@ import { headlessOutputLooksLikeInteractivePermissionAsk } from '../../shared/he
 import {
   countPtyProceedPrompts,
   inferPermissionMenuAffirmativeIndex,
+  plainTailShowsAnswerablePermissionMenu,
   plainTextShowsClaudePermissionMenu,
   stripAnsiNormalizePtyMirror
 } from '../../shared/claudeCodePtyPermissionMenu';
@@ -173,15 +174,18 @@ export default function ResultsView({
   /** Logon buffer tail looks like Claude Code’s idle welcome — “yes” has no pending question there. */
   /** When set, Reply can map plain “yes”/“y” to the numbered choice Ink expects (verbatim letters are otherwise ignored by Claude Code). */
   const permissionMenuPlainHint = useMemo(() => {
-    const chunk = `${ptyFullSnapshotPlain}\n${ptyDisplayPlain}`.slice(-12000);
+    const chunk = `${ptyFullSnapshotPlain}\n${ptyDisplayPlain}`.slice(-28000);
     const plain = stripAnsiNormalizePtyMirror(chunk);
-    return plainTextShowsClaudePermissionMenu(plain) ? plain : null;
+    /** Fetch / later prompts often omit Esc+Tab in the mirrored tail; still map yes/y → menu index. */
+    return plainTailShowsAnswerablePermissionMenu(plain) ? plain : null;
   }, [ptyFullSnapshotPlain, ptyDisplayPlain]);
 
   const replyPanelWarnWelcomeSplash = useMemo(() => {
     const chunk = `${ptyFullSnapshotPlain}\n${ptyDisplayPlain}`.slice(-12000);
     /** Welcome text can linger in scrollback while a live permission menu is at the tail — don’t warn then. */
-    if (plainTextShowsClaudePermissionMenu(stripAnsiNormalizePtyMirror(chunk))) return false;
+    const plain = stripAnsiNormalizePtyMirror(chunk);
+    if (plainTailShowsAnswerablePermissionMenu(plain)) return false;
+    if (plainTextShowsClaudePermissionMenu(plain)) return false;
     const tail = stripAnsi(chunk).toLowerCase();
     if (tail.length < 120) return false;
     return (
