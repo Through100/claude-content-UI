@@ -544,6 +544,15 @@ function TerminalLiveFooterBar({ text }: { text: string }) {
   );
 }
 
+/** Same gray outer ring as Logon-style assistant bubbles — live menus sit inside this; recorded snapshots use it too so cards don’t look “stripped”. */
+function PtyThreadAssistantShell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="rounded-2xl border border-gray-100 bg-white px-4 py-5 md:px-6 md:py-5 shadow-sm">
+      {children}
+    </div>
+  );
+}
+
 /** Assistant bubble in the thread; `__post` interleaved tails get a small wall-clock stamp when the PTY tail updates. */
 function PtyThreadAssistantBubble({
   turn,
@@ -560,7 +569,7 @@ function PtyThreadAssistantBubble({
   const showTailStamp = turn.id.endsWith('__post');
 
   return (
-    <div className="rounded-2xl border border-gray-100 bg-white px-4 py-5 md:px-6 md:py-5 shadow-sm">
+    <PtyThreadAssistantShell>
       <PtyAssistantBody text={turn.text} menuSlotBundle={menuSlotBundle} />
       {showTailStamp ? (
         <p className="mt-2 mb-0 text-[10px] font-medium text-gray-500 tabular-nums text-right">
@@ -569,7 +578,7 @@ function PtyThreadAssistantBubble({
           </time>
         </p>
       ) : null}
-    </div>
+    </PtyThreadAssistantShell>
   );
 }
 
@@ -801,11 +810,13 @@ export default function PtyMessengerThread({
           ) : row.kind === 'archivedMenu' ? (
             <div key={row.archived.id} className="flex justify-start w-full">
               <div className="w-full max-w-[min(100%,44rem)] md:max-w-[56rem] pr-2 md:pr-16">
-                <PtyChoicePromptCard
-                  text={row.archived.menuPlain}
-                  recorded
-                  shownAt={row.archived.sentAt}
-                />
+                <PtyThreadAssistantShell>
+                  <PtyChoicePromptCard
+                    text={row.archived.menuPlain}
+                    recorded
+                    shownAt={row.archived.sentAt}
+                  />
+                </PtyThreadAssistantShell>
               </div>
             </div>
           ) : (
