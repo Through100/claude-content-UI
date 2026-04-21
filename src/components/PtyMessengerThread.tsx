@@ -527,12 +527,12 @@ function TerminalLiveFooterBar({ text }: { text: string }) {
   return (
     <div className="flex justify-start w-full">
       <div className="w-full max-w-[min(100%,44rem)] md:max-w-[56rem] pr-2 md:pr-16">
-        <div className="rounded-xl border border-zinc-700/95 bg-[#09090b] px-3 py-2.5 shadow-inner ring-1 ring-zinc-800/80">
-          <p className="text-[11px] sm:text-[12px] leading-snug font-mono text-zinc-200 whitespace-pre-wrap break-words">
+        <div className="rounded-xl border border-zinc-700/95 bg-[#09090b] px-3 py-2.5 shadow-inner ring-1 ring-zinc-800/80 min-h-[5.25rem] flex flex-col">
+          <p className="text-[11px] sm:text-[12px] leading-snug font-mono text-zinc-200 whitespace-pre-wrap break-words min-h-[2.75rem] flex-1">
             {text}
           </p>
           <time
-            className="mt-1.5 block text-[9px] font-medium tabular-nums text-zinc-500"
+            className="mt-1.5 block text-[9px] font-medium tabular-nums text-zinc-500 shrink-0"
             dateTime={new Date(stampMs).toISOString()}
             title="When this status line last changed in Pretty"
           >
@@ -575,9 +575,9 @@ function PtyThreadAssistantBubble({
 
 function PtyAssistantPending() {
   return (
-    <div className="flex justify-start w-full">
+    <div className="flex justify-start w-full min-h-[7rem]">
       <div className="w-full max-w-[min(100%,40rem)] md:max-w-[48rem] pr-2 md:pr-16">
-        <div className="rounded-2xl border border-indigo-100 bg-indigo-50/90 px-5 py-4 shadow-sm flex items-start gap-4 text-indigo-950">
+        <div className="rounded-2xl border border-indigo-100 bg-indigo-50/90 px-5 py-4 shadow-sm flex items-start gap-4 text-indigo-950 min-h-[7rem]">
           <div className="flex flex-col items-center shrink-0 mt-0.5">
             <span
               className="text-xl leading-none animate-spin-slow text-indigo-600 select-none"
@@ -615,9 +615,14 @@ export default function PtyMessengerThread({
   /** Per assistant `turn.id` — survives `PtyAssistantBody` remounts so menu clocks stay honest. */
   const ptyMenuSlotBundlesRef = useRef(new Map<string, PtyMenuSlotBundle>());
   const [footerPollTick, setFooterPollTick] = useState(0);
+  /** Once Ink/footer or “responding” has shown, keep a fixed bottom band so redraws / dedupe do not shrink the scroller. */
+  const [statusWellLatched, setStatusWellLatched] = useState(false);
 
   useEffect(() => {
-    if (!transcript.trim()) ptyMenuSlotBundlesRef.current.clear();
+    if (!transcript.trim()) {
+      ptyMenuSlotBundlesRef.current.clear();
+      setStatusWellLatched(false);
+    }
   }, [transcript]);
 
   /** `interleaveArchivedWithinLastAssistant` uses `a-3__pre` / `a-3__post`; share one slot bundle so menu clocks survive the split. */
@@ -674,6 +679,10 @@ export default function PtyMessengerThread({
   }, []);
 
   const showActivityRow = showThinking || Boolean(liveFooterLineDeduped);
+
+  useEffect(() => {
+    if (showActivityRow) setStatusWellLatched(true);
+  }, [showActivityRow]);
 
   const mergedRows = useMemo(() => {
     const baseWithEnds = parsePtyTranscriptToMessagesForPrettyLayout(transcript);
@@ -816,10 +825,14 @@ export default function PtyMessengerThread({
             </div>
           )
         )}
-        {showActivityRow ? (
-          <div className="space-y-3">
-            {liveFooterLineDeduped ? <TerminalLiveFooterBar text={liveFooterLineDeduped} /> : null}
-            {showThinking && !liveFooterLineDeduped ? <PtyAssistantPending /> : null}
+        {showActivityRow || statusWellLatched ? (
+          <div className="min-h-[8rem] flex flex-col justify-end shrink-0">
+            {showActivityRow ? (
+              <div className="space-y-3">
+                {liveFooterLineDeduped ? <TerminalLiveFooterBar text={liveFooterLineDeduped} /> : null}
+                {showThinking && !liveFooterLineDeduped ? <PtyAssistantPending /> : null}
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>
