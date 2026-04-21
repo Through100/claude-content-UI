@@ -719,12 +719,6 @@ function PtyReplyPanel({
     setSending(true);
     setHint(null);
 
-    /** PTY expects CR for line breaks; optional trailing CR when “Append Enter” is checked. */
-    let toSend = normalized.replace(/\n/g, '\r');
-    if (appendEnter && !toSend.endsWith('\r')) {
-      toSend += '\r';
-    }
-
     const afterDelivered = () => {
       setHint({ message: 'Sent to the interactive PTY.', type: 'success' });
       if (normalized.length > 0) {
@@ -735,18 +729,57 @@ function PtyReplyPanel({
       setSending(false);
     };
 
-    const tryOnce = () => sendToPty(toSend);
+    /**
+     * Ink / Claude Code list prompts often ignore one big WebSocket write (unlike Logon xterm, which
+     * sends one message per key). Replay the same bytes one character at a time — no remapping of
+     * yes/1/true; only LF→CR and optional trailing CR for “Append Enter”.
+     */
+    const tryDeliver = async (): Promise<boolean> => {
+      const interKeyMs = 14;
+      const beforeCrMs = 55;
+      const bulkBeforeCrMs = 200;
+      const flatLen = normalized.replace(/\n/g, '').length;
+      const shortEnough = flatLen <= 512;
+
+      if (normalized.length > 0 && shortEnough) {
+        for (const ch of normalized) {
+          const out = ch === '\n' ? '\r' : ch;
+          if (!sendToPty(out)) return false;
+          await new Promise<void>((r) => setTimeout(r, interKeyMs));
+        }
+        if (appendEnter) {
+          await new Promise<void>((r) => setTimeout(r, beforeCrMs));
+          return sendToPty('\r');
+        }
+        return true;
+      }
+
+      let bulk = normalized.replace(/\n/g, '\r');
+      if (appendEnter && !bulk.endsWith('\r')) {
+        bulk += '\r';
+      }
+      if (!bulk) {
+        return true;
+      }
+      if (appendEnter && normalized.length > 0 && !shortEnough) {
+        const body = normalized.replace(/\n/g, '\r');
+        if (!sendToPty(body)) return false;
+        await new Promise<void>((r) => setTimeout(r, bulkBeforeCrMs));
+        return sendToPty('\r');
+      }
+      return sendToPty(bulk);
+    };
 
     void (async () => {
       try {
-        let ok = tryOnce();
+        let ok = await tryDeliver();
         if (!ok) {
           await new Promise<void>((r) => requestAnimationFrame(() => r()));
-          ok = tryOnce();
+          ok = await tryDeliver();
         }
         if (!ok) {
           await new Promise<void>((r) => setTimeout(r, 120));
-          ok = tryOnce();
+          ok = await tryDeliver();
         }
         if (!ok) {
           setHint({
@@ -798,7 +831,7 @@ function PtyReplyPanel({
         }}
         rows={4}
         spellCheck={false}
-        placeholder="Sent as typed (only CRLF normalized). Newlines become CR for the PTY; check “Append Enter” to send a final CR after your text."
+        placeholder="Sent as typed (CRLF→LF only). Short input is sent one keystroke per message (like Logon) so Ink menus accept it; long text uses bulk + Enter."
         className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none resize-y font-mono"
       />
       

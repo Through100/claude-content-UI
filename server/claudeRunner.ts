@@ -34,7 +34,10 @@ function isUnixSuperuser(): boolean {
   }
 }
 
-/** Log once at startup how auto --permission-mode behaves for this process. */
+/**
+ * Log once at startup how auto --permission-mode behaves for this process.
+ * Headless (`claude -p`) only — does not run for the interactive PTY WebSocket or Pretty Reply input.
+ */
 export function logClaudeAutoPermissionPolicy(): void {
   const disableAutoPerm = ['1', 'true', 'yes'].includes(
     (process.env.CLAUDE_DISABLE_AUTO_PERMISSION_MODE ?? '').toLowerCase()
