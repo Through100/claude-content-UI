@@ -17,6 +17,7 @@ import {
   extractPtyLiveFooterLine,
   stripInkStatusFooterLinesFromAssistantPlain
 } from '../../shared/extractPtyLiveFooterLine';
+import { splitPinnedAssistantStreamHeadTail } from '../../shared/splitPtyPinnedThinkingTail';
 import PtyAssistantBody, {
   PtyChoicePromptCard,
   shouldRenderPtyAssistantBubble,
@@ -605,6 +606,25 @@ function PtyThreadAssistantBubble({
   );
 }
 
+/** Tool / subagent stream peeled from `__pre` while thinking — above pinned live menus, below merge-order bubbles. */
+function PtyThinkingActivityStrip({ text }: { text: string }) {
+  if (!text.trim()) return null;
+  return (
+    <div className="flex justify-start w-full">
+      <div className="w-full max-w-[min(100%,44rem)] md:max-w-[56rem] pr-2 md:pr-16">
+        <div className="rounded-xl border border-zinc-700/95 bg-[#09090b] overflow-hidden shadow-inner ring-1 ring-zinc-800/80">
+          <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-zinc-400 bg-zinc-900/95 border-b border-zinc-800">
+            Live PTY activity
+          </div>
+          <pre className="m-0 max-h-[min(50vh,480px)] overflow-auto px-3 py-3 text-[11px] sm:text-[12px] leading-[1.45] font-mono text-zinc-100 whitespace-pre-wrap break-words">
+            {text}
+          </pre>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** When live menus are pinned below the thread, the inline `__post` bubble may be omitted (menu-only tail); keep the stamp once on the pinned shell. */
 function PtyLivePostTailStampUnderShell({ turn }: { turn: ChatTurn }) {
   if (!turn.id.endsWith('__post')) return null;
@@ -738,41 +758,37 @@ export default function PtyMessengerThread({
   }, [transcript, manualReplyBubbles, archivedChoiceMenus, displayTurns, showThinking]);
 
   /**
-   * When a live choice menu exists, pin its yellow card(s) under the scrollable thread: main column drops
-   * inline archived menus (re-sorted by `sentAt`), then recorded snapshots, then detached live menus — above
-   * the activity/status footer.
+   * When a live choice menu exists: keep **merge order** for recorded yellow cards; detach live menus; while
+   * thinking, peel the `__pre` tool stream into `thinkingSplit` so it renders above the pinned live card.
    */
   const prettyPinnedMenusLayout = useMemo(() => {
     const liveIdx = findLastAssistantRowIndexWithMenu(mergedRows);
     const usePinned = liveIdx !== null;
-    const archivedSorted = mergedRows
-      .filter((r): r is MergedRow & { kind: 'archivedMenu' } => r.kind === 'archivedMenu')
-      .slice()
-      .sort((a, b) => {
-        if (a.archived.sentAt !== b.archived.sentAt) return a.archived.sentAt - b.archived.sentAt;
-        return a.archived.id.localeCompare(b.archived.id);
-      });
-    const mainRows: { row: MergedRow; detachLiveMenus: boolean }[] = [];
-    if (usePinned) {
-      for (let i = 0; i < mergedRows.length; i++) {
-        const row = mergedRows[i];
-        if (row.kind === 'archivedMenu') continue;
-        mainRows.push({
-          row,
-          detachLiveMenus:
-            liveIdx !== null &&
-            i === liveIdx &&
-            row.kind === 'pty' &&
-            row.turn.role === 'assistant'
-        });
-      }
-    }
     const liveDetachTurn =
       usePinned && liveIdx !== null && mergedRows[liveIdx]!.kind === 'pty'
         ? mergedRows[liveIdx]!.turn
         : null;
-    return { usePinned, archivedSorted, mainRows, liveDetachTurn };
-  }, [mergedRows]);
+
+    let thinkingSplit: { turnId: string; displayHead: string; displayTail: string } | null = null;
+    if (usePinned && showThinking && liveIdx !== null) {
+      const liveRow = mergedRows[liveIdx];
+      if (liveRow.kind === 'pty' && liveRow.turn.role === 'assistant' && liveRow.turn.id.endsWith('__post')) {
+        const base = liveRow.turn.id.replace(/__post$/u, '');
+        const preId = `${base}__pre`;
+        const preRow = mergedRows.find(
+          (r) => r.kind === 'pty' && r.turn.role === 'assistant' && r.turn.id === preId
+        );
+        if (preRow && preRow.kind === 'pty') {
+          const { head, tail } = splitPinnedAssistantStreamHeadTail(preRow.turn.text);
+          if (tail.trim()) {
+            thinkingSplit = { turnId: preRow.turn.id, displayHead: head, displayTail: tail };
+          }
+        }
+      }
+    }
+
+    return { usePinned, liveIdx, liveDetachTurn, thinkingSplit };
+  }, [mergedRows, showThinking]);
 
   /**
    * Ink leaves the final timer/tokens “Thinking…” line in the xterm tail even after the answer is done;
@@ -804,9 +820,12 @@ export default function PtyMessengerThread({
   const renderPrettyThreadRow = (row: MergedRow, detachLiveMenus: boolean): React.ReactNode =>
     row.kind === 'pty' ? (
       row.turn.role === 'assistant' ? (() => {
+        const ts = prettyPinnedMenusLayout.thinkingSplit;
+        const baseTurn =
+          ts && row.turn.id === ts.turnId ? { ...row.turn, text: ts.displayHead } : row.turn;
         const displayTurn = prettyPinnedMenusLayout.usePinned
-          ? { ...row.turn, text: stripInkStatusFooterLinesFromAssistantPlain(row.turn.text) }
-          : row.turn;
+          ? { ...baseTurn, text: stripInkStatusFooterLinesFromAssistantPlain(baseTurn.text) }
+          : baseTurn;
         return shouldRenderPtyAssistantBubble(displayTurn.text, detachLiveMenus ? 'omit' : 'inline') ? (
           <div key={row.turn.id} className="flex justify-start w-full">
             <div className="w-full max-w-[min(100%,44rem)] md:max-w-[56rem] pr-2 md:pr-16">
@@ -955,11 +974,18 @@ export default function PtyMessengerThread({
       >
         {prettyPinnedMenusLayout.usePinned ? (
           <>
-            {prettyPinnedMenusLayout.mainRows.map(({ row, detachLiveMenus }) =>
-              renderPrettyThreadRow(row, detachLiveMenus)
+            {mergedRows.map((row, i) =>
+              renderPrettyThreadRow(
+                row,
+                prettyPinnedMenusLayout.liveIdx === i &&
+                  row.kind === 'pty' &&
+                  row.turn.role === 'assistant'
+              )
             )}
-            {prettyPinnedMenusLayout.archivedSorted.map((row) => renderPrettyThreadRow(row, false))}
             <div className="flex flex-col gap-4 md:gap-5 w-full">
+              {prettyPinnedMenusLayout.thinkingSplit?.displayTail.trim() ? (
+                <PtyThinkingActivityStrip text={prettyPinnedMenusLayout.thinkingSplit.displayTail} />
+              ) : null}
               {prettyPinnedMenusLayout.liveDetachTurn &&
               shouldRenderPtyAssistantBubble(
                 stripInkStatusFooterLinesFromAssistantPlain(prettyPinnedMenusLayout.liveDetachTurn.text),
