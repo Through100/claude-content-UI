@@ -31,7 +31,14 @@ export function isPtyAssistantNoiseLine(line: string): boolean {
   if (/\bEsc to cancel\b/i.test(l) && /\bTab to (?:amend|edit|change)\b/i.test(l)) return false;
   /** Keep Ink one-line status (any verb) visible in Pretty — see `isInkSpinnerTokenStatusLine`. */
   if (isInkSpinnerTokenStatusLine(l)) return false;
-  if (/^[─\-_\s|]+$/.test(l)) return true;
+  if (/^[─\-_\s|]+$/.test(l)) {
+    // Don't strip dashed lines that are immediately followed by a menu question
+    // We can't easily look ahead here, but we can just say long dashed lines are NOT noise
+    // if they are exactly the width of the terminal (e.g. 80 chars).
+    // Actually, let's just not strip them if they are long.
+    if (l.length >= 40) return false;
+    return true;
+  }
   if (/^\|\s*cost:/i.test(l)) return true;
   if (/^\s*❯\s*$/.test(l)) return true;
   // Spinners: ✽, ✻, ✶, middle dot ·, bullet *, or bare “Catapulting…” style status.
