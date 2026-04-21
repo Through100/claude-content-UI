@@ -3,15 +3,25 @@ import { Loader2 } from 'lucide-react';
 import {
   isAwaitingPtyAssistantResponse,
   parsePtyTranscriptToMessages,
-  trimTrailingTrivialAssistantTurns
+  parsePtyTranscriptToMessagesForPrettyLayout,
+  trimTrailingTrivialAssistantTurns,
+  type ChatTurn,
+  type ChatTurnWithEnd
 } from '../../shared/parsePtyTranscriptToMessages';
 import { extractPtyLiveFooterLine } from '../../shared/extractPtyLiveFooterLine';
 import PtyAssistantBody from './PtyAssistantBody';
 
 export type PtyManualReplyBubble = {
   id: string;
-  /** Text shown in the right-aligned bubble (trimmed command text, or ↵ for Enter-only sends). */
+  /** Text shown in the right-aligned bubble. */
   text: string;
+  /** When the user clicked Send (for ordering among same anchor + clock label). */
+  sentAt: number;
+  /**
+   * `getPtyParseNormalizedPlain(transcript)` length at send time — places the bubble after the PTY
+   * content that was already on screen.
+   */
+  transcriptLenAtSend: number;
 };
 
 type PtyMessengerThreadProps = {
@@ -27,14 +37,63 @@ type PtyMessengerThreadProps = {
    */
   liveFooterPlainSource?: string;
   /**
-   * Each Pretty “Reply via PTY” send is appended here so back-to-back answers (e.g. multiple Fetch
-   * menus) stay visible even when the PTY capture does not echo them as `❯` lines.
+   * Each Pretty “Reply via PTY” send is merged by transcript anchor so back-to-back answers stay
+   * after the menu they answered, not at the very bottom.
    */
   manualReplyBubbles?: PtyManualReplyBubble[];
 };
 
 /** Re-run footer extraction on this cadence so the status bar catches buffer updates even if React skips a frame. */
 const PRETTY_FOOTER_POLL_MS = 4000;
+
+function formatBubbleTime(sentAt: number): string {
+  try {
+    return new Date(sentAt).toLocaleTimeString(undefined, {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+  } catch {
+    return '';
+  }
+}
+
+/** After turn index `i` (0-based), i.e. before turn `i+1`; `-1` = before all parsed turns. */
+function slotAfterTurn(manual: PtyManualReplyBubble, base: ChatTurnWithEnd[]): number {
+  let slot = -1;
+  for (let i = 0; i < base.length; i++) {
+    if (base[i].endOffset <= manual.transcriptLenAtSend) slot = i;
+    else break;
+  }
+  return slot;
+}
+
+function mergeParsedTurnsWithManualBubbles(
+  base: ChatTurnWithEnd[],
+  manuals: PtyManualReplyBubble[]
+): Array<{ kind: 'pty'; turn: ChatTurn } | { kind: 'manual'; manual: PtyManualReplyBubble }> {
+  const sorted = [...manuals].sort((a, b) => a.sentAt - b.sentAt || a.id.localeCompare(b.id));
+  const buckets: PtyManualReplyBubble[][] = Array.from({ length: base.length }, () => []);
+  const beforeAll: PtyManualReplyBubble[] = [];
+  for (const m of sorted) {
+    const s = slotAfterTurn(m, base);
+    if (s < 0) beforeAll.push(m);
+    else buckets[s].push(m);
+  }
+  const out: Array<{ kind: 'pty'; turn: ChatTurn } | { kind: 'manual'; manual: PtyManualReplyBubble }> = [];
+  for (const m of beforeAll) {
+    out.push({ kind: 'manual', manual: m });
+  }
+  for (let i = 0; i < base.length; i++) {
+    const { endOffset, ...turn } = base[i];
+    void endOffset;
+    out.push({ kind: 'pty', turn });
+    for (const m of buckets[i]) {
+      out.push({ kind: 'manual', manual: m });
+    }
+  }
+  return out;
+}
 
 /** Raw TUI-style footer (timer, tokens, thinking) — same line family as Logon / Raw. */
 function TerminalLiveFooterBar({ text }: { text: string }) {
@@ -119,11 +178,23 @@ export default function PtyMessengerThread({
 
   const showActivityRow = showThinking || Boolean(liveFooterLine);
 
+  const mergedRows = useMemo(() => {
+    const baseWithEnds = parsePtyTranscriptToMessagesForPrettyLayout(transcript);
+    const baseFiltered = baseWithEnds.filter((m) => m.role === 'user' || m.text.trim().length > 0);
+    const manuals = (manualReplyBubbles ?? []).filter((b) => b.text.length > 0);
+    if (manuals.length === 0) {
+      return displayTurns
+        .filter((m) => m.role === 'user' || m.text.trim().length > 0)
+        .map((turn) => ({ kind: 'pty' as const, turn }));
+    }
+    return mergeParsedTurnsWithManualBubbles(baseFiltered, manuals);
+  }, [transcript, manualReplyBubbles, displayTurns]);
+
   useEffect(() => {
     const el = scrollerRef.current;
     if (!el || !stickBottomRef.current) return;
     el.scrollTop = el.scrollHeight;
-  }, [transcript, showThinking, liveFooterLine, manualReplyBubbles]);
+  }, [transcript, showThinking, liveFooterLine, manualReplyBubbles, mergedRows]);
 
   const onScroll = () => {
     const el = scrollerRef.current;
@@ -132,15 +203,7 @@ export default function PtyMessengerThread({
     stickBottomRef.current = gap < 120;
   };
 
-  const visibleTurns = useMemo(() => {
-    const base = displayTurns.filter((m) => m.role === 'user' || m.text.trim().length > 0);
-    const extras = (manualReplyBubbles ?? [])
-      .filter((b) => b.text.length > 0)
-      .map((b) => ({ id: b.id, role: 'user' as const, text: b.text }));
-    return [...base, ...extras];
-  }, [displayTurns, manualReplyBubbles]);
-
-  if (visibleTurns.length === 0) {
+  if (mergedRows.length === 0) {
     const fallback = transcript?.trim();
     if (!fallback) {
       return (
@@ -194,21 +257,38 @@ export default function PtyMessengerThread({
         aria-live="polite"
         aria-relevant="additions"
       >
-        {visibleTurns.map((m) =>
-          m.role === 'assistant' ? (
-            <div key={m.id} className="flex justify-start w-full">
-              <div className="w-full max-w-[min(100%,44rem)] md:max-w-[56rem] pr-2 md:pr-16">
-                <div className="rounded-2xl border border-gray-100 bg-white px-4 py-5 md:px-6 md:py-5 shadow-sm">
-                  <PtyAssistantBody text={m.text} />
+        {mergedRows.map((row) =>
+          row.kind === 'pty' ? (
+            row.turn.role === 'assistant' ? (
+              <div key={row.turn.id} className="flex justify-start w-full">
+                <div className="w-full max-w-[min(100%,44rem)] md:max-w-[56rem] pr-2 md:pr-16">
+                  <div className="rounded-2xl border border-gray-100 bg-white px-4 py-5 md:px-6 md:py-5 shadow-sm">
+                    <PtyAssistantBody text={row.turn.text} />
+                  </div>
                 </div>
               </div>
-            </div>
-          ) : (
-            <div key={m.id} className="flex justify-end w-full">
-              <div className="max-w-[min(100%,85%)] sm:max-w-[32rem] pl-8 sm:pl-12">
-                <div className="rounded-[1.35rem] bg-[#ececec] text-gray-900 px-4 py-2.5 md:px-5 md:py-3 text-[15px] leading-6 whitespace-pre-wrap break-words shadow-sm">
-                  {m.text}
+            ) : (
+              <div key={row.turn.id} className="flex justify-end w-full">
+                <div className="max-w-[min(100%,85%)] sm:max-w-[32rem] pl-8 sm:pl-12">
+                  <div className="rounded-[1.35rem] bg-[#ececec] text-gray-900 px-4 py-2.5 md:px-5 md:py-3 text-[15px] leading-6 whitespace-pre-wrap break-words shadow-sm">
+                    {row.turn.text}
+                  </div>
                 </div>
+              </div>
+            )
+          ) : (
+            <div key={row.manual.id} className="flex justify-end w-full">
+              <div className="max-w-[min(100%,85%)] sm:max-w-[32rem] pl-8 sm:pl-12 flex flex-col items-end gap-1">
+                <div className="rounded-[1.35rem] bg-indigo-100/90 text-gray-900 px-4 py-2.5 md:px-5 md:py-3 text-[15px] leading-6 whitespace-pre-wrap break-words shadow-sm border border-indigo-200/80">
+                  {row.manual.text}
+                </div>
+                <time
+                  className="text-[10px] font-medium text-gray-500 tabular-nums pr-1"
+                  dateTime={new Date(row.manual.sentAt).toISOString()}
+                  title={`Sent at ${new Date(row.manual.sentAt).toISOString()}`}
+                >
+                  {formatBubbleTime(row.manual.sentAt)}
+                </time>
               </div>
             </div>
           )

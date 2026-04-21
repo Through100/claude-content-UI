@@ -17,7 +17,11 @@ import {
 import { BLOG_COMMANDS, RunResponse } from '../types';
 import { formatChatThreadKey, sanitizeRunOutputForChat } from '../lib/dashboardChatHistory';
 import { syncPrettyPtyTranscriptToDashboardThread } from '../lib/syncPtyTranscriptToDashboardChat';
-import { isAwaitingPtyAssistantResponse, parsePtyTranscriptToMessages } from '../../shared/parsePtyTranscriptToMessages';
+import {
+  getPtyParseNormalizedPlain,
+  isAwaitingPtyAssistantResponse,
+  parsePtyTranscriptToMessages
+} from '../../shared/parsePtyTranscriptToMessages';
 import { motion, AnimatePresence } from 'motion/react';
 import { stripAnsi } from '../../shared/stripAnsi';
 import { inferClaudeActivity } from '../../shared/inferClaudeActivity';
@@ -85,7 +89,7 @@ export default function ResultsView({
   const [activeTab, setActiveTab] = useState<'pretty' | 'raw'>('pretty');
   const [pdfExporting, setPdfExporting] = useState(false);
   const [manualReplyBubbles, setManualReplyBubbles] = useState<
-    { id: string; text: string }[]
+    { id: string; text: string; sentAt: number; transcriptLenAtSend: number }[]
   >([]);
   const livePreRef = useRef<HTMLPreElement>(null);
   const prettyReportRef = useRef<HTMLDivElement>(null);
@@ -165,6 +169,22 @@ export default function ResultsView({
     if (hasFreshPtyCapture) return 'pty';
     return 'headless';
   }, [hasFreshPtyCapture, hasHeadlessRunCapture]);
+
+  /** Same plain string Pretty uses for the thread — anchors Reply bubbles in transcript order. */
+  const replyOrderingPlain = useMemo(() => {
+    const ptyForPretty = (() => {
+      const s = sanitizePtyPrettyTranscript(ptyMergedArchive);
+      if (!s.trim() && ptyMergedArchive.trim()) return ptyMergedArchive;
+      return s;
+    })();
+    return buildPtyForDisplayPlain({
+      prettyMode,
+      ptyForPretty,
+      headlessResult: result ?? null,
+      lastRunThreadMeta,
+      chatThreadKey
+    });
+  }, [prettyMode, ptyMergedArchive, result, lastRunThreadMeta, chatThreadKey]);
 
   const headlessBlobForPermissionCue = useMemo(() => {
     const out = sanitizeRunOutputForChat(result?.rawOutput ?? '').trim();
@@ -490,11 +510,17 @@ export default function ResultsView({
         <PtyReplyPanel
           warnHeadlessMenuReadOnly={replyPanelWarnHeadlessMenuReadOnly}
           warnWelcomeSplash={replyPanelWarnWelcomeSplash}
-          onReplySent={(text) => {
-            if (!text) return;
+          replyOrderingPlain={replyOrderingPlain}
+          onReplySent={(payload) => {
+            if (!payload.text) return;
             setManualReplyBubbles((prev) => [
               ...prev,
-              { id: `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`, text }
+              {
+                id: `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
+                text: payload.text,
+                sentAt: payload.sentAt,
+                transcriptLenAtSend: payload.transcriptLenAtSend
+              }
             ]);
           }}
         />
@@ -687,12 +713,15 @@ type PtyReplyPanelProps = {
   /** Finished headless output in Pretty looks like a Fetch/permission ask — Reply still targets the live PTY only. */
   warnHeadlessMenuReadOnly?: boolean;
   warnWelcomeSplash?: boolean;
-  onReplySent?: (text: string) => void;
+  /** Plain transcript Pretty shows (same normalization as the thread) — snapshot length anchors bubbles. */
+  replyOrderingPlain: string;
+  onReplySent?: (payload: { text: string; sentAt: number; transcriptLenAtSend: number }) => void;
 };
 
 function PtyReplyPanel({
   warnHeadlessMenuReadOnly = false,
   warnWelcomeSplash = false,
+  replyOrderingPlain,
   onReplySent
 }: PtyReplyPanelProps) {
   const { sendToPty, ptySessionReady } = usePtyBridge();
@@ -704,6 +733,8 @@ function PtyReplyPanel({
   const handleSend = () => {
     /** Only CRLF → LF; no trim — send exactly what is in the field (spaces, digits, words). */
     const normalized = text.replace(/\r\n/g, '\n');
+    const transcriptLenAtSend = getPtyParseNormalizedPlain(replyOrderingPlain).length;
+    const sentAt = Date.now();
     if (normalized.length === 0 && !appendEnter) {
       setHint({ message: 'Type a reply first.', type: 'info' });
       return;
@@ -722,7 +753,7 @@ function PtyReplyPanel({
     const afterDelivered = () => {
       setHint({ message: 'Sent to the interactive PTY.', type: 'success' });
       if (normalized.length > 0) {
-        onReplySent?.(normalized);
+        onReplySent?.({ text: normalized, sentAt, transcriptLenAtSend });
       }
       setText('');
       setTimeout(() => setHint((h) => (h?.type === 'success' ? null : h)), 4000);
@@ -951,6 +982,29 @@ function appendDashboardRunAsPtyPlain(ptyHead: string, userSummary: string, assi
   return `${head}\n\n${runBlock}`;
 }
 
+function buildPtyForDisplayPlain(opts: {
+  prettyMode: 'headless' | 'pty' | 'both';
+  ptyForPretty: string;
+  headlessResult: RunResponse | null;
+  lastRunThreadMeta: { threadKey: string; userSummary: string } | null;
+  chatThreadKey: string;
+}): string {
+  const { prettyMode, ptyForPretty, headlessResult, lastRunThreadMeta, chatThreadKey } = opts;
+  if (
+    prettyMode !== 'both' ||
+    !headlessResult ||
+    !lastRunThreadMeta ||
+    lastRunThreadMeta.threadKey !== chatThreadKey
+  ) {
+    return ptyForPretty;
+  }
+  const cleaned = sanitizeRunOutputForChat(headlessResult.rawOutput ?? '').trim();
+  const err = headlessResult.error?.trim();
+  const assistant = cleaned || (err ? `Error: ${err}` : '') || '(no output captured)';
+  if (!assistant.trim() && !lastRunThreadMeta.userSummary.trim()) return ptyForPretty;
+  return appendDashboardRunAsPtyPlain(ptyForPretty, lastRunThreadMeta.userSummary, assistant);
+}
+
 function PrettyOutputView({
   prettyMode,
   ptyTranscript,
@@ -975,7 +1029,7 @@ function PrettyOutputView({
   ptySessionReady?: boolean;
   ptySentAt?: number | null;
   isLoading?: boolean;
-  manualReplyBubbles?: { id: string; text: string }[];
+  manualReplyBubbles?: { id: string; text: string; sentAt: number; transcriptLenAtSend: number }[];
 }) {
   /** Splash + spinner lines hidden here only; Logon / Raw stay full-fidelity. */
   const ptyForPretty = useMemo(() => {
@@ -985,21 +1039,17 @@ function PrettyOutputView({
   }, [ptyTranscript]);
 
   /** Command Runner output is not in the Logon xterm; append it after PTY here when both panes are shown for this topic. */
-  const ptyForDisplay = useMemo(() => {
-    if (
-      prettyMode !== 'both' ||
-      !headlessResult ||
-      !lastRunThreadMeta ||
-      lastRunThreadMeta.threadKey !== chatThreadKey
-    ) {
-      return ptyForPretty;
-    }
-    const cleaned = sanitizeRunOutputForChat(headlessResult.rawOutput ?? '').trim();
-    const err = headlessResult.error?.trim();
-    const assistant = cleaned || (err ? `Error: ${err}` : '') || '(no output captured)';
-    if (!assistant.trim() && !lastRunThreadMeta.userSummary.trim()) return ptyForPretty;
-    return appendDashboardRunAsPtyPlain(ptyForPretty, lastRunThreadMeta.userSummary, assistant);
-  }, [prettyMode, headlessResult, lastRunThreadMeta, chatThreadKey, ptyForPretty]);
+  const ptyForDisplay = useMemo(
+    () =>
+      buildPtyForDisplayPlain({
+        prettyMode,
+        ptyForPretty,
+        headlessResult,
+        lastRunThreadMeta,
+        chatThreadKey
+      }),
+    [prettyMode, ptyForPretty, headlessResult, lastRunThreadMeta, chatThreadKey]
+  );
 
   useEffect(() => {
     if (prettyMode === 'headless') return;

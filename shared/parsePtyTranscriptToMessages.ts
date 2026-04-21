@@ -4,6 +4,17 @@ import { normalizeTeletypeLines, stripAnsi } from './stripAnsi';
 
 export type ChatTurn = { role: 'user' | 'assistant'; text: string; id: string };
 
+/** Exclusive end index in {@link getPtyParseNormalizedPlain} space (for interleaving Pretty Reply bubbles). */
+export type ChatTurnWithEnd = ChatTurn & { endOffset: number };
+
+/** Same normalization as {@link parsePtyTranscriptToMessages} before splitting. */
+export function getPtyParseNormalizedPlain(raw: string): string {
+  return normalizeTeletypeLines(stripAnsi(raw ?? ''))
+    .replace(/\r\n/g, '\n')
+    .replace(/\n{4,}/g, '\n\n\n')
+    .trimEnd();
+}
+
 /** One line of Claude Code TUI noise (spinners, tool hints, cost footer). */
 export function isPtyAssistantNoiseLine(line: string): boolean {
   const l = line.trim();
@@ -109,23 +120,24 @@ export function isAwaitingPtyAssistantResponse(turns: ChatTurn[]): boolean {
  * Split a PTY plain-text transcript into alternating assistant / user turns.
  * User lines are detected via the Claude Code prompt (`❯` at line start).
  */
-export function parsePtyTranscriptToMessages(raw: string): ChatTurn[] {
-  const t = normalizeTeletypeLines(stripAnsi(raw ?? ''))
-    .replace(/\r\n/g, '\n')
-    .replace(/\n{4,}/g, '\n\n\n')
-    .trimEnd();
+export function parsePtyTranscriptToMessagesWithEnds(raw: string): ChatTurnWithEnd[] {
+  const t = getPtyParseNormalizedPlain(raw);
   if (!t) return [];
 
-  const parts = t
-    .split(/(?=^\s*❯\s+(?!\d+\.\s+))/m)
-    .map((p) => p.replace(/^\n+/, '').trimEnd())
-    .filter((p) => p.length > 0);
-
-  const out: ChatTurn[] = [];
+  const segments = t.split(/(?=^\s*❯\s+(?!\d+\.\s+))/m);
+  const out: ChatTurnWithEnd[] = [];
   let n = 0;
+  let pos = 0;
 
-  for (let i = 0; i < parts.length; i++) {
-    const part = parts[i];
+  for (const seg of segments) {
+    const noLead = seg.replace(/^\n+/, '');
+    const part = noLead.trimEnd();
+    const leadChars = seg.length - noLead.length;
+    const partStartInT = pos + leadChars;
+    pos += seg.length;
+
+    if (!part) continue;
+
     const lines = part.split('\n');
     const first = lines[0] ?? '';
     const userMatch = first.match(/^\s*❯\s*(.*)$/);
@@ -134,19 +146,43 @@ export function parsePtyTranscriptToMessages(raw: string): ChatTurn[] {
       const userLine = userMatch[1].trim();
       const rest = lines.slice(1).join('\n').trimEnd();
       if (userLine) {
-        out.push({ role: 'user', text: userLine, id: `u-${n++}` });
+        const afterFirstLine = partStartInT + first.length + (rest.length > 0 ? 1 : 0);
+        out.push({ role: 'user', text: userLine, id: `u-${n++}`, endOffset: afterFirstLine });
       }
       if (rest) {
         if (!userLine && isTrivialAssistantTail(rest)) {
           /* e.g. `❯` + whitespace then only rules / cost — no real user text */
         } else {
-          out.push({ role: 'assistant', text: rest, id: `a-${n++}` });
+          out.push({ role: 'assistant', text: rest, id: `a-${n++}`, endOffset: partStartInT + part.length });
         }
       }
     } else {
-      out.push({ role: 'assistant', text: part.trimEnd(), id: `a-${n++}` });
+      out.push({ role: 'assistant', text: part.trimEnd(), id: `a-${n++}`, endOffset: partStartInT + part.length });
     }
   }
 
   return out;
+}
+
+function trimTrailingTrivialAssistantTurnsWithEnds(turns: ChatTurnWithEnd[]): ChatTurnWithEnd[] {
+  const out = [...turns];
+  while (out.length > 0) {
+    const last = out[out.length - 1];
+    if (last.role !== 'assistant' || !isTrivialAssistantTail(last.text)) break;
+    out.pop();
+  }
+  return out;
+}
+
+/** Parsed turns with exclusive end offsets, after the same trailing trim as Pretty bubbles. */
+export function parsePtyTranscriptToMessagesForPrettyLayout(raw: string): ChatTurnWithEnd[] {
+  return trimTrailingTrivialAssistantTurnsWithEnds(parsePtyTranscriptToMessagesWithEnds(raw));
+}
+
+/**
+ * Split a PTY plain-text transcript into alternating assistant / user turns.
+ * User lines are detected via the Claude Code prompt (`❯` at line start).
+ */
+export function parsePtyTranscriptToMessages(raw: string): ChatTurn[] {
+  return parsePtyTranscriptToMessagesWithEnds(raw).map(({ endOffset: _e, ...rest }) => rest);
 }
