@@ -1,6 +1,14 @@
 import type { Server } from 'node:http';
 import { WebSocket, WebSocketServer } from 'ws';
-import { createPtySession, killSession, resizePty, writeToPty, type PtySession } from './claudePty';
+import {
+  attachDetachedSession,
+  createPtySession,
+  detachSession,
+  killSession,
+  resizePty,
+  writeToPty,
+  type PtySession
+} from './claudePty';
 import { usageProbeCleanEnv } from './usageShellProbe';
 
 export type TerminalWsOpts = {
@@ -25,10 +33,55 @@ function bindClaudePtySocket(ws: WebSocket, opts: TerminalWsOpts): void {
   };
 
   ws.on('message', (raw: Buffer | ArrayBuffer | Buffer[]) => {
-    let msg: { type?: string; cols?: number; rows?: number; data?: string };
+    let msg: {
+      type?: string;
+      cols?: number;
+      rows?: number;
+      data?: string;
+      sessionId?: string;
+    };
     try {
       msg = JSON.parse(String(raw)) as typeof msg;
     } catch {
+      return;
+    }
+
+    if (msg.type === 'destroy') {
+      if (session) {
+        killSession(session.id);
+        session = null;
+      }
+      return;
+    }
+
+    if (msg.type === 'resume') {
+      if (session) return;
+      const sid = typeof msg.sessionId === 'string' ? msg.sessionId.trim() : '';
+      const attached = attachDetachedSession(sid, {
+        onData: (chunk) => safeSend({ type: 'data', data: chunk }),
+        onExit: () => {
+          safeSend({ type: 'exit' });
+          try {
+            ws.close();
+          } catch {
+            /* ignore */
+          }
+        }
+      });
+      if (!attached) {
+        safeSend({ type: 'error', message: 'SESSION_NOT_FOUND' });
+        try {
+          ws.close();
+        } catch {
+          /* ignore */
+        }
+        return;
+      }
+      session = attached;
+      const cols = typeof msg.cols === 'number' ? msg.cols : attached.cols;
+      const rows = typeof msg.rows === 'number' ? msg.rows : attached.rows;
+      resizePty(attached, cols, rows);
+      safeSend({ type: 'created', sessionId: attached.id, resumed: true });
       return;
     }
 
@@ -51,7 +104,7 @@ function bindClaudePtySocket(ws: WebSocket, opts: TerminalWsOpts): void {
             }
           }
         });
-        safeSend({ type: 'created' });
+        safeSend({ type: 'created', sessionId: session.id });
       } catch (e) {
         safeSend({ type: 'error', message: String(e) });
         try {
@@ -75,7 +128,7 @@ function bindClaudePtySocket(ws: WebSocket, opts: TerminalWsOpts): void {
 
   const cleanup = () => {
     if (session) {
-      killSession(session.id);
+      detachSession(session.id);
       session = null;
     }
   };

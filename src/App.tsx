@@ -11,6 +11,7 @@ import { BLOG_COMMANDS, buildBlogPrompt } from './types';
 import { clearDashboardChatHistory, formatChatThreadKey } from './lib/dashboardChatHistory';
 import { savePtyPrettyArchive } from './lib/ptyPrettyArchiveStorage';
 import { usePtyBridge } from './context/PtyBridgeContext';
+import { PTY_BROWSER_KILL_BEFORE_UNMOUNT_KEY, PTY_BROWSER_SESSION_ID_KEY } from '../shared/ptyBrowserSession';
 import { AlertCircle, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -86,6 +87,12 @@ export default function App() {
   const { sendToPty, clearLiveTranscript, ptySessionReady, requestPtyReconnect } = usePtyBridge();
 
   const handleRestartPtySession = useCallback(() => {
+    try {
+      sessionStorage.removeItem(PTY_BROWSER_SESSION_ID_KEY);
+      sessionStorage.setItem(PTY_BROWSER_KILL_BEFORE_UNMOUNT_KEY, '1');
+    } catch {
+      /* ignore */
+    }
     clearLiveTranscript({ resetPrettySession: true });
     requestPtyReconnect();
   }, [clearLiveTranscript, requestPtyReconnect]);

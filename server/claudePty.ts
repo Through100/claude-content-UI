@@ -9,9 +9,9 @@
  * The server writes resize commands as newline-terminated JSON to a pipe that
  * the Python script reads on fd 3 (passed as `stdio[3]`).
  *
- * Each WebSocket connection maps to one PtySession.  Sessions are killed when
- * the WebSocket closes, or after PTY_SESSION_IDLE_MS of inactivity (no PTY output
- * and no user input). Set PTY_SESSION_IDLE_MS=0 or `never` to disable idle cleanup.
+ * Each PTY session has a stable `id`. The terminal WebSocket **detaches** on close
+ * (keeps Claude running for refresh / tab navigation) and can **resume** with that id.
+ * `killSession` runs on idle timeout, explicit `destroy` from the client, or PTY exit.
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -123,8 +123,12 @@ export interface PtySession {
   lastActivity: number;
   cols: number;
   rows: number;
+  /** Forward PTY bytes to the active browser socket (noop while detached). */
   onData: (chunk: string) => void;
+  /** Invoked when the PTY child exits (no-op while detached). */
   onExit: (code: number | null) => void;
+  /** WebSocket disconnected but the PTY child is still running (resume allowed). */
+  detached: boolean;
 }
 
 const sessions = new Map<string, PtySession>();
@@ -182,6 +186,7 @@ export function createPtySession(opts: {
     rows,
     onData: opts.onData,
     onExit: opts.onExit,
+    detached: false
   };
   sessions.set(id, session);
 
@@ -190,14 +195,14 @@ export function createPtySession(opts: {
     if (finished) return;
     finished = true;
     const tail = utf8Decoder.end();
-    if (tail) opts.onData(tail);
+    if (tail) session.onData(tail);
     sessions.delete(id);
-    opts.onExit(code);
+    session.onExit(code);
   };
 
   child.on('error', (err) => {
     const msg = err instanceof Error ? err.message : String(err);
-    opts.onData(`\r\n\x1b[31m[pty-proxy] ${msg}\x1b[0m\r\n${ptySpawnFailureHint()}\r\n`);
+    session.onData(`\r\n\x1b[31m[pty-proxy] ${msg}\x1b[0m\r\n${ptySpawnFailureHint()}\r\n`);
     finish(127);
   });
 
@@ -211,14 +216,14 @@ export function createPtySession(opts: {
   child.stdout?.on('data', (buf: Buffer) => {
     session.lastActivity = Date.now();
     const chunk = utf8Decoder.write(buf);
-    if (chunk) opts.onData(chunk);
+    if (chunk) session.onData(chunk);
   });
 
   child.stderr?.on('data', (buf: Buffer) => {
     session.lastActivity = Date.now();
     // Only forward non-empty stderr so diagnostics reach the terminal
     const text = buf.toString('utf8');
-    if (text.trim()) opts.onData(text);
+    if (text.trim()) session.onData(text);
   });
 
   child.on('close', (code) => {
@@ -264,6 +269,30 @@ export function killSession(id: string): void {
   } catch {
     /* ignore */
   }
+}
+
+/** WebSocket went away — keep the PTY so the browser can `resume` after refresh. */
+export function detachSession(id: string): void {
+  const s = sessions.get(id);
+  if (!s) return;
+  s.detached = true;
+  s.onData = () => {};
+  s.onExit = () => {};
+}
+
+/**
+ * Re-bind a detached session to a new WebSocket sink. Returns null if the id is unknown or not detached.
+ */
+export function attachDetachedSession(
+  id: string,
+  handlers: { onData: (chunk: string) => void; onExit: (code: number | null) => void }
+): PtySession | null {
+  const s = sessions.get(id);
+  if (!s || !s.detached) return null;
+  s.detached = false;
+  s.onData = handlers.onData;
+  s.onExit = handlers.onExit;
+  return s;
 }
 
 export function getSession(id: string): PtySession | undefined {

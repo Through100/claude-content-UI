@@ -14,6 +14,11 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { PtyWelcomeNameScanner } from '../../shared/ptyWelcomeDetect';
+import {
+  PTY_BROWSER_KILL_BEFORE_UNMOUNT_KEY,
+  PTY_BROWSER_SESSION_ID_KEY,
+  readStoredPtySessionId
+} from '../../shared/ptyBrowserSession';
 import { usePtyBridge } from '../context/PtyBridgeContext';
 
 function wsUrl(): string {
@@ -139,7 +144,12 @@ export default function ClaudeTerminalView({
 
     ws.onopen = () => {
       const { cols, rows } = term;
-      ws.send(JSON.stringify({ type: 'create', cols, rows }));
+      const saved = readStoredPtySessionId();
+      if (saved) {
+        ws.send(JSON.stringify({ type: 'resume', sessionId: saved, cols, rows }));
+      } else {
+        ws.send(JSON.stringify({ type: 'create', cols, rows }));
+      }
     };
 
     ws.onmessage = (e: MessageEvent<string>) => {
@@ -153,10 +163,18 @@ export default function ClaudeTerminalView({
 
       if (msg.type === 'created') {
         sessionCreated = true;
+        if (typeof msg.sessionId === 'string' && msg.sessionId.trim()) {
+          try {
+            sessionStorage.setItem(PTY_BROWSER_SESSION_ID_KEY, msg.sessionId.trim());
+          } catch {
+            /* ignore quota / private mode */
+          }
+        }
         // Don't call clearLiveTranscript here; App.tsx handles it for new runs.
         // Calling it here while the parent is also updating state can lead to render loops.
         ptyBridgeRef.current.setSessionConnected(true);
-        if (initialInput && ws.readyState === WebSocket.OPEN) {
+        const resumed = msg.resumed === true;
+        if (!resumed && initialInput && ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: 'input', data: initialInput }));
         }
         return;
@@ -176,12 +194,28 @@ export default function ClaudeTerminalView({
       if (msg.type === 'error' && typeof msg.message === 'string') {
         ptyBridgeRef.current.setSessionConnected(false);
         ptyBridgeRef.current.flushLiveTranscriptNow();
-        term.writeln(`\r\n\x1b[31m[Server: ${msg.message}]\x1b[0m`);
+        const m = msg.message as string;
+        if (m === 'SESSION_NOT_FOUND' || m.includes('SESSION_NOT_FOUND')) {
+          try {
+            sessionStorage.removeItem(PTY_BROWSER_SESSION_ID_KEY);
+          } catch {
+            /* ignore */
+          }
+          term.writeln('\r\n\x1b[90m[PTY session expired on server — opening a new shell…]\x1b[0m');
+          queueMicrotask(() => setRestartKey((k) => k + 1));
+          return;
+        }
+        term.writeln(`\r\n\x1b[31m[Server: ${m}]\x1b[0m`);
         setExited(true);
         return;
       }
 
       if (msg.type === 'exit') {
+        try {
+          sessionStorage.removeItem(PTY_BROWSER_SESSION_ID_KEY);
+        } catch {
+          /* ignore */
+        }
         ptyBridgeRef.current.setSessionConnected(false);
         ptyBridgeRef.current.flushLiveTranscriptNow();
         endPtyHeader();
@@ -198,7 +232,9 @@ export default function ClaudeTerminalView({
       if (sessionCreated) {
         ptyBridgeRef.current.flushLiveTranscriptNow();
         endPtyHeader();
-        term.writeln('\r\n\x1b[31m[Connection closed]\x1b[0m');
+        term.writeln(
+          '\r\n\x1b[90m[WebSocket disconnected — the PTY may still run on the server. Refresh this tab or return from History to reconnect; use Dashboard “Restart session” to end it.]\x1b[0m'
+        );
       }
     };
 
@@ -331,6 +367,22 @@ export default function ClaudeTerminalView({
 
     return () => {
       destroyed = true;
+      let killNext = false;
+      try {
+        killNext = sessionStorage.getItem(PTY_BROWSER_KILL_BEFORE_UNMOUNT_KEY) === '1';
+        if (killNext) {
+          sessionStorage.removeItem(PTY_BROWSER_KILL_BEFORE_UNMOUNT_KEY);
+        }
+      } catch {
+        /* ignore */
+      }
+      if (killNext && sessionCreated && ws.readyState === WebSocket.OPEN) {
+        try {
+          ws.send(JSON.stringify({ type: 'destroy' }));
+        } catch {
+          /* ignore */
+        }
+      }
       wsRef.current = null;
       ptyBridgeRef.current.registerPtyTerminal(null);
       ptyBridgeRef.current.setSessionConnected(false);
@@ -412,6 +464,12 @@ export default function ClaudeTerminalView({
           <button
             type="button"
             onClick={() => {
+              try {
+                sessionStorage.removeItem(PTY_BROWSER_SESSION_ID_KEY);
+                sessionStorage.setItem(PTY_BROWSER_KILL_BEFORE_UNMOUNT_KEY, '1');
+              } catch {
+                /* ignore */
+              }
               setExited(false);
               setRestartKey((k) => k + 1);
             }}
