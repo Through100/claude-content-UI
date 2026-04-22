@@ -22,9 +22,21 @@ export function mergePtyPlainArchive(prev: string, fullPlain: string): string {
   if (f.length >= p.length && f.startsWith(p)) return f;
   if (p.endsWith(f)) return p;
 
+  // 1. Fast path: f is an updated version of the current session (or a dropped-lines continuation).
+  // The start of f should be found somewhere in p. If we find it, we can just replace everything after it with f.
+  const prefixLen = Math.min(200, f.length);
+  if (prefixLen >= 40) {
+    const prefix = f.slice(0, prefixLen);
+    const idx = p.lastIndexOf(prefix);
+    if (idx >= 0) {
+      return p.slice(0, idx) + f;
+    }
+  }
+
   /** Largest k where p ends with f[0:k] — then new bytes are f[k:]. */
   const maxK = Math.min(p.length, f.length, MAX_OVERLAP_SCAN);
-  for (let k = maxK; k > 0; k--) {
+  const minK = 200; // Require a minimum overlap to avoid false positives (e.g. matching just a newline)
+  for (let k = maxK; k > minK; k--) {
     if (p.slice(-k) === f.slice(0, k)) {
       return p + f.slice(k);
     }
@@ -183,38 +195,27 @@ export function snapMergedPtyTailToLiveFullSnapshot(
   while (tEff >= 200) {
     const approxCut = m.length - tEff;
     const cut = alignCutBackwardToNewline(m, approxCut);
-    const suffixLen = m.length - cut;
-    if (suffixLen <= 0) {
-      tEff = Math.floor(tEff * 0.82);
-      continue;
-    }
-    if (suffixLen > live.length) {
-      // #region agent log
-      fetch('http://127.0.0.1:7823/ingest/0f30680b-0aa0-4d4a-ba6d-262bf6a78290', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '456dbf' },
-        body: JSON.stringify({
-          sessionId: '456dbf',
-          hypothesisId: 'H15',
-          location: 'mergePtyPlainArchive.ts:snapMergedPtyTailToLiveFullSnapshot',
-          message: 'suffixLen exceeds live; shrinking tail scan',
-          data: { tEff, suffixLen, liveLen: live.length, mergedLen: m.length },
-          timestamp: Date.now()
-        })
-      }).catch(() => {});
-      // #endregion
+    const chunk = m.slice(cut, cut + 100);
+    
+    // If chunk is too small, we can't reliably match it
+    if (chunk.length < 40) {
       tEff = Math.floor(tEff * 0.82);
       continue;
     }
 
-    const liveSuffix = live.slice(-suffixLen);
-    if (m.slice(cut) === liveSuffix) {
-      dbg('abort-slice-already-live-suffix', { suffixLen, tEff });
-      return merged;
+    const liveCut = live.lastIndexOf(chunk);
+    if (liveCut >= 0) {
+      const liveSuffix = live.slice(liveCut);
+      if (m.slice(cut) === liveSuffix) {
+        dbg('abort-slice-already-live-suffix', { tEff });
+        return merged;
+      }
+
+      dbg('patched', { cut, liveCut, tEff, outLen: cut + liveSuffix.length });
+      return m.slice(0, cut) + liveSuffix;
     }
 
-    dbg('patched', { cut, suffixLen, tEff, outLen: cut + liveSuffix.length });
-    return m.slice(0, cut) + liveSuffix;
+    tEff = Math.floor(tEff * 0.82);
   }
 
   /**
