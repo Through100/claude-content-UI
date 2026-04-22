@@ -11,6 +11,12 @@ function collapsePtyWrappedPathSegments(s: string): string {
     if (next === t) break;
     t = next;
   }
+  /** Ink often breaks after a whole word: `…wholesale` / `       -suppliers/…` — merge hyphen slug in one shot. */
+  for (let i = 0; i < 24; i++) {
+    const next = t.replace(/([a-z0-9/._-])\n[ \t]+(-[a-z0-9._/-]+)/gi, '$1$2');
+    if (next === t) break;
+    t = next;
+  }
   return t;
 }
 

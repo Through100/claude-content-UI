@@ -74,6 +74,10 @@ function formatElapsed(startedAt: number) {
   return `${m}m ${r}s`;
 }
 
+function isReportFetchErrorPlaceholder(s: string | null | undefined): boolean {
+  return Boolean(s?.trimStart().startsWith('## Report could not be loaded'));
+}
+
 export default function ResultsView({
   result,
   isLoading,
@@ -317,13 +321,18 @@ export default function ResultsView({
     return scoped.length > 0 ? scoped : artifactPaths;
   }, [artifactPaths, chatThreadKey]);
 
-  /** Prefer the blog audit markdown for this command+target workspace dir; otherwise last `.md` in scope. */
+  /** Prefer command-specific report names, then analysis-report, else last `.md` in scope. */
   const primarySessionMarkdownPath = useMemo(() => {
     const mds = scopedWorkspaceArtifactPaths.filter((p) => /\.md$/i.test(p));
     if (mds.length === 0) return null;
+    const { commandKey } = parseChatThreadKey(chatThreadKey);
+    if (commandKey === 'geo') {
+      const geo = mds.find((p) => /geo-audit-report\.md$/i.test(pathNorm(p)));
+      if (geo) return geo;
+    }
     const prefer = mds.find((p) => /analysis-report\.md$/i.test(pathNorm(p)));
     return prefer ?? mds[mds.length - 1];
-  }, [scopedWorkspaceArtifactPaths]);
+  }, [scopedWorkspaceArtifactPaths, chatThreadKey]);
 
   useEffect(() => {
     // Reset state when chat thread changes
@@ -362,38 +371,86 @@ export default function ResultsView({
 
   useEffect(() => {
     if (!isLoading && fetchedReportContent?.trim() && !hasAutoSwitchedToReportRef.current) {
+      if (isReportFetchErrorPlaceholder(fetchedReportContent)) return;
       tryAutoSwitchToFullReport();
     }
   }, [isLoading, fetchedReportContent, tryAutoSwitchToFullReport]);
 
   useEffect(() => {
     const mdPath = primarySessionMarkdownPath;
-    if (!mdPath || mdPath === fetchedReportPath || isFetchingReport) return;
+    if (!mdPath) return;
 
+    const haveSuccessCached =
+      mdPath === fetchedReportPath &&
+      Boolean(fetchedReportContent?.trim()) &&
+      !isReportFetchErrorPlaceholder(fetchedReportContent);
+    if (haveSuccessCached) return;
+
+    const haveFinalFailure =
+      mdPath === fetchedReportPath &&
+      Boolean(fetchedReportContent?.trim()) &&
+      isReportFetchErrorPlaceholder(fetchedReportContent);
+    if (haveFinalFailure) return;
+
+    let cancelled = false;
     setIsFetchingReport(true);
-    fetch(apiService.workspaceFileDownloadUrl(mdPath))
-      .then((res) => {
-        if (!res.ok) throw new Error(`Report fetch ${res.status}`);
-        return res.text();
-      })
-      .then((text) => {
-        setFetchedReportContent(text);
-        setFetchedReportPath(mdPath);
-        if (!isLoadingRef.current && text.trim()) {
-          tryAutoSwitchToFullReport();
+    const url = apiService.workspaceFileDownloadUrl(mdPath);
+
+    void (async () => {
+      let lastErr: unknown = null;
+      for (let attempt = 0; attempt < 12; attempt++) {
+        if (cancelled) return;
+        try {
+          const res = await fetch(url);
+          if (res.status === 404) {
+            if (attempt < 11) {
+              await new Promise((r) => setTimeout(r, 400 + attempt * 120));
+              continue;
+            }
+            lastErr = new Error('Report fetch 404');
+            break;
+          }
+          if (!res.ok) {
+            const err = new Error(`Report fetch ${res.status}`);
+            if (cancelled) return;
+            setFetchedReportPath(mdPath);
+            setFetchedReportContent(
+              `## Report could not be loaded\n\n${err.message}\n\n**Attempted path:** \`${mdPath.replace(/`/g, "'")}\`\n\n` +
+                'Check **Raw View** for the exact `Write(...)` path or confirm the API host can read `CLAUDE_WORKDIR`.'
+            );
+            return;
+          }
+          const text = await res.text();
+          if (cancelled) return;
+          setFetchedReportContent(text);
+          setFetchedReportPath(mdPath);
+          if (!isLoadingRef.current && text.trim()) {
+            tryAutoSwitchToFullReport();
+          }
+          return;
+        } catch (e) {
+          lastErr = e;
+          if (attempt < 11) {
+            await new Promise((r) => setTimeout(r, 400 + attempt * 120));
+          }
         }
-      })
-      .catch((err) => {
-        console.error('Failed to fetch report:', err);
-        const msg = String((err as Error)?.message ?? err);
-        setFetchedReportPath(mdPath);
-        setFetchedReportContent(
-          `## Report could not be loaded\n\n${msg}\n\n**Attempted path:** \`${mdPath.replace(/`/g, "'")}\`\n\n` +
-            'This often means the path detected from the PTY log was truncated by line wraps, or the file is not on the server yet. Rebuild and redeploy the latest UI, or check **Raw View** for the full `Write(...)` path.'
-        );
-      })
-      .finally(() => setIsFetchingReport(false));
-  }, [primarySessionMarkdownPath, fetchedReportPath, isFetchingReport, tryAutoSwitchToFullReport]);
+      }
+      if (cancelled) return;
+      const msg = String((lastErr as Error)?.message ?? lastErr ?? 'Unknown error');
+      setFetchedReportPath(mdPath);
+      setFetchedReportContent(
+        `## Report could not be loaded\n\n${msg}\n\n**Attempted path:** \`${mdPath.replace(/`/g, "'")}\`\n\n` +
+          'If Claude just finished writing the file, wait a few seconds and click **Full Report** again (the server can briefly return 404 until the file is visible). If it keeps failing, check **Raw View** for the exact `Write(...)` path or redeploy the latest UI.'
+      );
+    })().finally(() => {
+      if (!cancelled) setIsFetchingReport(false);
+    });
+
+    return () => {
+      cancelled = true;
+      setIsFetchingReport(false);
+    };
+  }, [primarySessionMarkdownPath, fetchedReportPath, fetchedReportContent, tryAutoSwitchToFullReport]);
 
   const historyPrettySource = useMemo(() => {
     if (!isHistoryEmbed || !result) return { conversation: '', report: null };
