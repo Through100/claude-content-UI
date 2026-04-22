@@ -387,6 +387,11 @@ export function parseLinearBlocks(source: string): LinearBlock[] {
       flush();
       const items: InlinePart[][] = [];
       while (i < lines.length) {
+        /** GFM “loose” lists: blank lines between items; without this each item becomes its own `<ul>` / `<ol>`. */
+        while (i < lines.length && lines[i].trim() === '') {
+          i++;
+        }
+        if (i >= lines.length) break;
         const L = lines[i];
         const mm = L.trim().match(BULLET);
         if (!mm) break;
@@ -402,6 +407,11 @@ export function parseLinearBlocks(source: string): LinearBlock[] {
       flush();
       const items: InlinePart[][] = [];
       while (i < lines.length) {
+        /** Same loose-list rule as bullets: skip blank lines between `1.` / `2.` rows. */
+        while (i < lines.length && lines[i].trim() === '') {
+          i++;
+        }
+        if (i >= lines.length) break;
         const L = lines[i];
         const mm = L.trim().match(ORDERED);
         if (!mm) break;
