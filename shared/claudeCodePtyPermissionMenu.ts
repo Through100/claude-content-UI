@@ -1,3 +1,4 @@
+import { isInkSpinnerTokenStatusLine } from './inkSpinnerTokenStatusLine';
 import { normalizeTeletypeLines, stripAnsi } from './stripAnsi';
 
 /** Web / tool permission menu (Fetch + Esc to cancel footer) — must survive “trivial tail” / chrome filters for dashboard sync. */
@@ -21,14 +22,16 @@ export function textContainsClaudePermissionMenu(text: string): boolean {
 
 /** Plain PTY text (ANSI stripped, teletype lines normalized) shows Claude Code’s numbered permission menu. */
 export function plainTextShowsClaudePermissionMenu(plainNormalized: string): boolean {
-  const tail = plainNormalized.slice(-8000);
-  if (!/\bEsc to cancel\b/i.test(tail) || !/\bTab to (?:amend|edit|change)\b/i.test(tail)) return false;
+  const tail = plainNormalized.slice(-500);
+  const veryTail = plainNormalized.slice(-500);
+  if (!/\bEsc to cancel\b/i.test(veryTail) || !/\bTab to (?:amend|edit|change)\b/i.test(veryTail)) return false;
   /** Require a numbered option line so we never auto-send on stray footer text alone (e.g. after a PTY restart). */
   if (!/(^|\n)\s*(?:[❯›>]\s*)?\d+\.\s+\S/m.test(tail)) return false;
   return (
     /Do you want to/i.test(tail) ||
       /(^|\n)\s*(?:[❯›>]\s*)?\d+\.\s+Yes,/im.test(tail) ||
       /Yes, and don't ask again/i.test(tail) ||
+      /Yes, and don’t ask again/i.test(tail) ||
       /Yes, allow all edits/i.test(tail)
   );
 }
@@ -39,11 +42,16 @@ const NUMBERED_MENU_ROW = /(^|\n)\s*(?:[❯›>]\s*)?\d+\.\s+\S/m;
  * True when the PTY tail shows a permission menu (Esc/Tab “proceed” UI **or** Fetch / compact consent without that
  * footer). Used so dashboard copy (e.g. welcome splash) does not warn while a real menu is visible.
  */
+
 export function plainTailShowsAnswerablePermissionMenu(plainNormalized: string): boolean {
+  const lines = plainNormalized.trimEnd().split('\n');
+  const lastLine = lines[lines.length - 1] ?? '';
+  if (isInkSpinnerTokenStatusLine(lastLine)) return false;
+
   if (plainTextShowsClaudePermissionMenu(plainNormalized)) return true;
-  const tail = plainNormalized.slice(-14000);
+  const tail = plainNormalized.slice(-500);
   if (!NUMBERED_MENU_ROW.test(tail)) return false;
-  if (/Do you want to/i.test(tail) && /^\s*(?:[❯›>]\s*)?1\.\s+Yes\b/im.test(tail)) return true;
+  if (/Do you want to/i.test(tail) && /^\s*(?:[?❯›>]\s*)?1\.\s+Yes\b/im.test(tail)) return true;
   return false;
 }
 

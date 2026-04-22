@@ -238,7 +238,7 @@ function splitProseMenuAndRest(prose: string): { kind: 'menu' | 'prose'; text: s
 
     /** Pull short tool/fetch context lines above the question (skip blank lines between). */
     let menuStart = start;
-    for (let step = 0; step < 50 && menuStart > i; step++) {
+    for (let step = 0; step < 500 && menuStart > i; step++) {
       let scan = menuStart - 1;
       while (scan >= i && !(lines[scan] ?? '').trim()) scan--;
       if (scan < i) break;
@@ -248,7 +248,7 @@ function splitProseMenuAndRest(prose: string): { kind: 'menu' | 'prose'; text: s
       } else {
         // Allow arbitrary lines if we are inside a Bash command block
         let foundBash = false;
-        for (let k = scan; k >= Math.max(i, scan - 50); k--) {
+        for (let k = scan; k >= Math.max(i, scan - 500); k--) {
           const t = (lines[k] ?? '').trim();
           if (/^\s*Bash command\b/i.test(t) || /^[─\-_\s|]{10,}$/.test(t)) {
             foundBash = true;
