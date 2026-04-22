@@ -47,6 +47,12 @@ export type PtyBridgeContextValue = {
   subscribePtyMirrorWrite: (fn: (chunk: string) => void) => () => void;
   /** Fired when the transcript buffer is cleared or the primary terminal unregisters (mirror should reset). */
   subscribePtyMirrorReset: (fn: () => void) => () => void;
+  /**
+   * Bumps when the Dashboard (or future callers) asks for a fresh WebSocket + PTY — same remount as Logon “Restart”.
+   * The Logon terminal is mounted off-screen; this reconnects without switching views.
+   */
+  ptyReconnectNonce: number;
+  requestPtyReconnect: () => void;
 };
 
 const PtyBridgeContext = createContext<PtyBridgeContextValue | null>(null);
@@ -59,6 +65,7 @@ export function PtyBridgeProvider({ children }: { children: React.ReactNode }) {
   const [ptyDisplayPlain, setPtyDisplayPlain] = useState('');
   const [ptyFullSnapshotPlain, setPtyFullSnapshotPlain] = useState('');
   const [ptySessionGeneration, setPtySessionGeneration] = useState(0);
+  const [ptyReconnectNonce, setPtyReconnectNonce] = useState(0);
   const transcriptBuf = useRef('');
   const terminalRef = useRef<Terminal | null>(null);
   const serializeStartLineRef = useRef(0);
@@ -190,6 +197,10 @@ export function PtyBridgeProvider({ children }: { children: React.ReactNode }) {
     return transportRef.current(text);
   }, []);
 
+  const requestPtyReconnect = useCallback(() => {
+    setPtyReconnectNonce((n) => n + 1);
+  }, []);
+
   const value = useMemo(
     () => ({
       sendToPty,
@@ -207,7 +218,9 @@ export function PtyBridgeProvider({ children }: { children: React.ReactNode }) {
       flushLiveTranscriptNow,
       peekPtyTranscriptBuffer,
       subscribePtyMirrorWrite,
-      subscribePtyMirrorReset
+      subscribePtyMirrorReset,
+      ptyReconnectNonce,
+      requestPtyReconnect
     }),
     [
       sendToPty,
@@ -224,7 +237,9 @@ export function PtyBridgeProvider({ children }: { children: React.ReactNode }) {
       flushLiveTranscriptNow,
       peekPtyTranscriptBuffer,
       subscribePtyMirrorWrite,
-      subscribePtyMirrorReset
+      subscribePtyMirrorReset,
+      ptyReconnectNonce,
+      requestPtyReconnect
     ]
   );
 

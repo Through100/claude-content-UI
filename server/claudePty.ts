@@ -10,7 +10,8 @@
  * the Python script reads on fd 3 (passed as `stdio[3]`).
  *
  * Each WebSocket connection maps to one PtySession.  Sessions are killed when
- * the WebSocket closes, or after PTY_SESSION_IDLE_MS of inactivity.
+ * the WebSocket closes, or after PTY_SESSION_IDLE_MS of inactivity (no PTY output
+ * and no user input). Set PTY_SESSION_IDLE_MS=0 or `never` to disable idle cleanup.
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -24,7 +25,21 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROXY_SCRIPT = path.resolve(__dirname, '..', 'scripts', 'pty-proxy.py');
 const WIN_STUB = path.resolve(__dirname, '..', 'scripts', 'pty-windows-stub.mjs');
 
-const PTY_SESSION_IDLE_MS = 10 * 60 * 1000; // 10 minutes
+const DEFAULT_PTY_SESSION_IDLE_MS = 10 * 60 * 1000; // 10 minutes
+
+/** Milliseconds without PTY stdout/stderr or `writeToPty` before the server kills the session. `null` = disabled. */
+function readPtySessionIdleMs(): number | null {
+  const raw = process.env.PTY_SESSION_IDLE_MS?.trim();
+  if (raw === undefined || raw === '') return DEFAULT_PTY_SESSION_IDLE_MS;
+  const low = raw.toLowerCase();
+  if (low === '0' || low === 'never' || low === 'off' || low === 'false' || low === 'disabled') return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return DEFAULT_PTY_SESSION_IDLE_MS;
+  if (n === 0) return null;
+  return n;
+}
+
+const ptySessionIdleMs = readPtySessionIdleMs();
 
 function envTruthy(v: string | undefined): boolean {
   return ['1', 'true', 'yes'].includes(String(v ?? '').trim().toLowerCase());
@@ -114,15 +129,17 @@ export interface PtySession {
 
 const sessions = new Map<string, PtySession>();
 
-// Idle cleanup
-setInterval(() => {
-  const now = Date.now();
-  for (const [id, s] of sessions) {
-    if (now - s.lastActivity > PTY_SESSION_IDLE_MS) {
-      killSession(id);
+// Idle cleanup (optional — long “thinking” runs with no bytes still advance lastActivity on any spinner output)
+if (ptySessionIdleMs != null) {
+  setInterval(() => {
+    const now = Date.now();
+    for (const [id, s] of sessions) {
+      if (now - s.lastActivity > ptySessionIdleMs) {
+        killSession(id);
+      }
     }
-  }
-}, 60_000).unref();
+  }, 60_000).unref();
+}
 
 export function createPtySession(opts: {
   claudeBin: string;

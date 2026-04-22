@@ -1,5 +1,5 @@
 import React from 'react';
-import { LayoutDashboard, Terminal, History, BarChart3, UserCircle, ShieldCheck, LogIn } from 'lucide-react';
+import { LayoutDashboard, Terminal, History, BarChart3, UserCircle, ShieldCheck, LogIn, RotateCcw } from 'lucide-react';
 import ClaudeTerminalView from './ClaudeTerminalView';
 
 /** Live-ish snapshot from GET /api/health + GET /api/account (/status parse). */
@@ -22,6 +22,8 @@ interface LayoutProps {
   terminalWsEnabled: boolean;
   onPtyWelcomeBackDetected?: (name: string) => void;
   onPtySessionEnd?: () => void;
+  /** Dashboard: reconnect the off-screen Logon PTY (after idle timeout or “Connection closed”). */
+  onRestartPtySession?: () => void;
 }
 
 export default function Layout({
@@ -31,7 +33,8 @@ export default function Layout({
   headerSession,
   terminalWsEnabled,
   onPtyWelcomeBackDetected,
-  onPtySessionEnd
+  onPtySessionEnd,
+  onRestartPtySession
 }: LayoutProps) {
   return (
     <div className="min-h-screen bg-[#F9FAFB] flex font-sans text-gray-900">
@@ -110,7 +113,21 @@ export default function Layout({
             </span>
           </div>
 
-          <HeaderSessionPill snapshot={headerSession} />
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            {activeView === 'dashboard' && terminalWsEnabled && onRestartPtySession ? (
+              <button
+                type="button"
+                onClick={onRestartPtySession}
+                title="Start a new interactive PTY session (same as Logon → Restart). Use after an idle disconnect or “Connection closed”."
+                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-gray-800 shadow-sm hover:bg-gray-50 hover:border-gray-300 transition-colors"
+              >
+                <RotateCcw size={14} className="text-indigo-600 shrink-0" aria-hidden />
+                <span className="hidden sm:inline">Restart session</span>
+                <span className="sm:hidden">Restart</span>
+              </button>
+            ) : null}
+            <HeaderSessionPill snapshot={headerSession} />
+          </div>
         </header>
 
         <div className="p-8 max-w-7xl mx-auto w-full">

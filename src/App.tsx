@@ -83,7 +83,12 @@ export default function App() {
     };
   }, [refreshHeaderSession]);
 
-  const { sendToPty, clearLiveTranscript, ptySessionReady } = usePtyBridge();
+  const { sendToPty, clearLiveTranscript, ptySessionReady, requestPtyReconnect } = usePtyBridge();
+
+  const handleRestartPtySession = useCallback(() => {
+    clearLiveTranscript({ resetPrettySession: true });
+    requestPtyReconnect();
+  }, [clearLiveTranscript, requestPtyReconnect]);
 
   const [error, setError] = useState<string | null>(null);
   const [chatThreadKey, setChatThreadKey] = useState(() => formatChatThreadKey(BLOG_COMMANDS[0].key, ''));
@@ -244,6 +249,7 @@ export default function App() {
       terminalWsEnabled={terminalWsEnabled}
       onPtyWelcomeBackDetected={onPtyWelcomeName}
       onPtySessionEnd={onPtySessionEnd}
+      onRestartPtySession={terminalWsEnabled ? handleRestartPtySession : undefined}
     >
       <AnimatePresence mode="wait">
         {activeView === 'dashboard' ? (

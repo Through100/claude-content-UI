@@ -70,6 +70,7 @@ export default function ClaudeTerminalView({
   const pasteFieldRef = useRef<HTMLTextAreaElement>(null);
   const insertIntoPtyRef = useRef<(text: string) => void>(() => {});
   const ptyBridge = usePtyBridge();
+  const { ptyReconnectNonce } = ptyBridge;
   const ptyBridgeRef = useRef(ptyBridge);
   ptyBridgeRef.current = ptyBridge;
   const [ws, setWs] = useState<WebSocket | null>(null);
@@ -356,7 +357,7 @@ export default function ClaudeTerminalView({
       term.dispose();
       if (containerRef.current) containerRef.current.innerHTML = '';
     };
-  }, [restartKey, initialInput]);
+  }, [restartKey, initialInput, ptyReconnectNonce]);
 
   const insertPasteFromModal = useCallback(() => {
     const raw = pasteFieldRef.current?.value ?? '';
