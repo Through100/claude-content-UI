@@ -35,6 +35,16 @@ export type DocumentBlock =
   | { type: 'section'; heading: { level: 2; text: string } | null; children: SectionChild[] };
 
 const HR_LINE = /^[\s]*-{3,}[\s]*$/;
+
+/** Markdown `---` plus Ink / PTY decorative rules (Unicode box-drawing, em dashes) that should not become body text. */
+function isThematicBreakLine(trimmedLine: string): boolean {
+  const t = trimmedLine.trimEnd();
+  if (HR_LINE.test(t)) return true;
+  const core = t.trim();
+  if (core.length < 6) return false;
+  if (/[A-Za-z0-9]/.test(core)) return false;
+  return /^[\s\-_=·‧⋯⁃\u2010-\u2015\u2500-\u257F]{6,}$/.test(core);
+}
 const H3 = /^###\s+(.*)$/;
 const H2 = /^##\s+(.*)$/;
 const H1_TITLE = /^#\s+(.*)$/;
@@ -185,7 +195,7 @@ function parseFAQ(lines: string[], i: number): { block: LinearBlock; next: numbe
           continue;
         }
         if (/^#{1,3}\s/.test(L.trim())) break;
-        if (HR_LINE.test(L)) break;
+        if (isThematicBreakLine(L.trim())) break;
         if (BULLET.test(L)) break;
         if (L.trim().startsWith('```')) break;
         answer += (answer ? '\n' : '') + L;
@@ -269,9 +279,12 @@ export function parseLinearBlocks(source: string): LinearBlock[] {
       continue;
     }
 
-    if (HR_LINE.test(trimmed)) {
+    if (isThematicBreakLine(trimmed)) {
       flush();
-      blocks.push({ type: 'divider' });
+      const prev = blocks[blocks.length - 1];
+      if (prev?.type !== 'divider') {
+        blocks.push({ type: 'divider' });
+      }
       i++;
       continue;
     }

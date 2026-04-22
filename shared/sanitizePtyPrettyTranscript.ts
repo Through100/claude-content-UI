@@ -81,11 +81,26 @@ export function stripPtyEphemeralLines(text: string): string {
     .join('\n');
 }
 
+/**
+ * Removes the long “save under workspace-files/…” paragraph appended by {@link buildBlogPrompt} in the
+ * Command Runner. PTY soft-wraps it across many lines; Pretty should show `/blog …` + target only.
+ * Kept in sync with `src/types.ts` `buildBlogPrompt` instruction text (start + end anchors).
+ */
+export function stripWorkspaceFilesTaskInstruction(text: string): string {
+  const t = text.replace(/\r\n/g, '\n');
+  const re =
+    /(?:^|\n)\s*Please create a directory named[\s\S]{0,12000}?exact paths to the saved files in your final response so it is recorded in the history\.?\s*/gi;
+  let out = t.replace(re, '\n');
+  out = out.replace(/\n{3,}/g, '\n\n');
+  return out;
+}
+
 /** Normalize + strip splash + strip ephemeral status lines for Pretty PTY only (Logon / Raw unchanged). */
 export function sanitizePtyPrettyTranscript(raw: string): string {
   let t = normalizeTeletypeLines(stripAnsi(raw ?? '')).replace(/\r\n/g, '\n');
   t = stripClaudeCodeSplashPrefix(t);
   t = stripPtyEphemeralLines(t);
   t = reflowSoftWrappedPlainLines(t);
+  t = stripWorkspaceFilesTaskInstruction(t);
   return t.replace(/\n{4,}/g, '\n\n\n').trim();
 }

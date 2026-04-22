@@ -1,7 +1,9 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { ChevronDown, Image as ImageIcon, BarChart3, Quote, Link2, Tag } from 'lucide-react';
 import {
+  buildPrettyDocument,
   parseInline,
+  parseLinearBlocks,
   parsePrettyDocument,
   type DocumentBlock,
   type InlinePart,
@@ -13,6 +15,8 @@ import { sanitizeRunOutputForChat } from '../lib/dashboardChatHistory';
 type PrettyOutputBodyProps = {
   text: string;
   className?: string;
+  /** Live PTY Pretty: decorative `---` / Ink separator lines are visual noise — omit divider blocks. */
+  omitDividers?: boolean;
 };
 
 function tagIcon(kind: TagKind) {
@@ -321,9 +325,13 @@ function DocumentBlockView({ block, index }: { block: DocumentBlock; index: numb
 /**
  * Two-stage Pretty Output: parse → structured document blocks → card-based UI.
  */
-export default function PrettyOutputBody({ text, className = '' }: PrettyOutputBodyProps) {
+export default function PrettyOutputBody({ text, className = '', omitDividers = false }: PrettyOutputBodyProps) {
   const cleaned = useMemo(() => sanitizeRunOutputForChat(text), [text]);
-  const doc = useMemo(() => parsePrettyDocument(cleaned), [cleaned]);
+  const doc = useMemo(() => {
+    if (!omitDividers) return parsePrettyDocument(cleaned);
+    const linear = parseLinearBlocks(cleaned).filter((b) => b.type !== 'divider');
+    return buildPrettyDocument(linear);
+  }, [cleaned, omitDividers]);
 
   if (!cleaned.trim()) {
     return <p className="text-sm text-gray-500">No content to show.</p>;

@@ -207,7 +207,7 @@ export default function PtyAssistantBody({
     } else {
       internalSlotsRef.current = [];
     }
-    return <PrettyOutputBody text={text} />;
+    return <PrettyOutputBody text={text} omitDividers />;
   }
 
   if (parts.length === 1 && parts[0].kind === 'prose') {
@@ -229,7 +229,7 @@ export default function PtyAssistantBody({
     const { head, tail } = splitPinnedAssistantStreamHeadTail(parts[0].text);
     return (
       <div className="space-y-4">
-        {head.trim() ? <PrettyOutputBody text={head} /> : null}
+        {head.trim() ? <PrettyOutputBody text={head} omitDividers /> : null}
         {tail.trim() ? (
           <div className="rounded-xl border border-zinc-200 bg-zinc-50 overflow-hidden shadow-sm my-2">
             <div className="px-3 py-2 text-[12px] font-medium text-zinc-500 flex items-center gap-2">
@@ -330,7 +330,7 @@ export default function PtyAssistantBody({
         const { head, tail } = splitPinnedAssistantStreamHeadTail(p.text);
         return (
           <React.Fragment key={`p-${idx}`}>
-            {head.trim() ? <PrettyOutputBody text={head} /> : null}
+            {head.trim() ? <PrettyOutputBody text={head} omitDividers /> : null}
             {tail.trim() ? (
               <div className="rounded-xl border border-zinc-200 bg-zinc-50 overflow-hidden shadow-sm my-2">
                 <div className="px-3 py-2 text-[12px] font-medium text-zinc-500 flex items-center gap-2">
