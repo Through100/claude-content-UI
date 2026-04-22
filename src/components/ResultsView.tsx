@@ -375,8 +375,12 @@ export default function ResultsView({
       })
       .catch((err) => {
         console.error('Failed to fetch report:', err);
+        const msg = String((err as Error)?.message ?? err);
         setFetchedReportPath(mdPath);
-        setFetchedReportContent(null);
+        setFetchedReportContent(
+          `## Report could not be loaded\n\n${msg}\n\n**Attempted path:** \`${mdPath.replace(/`/g, "'")}\`\n\n` +
+            'This often means the path detected from the PTY log was truncated by line wraps, or the file is not on the server yet. Rebuild and redeploy the latest UI, or check **Raw View** for the full `Write(...)` path.'
+        );
       })
       .finally(() => setIsFetchingReport(false));
   }, [primarySessionMarkdownPath, fetchedReportPath, isFetchingReport, tryAutoSwitchToFullReport]);

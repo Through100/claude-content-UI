@@ -349,21 +349,6 @@ function interleaveArchivedWithinLastAssistant(
   );
   const minAnchor = Math.min(...anchorLens);
   if (minAnchor <= turnStart) {
-    // #region agent log
-    fetch('http://127.0.0.1:7823/ingest/0f30680b-0aa0-4d4a-ba6d-262bf6a78290', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '456dbf' },
-      body: JSON.stringify({
-        sessionId: '456dbf',
-        runId: 'verify-v1',
-        hypothesisId: 'H2',
-        location: 'PtyMessengerThread.tsx:interleave',
-        message: 'skip split — anchor outside turn span',
-        data: { turnId: turn.id, turnStart, turnEnd, minAnchor },
-        timestamp: Date.now()
-      })
-    }).catch(() => {});
-    // #endregion
     return rows;
   }
 
@@ -426,46 +411,6 @@ function interleaveArchivedWithinLastAssistant(
     tailText = [thinkTail, tailText].filter((x) => x.trim().length > 0).join('\n');
   }
 
-  // #region agent log
-  fetch('http://127.0.0.1:7823/ingest/0f30680b-0aa0-4d4a-ba6d-262bf6a78290', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '456dbf' },
-    body: JSON.stringify({
-      sessionId: '456dbf',
-      runId: 'verify-v3',
-      hypothesisId: 'H5',
-      location: 'PtyMessengerThread.tsx:interleave',
-      message: 'split last assistant for archived/manual',
-      data: {
-        turnId: turn.id,
-        turnStart,
-        turnEnd,
-        gSpan,
-        minAnchor,
-        gLocal,
-        sliceLen: sliceInT.length,
-        sliceTrimLen: sliceTrim.length,
-        tn,
-        eqSlice: nt === sliceInT,
-        eqTrim: nt === sliceTrim,
-        pref: sliceTrim.startsWith(nt),
-        suff: sliceTrim.endsWith(nt),
-        relCut,
-        partPulledLines: noisePulled ? noisePulled.split('\n').filter((l) => l.trim()).length : 0,
-        partPulledNormLen: getPtyParseNormalizedPlain(noisePulled).length,
-        menuPeelLen,
-        menuPeelIters,
-        headNormLen: getPtyParseNormalizedPlain(headText).length,
-        tailNormLen: getPtyParseNormalizedPlain(tailText).length,
-        tailHasFetch: /\bFetch\s+https?:/i.test(tailText),
-        headHasFetch: /\bFetch\s+https?:/i.test(headText),
-        headInkLineCount: headText.split('\n').filter((l) => isInkSpinnerTokenStatusLine(l)).length,
-        tailEmpty: !tailText.trim()
-      },
-      timestamp: Date.now()
-    })
-  }).catch(() => {});
-  // #endregion
   if (!tailText.trim()) return rows;
 
   const headTurn: ChatTurn | null = headText.trim()
