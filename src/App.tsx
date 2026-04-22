@@ -89,6 +89,10 @@ export default function App() {
   const [chatThreadKey, setChatThreadKey] = useState(() => formatChatThreadKey(BLOG_COMMANDS[0].key, ''));
   const [ptySentAt, setPtySentAt] = useState<number | null>(null);
   const ptySentAtRef = useRef<number | null>(null);
+  /** Prevents double/triple Run clicks from pasting the same /blog prompt into the PTY multiple times. */
+  const [commandRunnerLocked, setCommandRunnerLocked] = useState(false);
+  const commandRunnerUnlockTimerRef = useRef<number | null>(null);
+  const commandRunnerCooldownRef = useRef(false);
   /** Latest merged Pretty transcript (ResultsView); read synchronously before clearing for the next Run. */
   const ptyMergedCaptureRef = useRef<() => string>(() => '');
   /** Metadata for the Command Runner turn currently accumulating in the PTY (saved when the next Run starts or tab hides). */
@@ -124,6 +128,16 @@ export default function App() {
     return () => document.removeEventListener('visibilitychange', onVis);
   }, [tryAppendPtyConversationToHistory]);
 
+  useEffect(() => {
+    return () => {
+      if (commandRunnerUnlockTimerRef.current != null) {
+        window.clearTimeout(commandRunnerUnlockTimerRef.current);
+        commandRunnerUnlockTimerRef.current = null;
+      }
+      commandRunnerCooldownRef.current = false;
+    };
+  }, []);
+
   const onRunnerSessionChange = useCallback((commandKey: string, target: string) => {
     setChatThreadKey(formatChatThreadKey(commandKey, target));
   }, []);
@@ -131,6 +145,9 @@ export default function App() {
   const handleRun = useCallback(
     (commandKey: string, target: string) => {
     setError(null);
+    if (commandRunnerCooldownRef.current) {
+      return;
+    }
     if (!ptySessionReady) {
       setError('PTY session is not connected yet. Open the Logon tab to start the terminal, then try again.');
       return;
@@ -146,46 +163,78 @@ export default function App() {
     savePtyPrettyArchive(threadKey, '');
     const prompt = buildBlogPrompt(cmd, target);
     clearLiveTranscript({ resetPrettySession: true });
+
+    const releaseRunnerUi = () => {
+      commandRunnerCooldownRef.current = false;
+      setCommandRunnerLocked(false);
+      if (commandRunnerUnlockTimerRef.current != null) {
+        window.clearTimeout(commandRunnerUnlockTimerRef.current);
+        commandRunnerUnlockTimerRef.current = null;
+      }
+    };
+
+    const armRunnerUi = () => {
+      commandRunnerCooldownRef.current = true;
+      setCommandRunnerLocked(true);
+      if (commandRunnerUnlockTimerRef.current != null) {
+        window.clearTimeout(commandRunnerUnlockTimerRef.current);
+      }
+      commandRunnerUnlockTimerRef.current = window.setTimeout(releaseRunnerUi, 2800);
+    };
+
+    armRunnerUi();
+
     /** Send prompt then CR on a timer: one combined write often echoes the line but never submits for long /blog … URLs. */
     const scheduleEnter = () => {
       window.setTimeout(() => {
         void sendToPty('\r');
       }, 100);
     };
+
+    const onSentToPty = () => {
+      const now = Date.now();
+      setPtySentAt(now);
+      ptySentAtRef.current = now;
+      lastPtyHistoryMetaRef.current = {
+        commandKey,
+        target: target.trim(),
+        startedAt: new Date().toISOString()
+      };
+    };
+
     const ok = sendToPty(prompt);
     if (ok) {
       scheduleEnter();
-    } else {
-      requestAnimationFrame(() => {
+      onSentToPty();
+      return;
+    }
+    requestAnimationFrame(() => {
+      if (sendToPty(prompt)) {
+        scheduleEnter();
+        onSentToPty();
+        return;
+      }
+      window.setTimeout(() => {
         if (sendToPty(prompt)) {
           scheduleEnter();
+          onSentToPty();
         } else {
-          window.setTimeout(() => {
-            if (sendToPty(prompt)) {
-              scheduleEnter();
-            } else {
-              setError(
-                'Could not send the command to the PTY. Open Logon, wait until the terminal shows Connected, then try Run again.'
-              );
-            }
-          }, 120);
+          setError(
+            'Could not send the command to the PTY. Open Logon, wait until the terminal shows Connected, then try Run again.'
+          );
+          releaseRunnerUi();
         }
-      });
-    }
-    const now = Date.now();
-    setPtySentAt(now);
-    ptySentAtRef.current = now;
-    lastPtyHistoryMetaRef.current = {
-      commandKey,
-      target: target.trim(),
-      startedAt: new Date().toISOString()
-    };
+      }, 120);
+    });
   },
   [ptySessionReady, sendToPty, clearLiveTranscript, tryAppendPtyConversationToHistory]
   );
 
-  // We determine if PTY is actively processing inside ResultsView based on the transcript.
-  const ptyIsProcessing = ptySentAt != null;
+  /**
+   * Dashboard PTY runs are open-ended; do not keep ResultsView in a perpetual “loading” state after the first Run
+   * (that broke Pretty badges and gated report auto-switch). Activity comes from the transcript + `ptySentAt`.
+   */
+  const ptyIsProcessing = false;
 
   return (
     <Layout
@@ -241,7 +290,7 @@ export default function App() {
             <SeoCommandForm
               onRun={handleRun}
               onSessionChange={onRunnerSessionChange}
-              isLoading={false}
+              isLoading={commandRunnerLocked}
             />
 
             <div className="space-y-4">

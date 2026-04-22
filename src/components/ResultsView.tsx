@@ -96,7 +96,6 @@ export default function ResultsView({
   /** Latest `isLoading` for async fetch callbacks (avoid stale closure when switching tabs after run ends). */
   const isLoadingRef = useRef(isLoading);
   isLoadingRef.current = isLoading;
-  const prevIsLoadingForRunRef = useRef(isLoading);
   const [pdfExporting, setPdfExporting] = useState(false);
   const [manualReplyBubbles, setManualReplyBubbles] = useState<
     { id: string; text: string; sentAt: number; transcriptLenAtSend: number }[]
@@ -321,7 +320,6 @@ export default function ResultsView({
     setFetchedReportPath(null);
     setIsFetchingReport(false);
     hasAutoSwitchedToReportRef.current = false;
-    prevIsLoadingForRunRef.current = isLoading;
     setActiveTab('pretty');
   }, [chatThreadKey]);
 
@@ -331,17 +329,18 @@ export default function ResultsView({
     }
   }, [primarySessionMarkdownPath, activeTab]);
 
-  /** New Command Runner / PTY run started — allow one auto-switch to Full Report when this run finishes. */
+  const prevPtySentAtForReportRef = useRef<number | null>(null);
+  /** Same thread key + second Run: `chatThreadKey` unchanged — bump `ptySentAt` still means a new Command Runner send. */
   useEffect(() => {
     if (isHistoryEmbed) return;
-    const prev = prevIsLoadingForRunRef.current;
-    prevIsLoadingForRunRef.current = isLoading;
-    if (isLoading && !prev) {
-      hasAutoSwitchedToReportRef.current = false;
-      setFetchedReportContent(null);
-      setFetchedReportPath(null);
-    }
-  }, [isHistoryEmbed, isLoading]);
+    const p = ptySentAt ?? null;
+    if (p == null) return;
+    if (p === prevPtySentAtForReportRef.current) return;
+    prevPtySentAtForReportRef.current = p;
+    hasAutoSwitchedToReportRef.current = false;
+    setFetchedReportContent(null);
+    setFetchedReportPath(null);
+  }, [isHistoryEmbed, ptySentAt]);
 
   const tryAutoSwitchToFullReport = useCallback(() => {
     if (hasAutoSwitchedToReportRef.current) return;
@@ -1399,13 +1398,14 @@ function PrettyOutputView({
 
   // Show the temporary banner if we're in a loading state and the assistant hasn't replied with any real text yet.
   const isRecentSent = ptySentAt != null && Date.now() - ptySentAt < 15000;
-  const showSentWaiting = isLoading && isRecentSent && (!ptyForDisplay.trim() || ptyForDisplay.trim() === ptyTranscript.trim());
-  /** Use the same plain Pretty renders so “awaiting assistant” matches the thread after merge/sanitize. */
+  const showSentWaiting =
+    isRecentSent && (!ptyForDisplay.trim() || ptyForDisplay.trim() === ptyTranscript.trim());
+  /** Dashboard PTY: do not use perpetual `isLoading` from the parent — infer activity from transcript + recent Run. */
   const isPtyActivelyExecuting = useMemo(() => {
     const t = ptyForDisplay;
-    if (!t.trim()) return isLoading;
-    return isLoading || isAwaitingPtyAssistantResponse(parsePtyTranscriptToMessages(t));
-  }, [ptyForDisplay, isLoading]);
+    if (!t.trim()) return isRecentSent;
+    return isAwaitingPtyAssistantResponse(parsePtyTranscriptToMessages(t));
+  }, [ptyForDisplay, isRecentSent]);
 
 
   const emptySection = showSentWaiting ? (
