@@ -686,7 +686,7 @@ export default function ResultsView({
                   </p>
                 </div>
               </div>
-              <div className="px-4 py-6 md:px-8 md:py-8">
+              <div className="px-4 py-6 md:px-8 md:py-8 min-w-0 max-w-full overflow-x-auto">
                 {fetchedReportContent ? (
                   <PrettyOutputBody text={fetchedReportContent} />
                 ) : (

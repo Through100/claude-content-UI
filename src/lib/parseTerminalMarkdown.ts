@@ -22,7 +22,8 @@ export type LinearBlock =
   | { type: 'code'; lang?: string; body: string }
   | { type: 'meta'; label: string; value: string }
   | { type: 'tag'; tagKind: TagKind; raw: string; detail: string }
-  | { type: 'faq'; id: string; question: string; answer: string };
+  | { type: 'faq'; id: string; question: string; answer: string }
+  | { type: 'table'; header: string[]; rows: string[][] };
 
 /** Blocks nested inside a `section`. */
 export type SectionChild =
@@ -157,6 +158,76 @@ function flushParagraph(buf: string[], blocks: LinearBlock[]) {
   blocks.push({ type: 'paragraph', parts: parseInline(text) });
 }
 
+/** Split a GFM-style pipe table row into cells (outer `|` optional). */
+function splitMarkdownPipeRow(line: string): string[] {
+  let s = line.trim();
+  if (!s.includes('|')) return [];
+  if (s.startsWith('|')) s = s.slice(1);
+  if (s.endsWith('|')) s = s.slice(0, -1);
+  return s.split('|').map((c) => c.trim());
+}
+
+function isMarkdownPipeSeparatorCell(cell: string): boolean {
+  const t = cell.trim();
+  if (!t) return false;
+  return /^:?-{2,}:?$/.test(t);
+}
+
+function isMarkdownPipeSeparatorRow(line: string): boolean {
+  const cells = splitMarkdownPipeRow(line);
+  if (cells.length < 2) return false;
+  return cells.every(isMarkdownPipeSeparatorCell);
+}
+
+function normalizeTableRow(cells: string[], colCount: number): string[] {
+  const out = cells.slice(0, colCount);
+  while (out.length < colCount) out.push('');
+  return out;
+}
+
+/**
+ * If `lines[start]` begins a GFM pipe table (header + `|---|` row), consume following data rows.
+ * Stops at blank line, heading, fence, blockquote, or a non-pipe row.
+ */
+function tryParseMarkdownPipeTable(lines: string[], start: number): { block: LinearBlock; next: number } | null {
+  if (start + 1 >= lines.length) return null;
+  const header = splitMarkdownPipeRow(lines[start] ?? '');
+  if (header.length < 2) return null;
+  const sepLine = lines[start + 1] ?? '';
+  if (!isMarkdownPipeSeparatorRow(sepLine)) return null;
+  const sepCells = splitMarkdownPipeRow(sepLine);
+  if (sepCells.length !== header.length) return null;
+
+  const colCount = header.length;
+  const rows: string[][] = [];
+  let j = start + 2;
+  while (j < lines.length) {
+    const raw = lines[j] ?? '';
+    const t = raw.trim();
+    if (t === '') break;
+    if (t.startsWith('```')) break;
+    if (/^#{1,6}\s/.test(t)) break;
+    if (t.startsWith('>')) break;
+    if (/^\s*\*\*[^*]+\*\*\s*:/.test(t)) break;
+    if (isThematicBreakLine(raw.trimEnd())) break;
+    if (!raw.includes('|')) break;
+    const row = splitMarkdownPipeRow(raw);
+    if (row.length < 2) break;
+    if (isMarkdownPipeSeparatorRow(raw)) break;
+    rows.push(normalizeTableRow(row, colCount));
+    j++;
+  }
+
+  return {
+    block: {
+      type: 'table',
+      header: normalizeTableRow(header, colCount),
+      rows
+    },
+    next: j
+  };
+}
+
 function parseFAQ(lines: string[], i: number): { block: LinearBlock; next: number } | null {
   const line = lines[i];
   let qId = '';
@@ -286,6 +357,14 @@ export function parseLinearBlocks(source: string): LinearBlock[] {
         blocks.push({ type: 'divider' });
       }
       i++;
+      continue;
+    }
+
+    const pipeTable = tryParseMarkdownPipeTable(lines, i);
+    if (pipeTable) {
+      flush();
+      blocks.push(pipeTable.block);
+      i = pipeTable.next;
       continue;
     }
 

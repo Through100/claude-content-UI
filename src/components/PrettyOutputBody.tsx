@@ -146,6 +146,55 @@ function TagBlockCard({ tagKind, detail, raw }: { tagKind: TagKind; detail: stri
   );
 }
 
+/** Last column (Notes, Result, …) gets half the width; others share the rest evenly for readable wrapping. */
+function markdownTableColPercent(i: number, n: number): string {
+  if (n <= 1) return '100%';
+  if (i === n - 1) return '50%';
+  return `${50 / (n - 1)}%`;
+}
+
+function MarkdownTableBlock({ header, rows }: { header: string[]; rows: string[][] }) {
+  const n = header.length;
+  return (
+    <div className="w-full max-w-full overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm my-1">
+      <table className="w-full min-w-[min(100%,520px)] table-fixed border-collapse text-left text-[13px] md:text-[14px] text-slate-800">
+        <colgroup>
+          {header.map((_, i) => (
+            <col key={i} style={{ width: markdownTableColPercent(i, n) }} />
+          ))}
+        </colgroup>
+        <thead>
+          <tr>
+            {header.map((h, i) => (
+              <th
+                key={i}
+                scope="col"
+                className="bg-slate-100/95 font-semibold text-slate-900 px-3 py-2.5 align-bottom border-b border-slate-200 leading-snug break-words"
+              >
+                {renderInlineParts(parseInline(h), `tbl-h-${i}`)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, ri) => (
+            <tr key={ri} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50/70">
+              {row.map((cell, ci) => (
+                <td
+                  key={ci}
+                  className="px-3 py-2 align-top leading-snug break-words [overflow-wrap:anywhere] text-slate-800"
+                >
+                  {renderInlineParts(parseInline(cell), `tbl-${ri}-${ci}`)}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function CalloutBlock({ body }: { body: string }) {
   const lines = body.split('\n');
   return (
@@ -275,6 +324,8 @@ function SectionChildView({ child, index }: { child: SectionChild; index: number
           {renderInlineParts(child.parts, `${k}-p`)}
         </p>
       );
+    case 'table':
+      return <MarkdownTableBlock key={k} header={child.header} rows={child.rows} />;
     case 'list':
       return <ListBlock key={k} items={child.items} ordered={child.ordered} />;
     case 'divider':
