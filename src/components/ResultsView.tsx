@@ -1231,7 +1231,7 @@ function appendDashboardRunAsPtyPlain(ptyHead: string, userSummary: string, assi
 
 function extractAnalysisReport(rawText: string): { conversation: string; report: string | null } {
   const text = stripAnsi(rawText);
-  const matches = [...text.matchAll(/(?:[●*•]\s*)?(?:Here is the .*?summary|Blog Quality Analysis|Blog Analysis:|Analysis Report)[\s\S]*/gi)];
+  const matches = [...text.matchAll(/(?:[●*•]\s*)?(?:Here is the .*?summary|Blog Quality Analysis|Blog Analysis:|Analysis Report|Here is the full analysis summary:)[\s\S]*/gi)];
   if (matches.length > 0) {
     const match = matches[matches.length - 1];
     let report = match[0];
