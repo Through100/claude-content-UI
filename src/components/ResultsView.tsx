@@ -728,7 +728,6 @@ export default function ResultsView({
                   isLoading={isLoading}
                   manualReplyBubbles={manualReplyBubbles}
                   archivedChoiceMenus={archivedChoiceMenus}
-                  extractedReportRef={extractedReportRef}
                 />
               )}
             </div>
@@ -1336,8 +1335,7 @@ function PrettyOutputView({
   ptySentAt = null,
   isLoading = false,
   manualReplyBubbles = [],
-  archivedChoiceMenus = [],
-  extractedReportRef
+  archivedChoiceMenus = []
 }: {
   prettyMode: PrettyOutputMode;
   ptyTranscript: string;
@@ -1352,7 +1350,6 @@ function PrettyOutputView({
   isLoading?: boolean;
   manualReplyBubbles?: { id: string; text: string; sentAt: number; transcriptLenAtSend: number }[];
   archivedChoiceMenus?: PtyArchivedChoiceMenu[];
-  extractedReportRef?: React.RefObject<HTMLDivElement>;
 }) {
   /** Splash + spinner lines hidden here only; Logon / Raw stay full-fidelity. */
   const ptyForPretty = useMemo(() => {
@@ -1421,13 +1418,6 @@ function PrettyOutputView({
       No conversation yet — run a command above, or type in <strong>Logon</strong> / <strong>Reply via PTY</strong> below.
     </div>
   );
-
-
-  useEffect(() => {
-    if (extractedReport && extractedReportRef?.current) {
-      extractedReportRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-  }, [extractedReport, extractedReportRef]);
 
   const ptySection =
     ptyForDisplay.trim().length > 0 ? (
