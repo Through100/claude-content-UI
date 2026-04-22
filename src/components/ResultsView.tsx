@@ -14,8 +14,8 @@ import {
   Loader2,
   AlertCircle
 } from 'lucide-react';
-import { BLOG_COMMANDS, RunResponse } from '../types';
-import { formatChatThreadKey, sanitizeRunOutputForChat } from '../lib/dashboardChatHistory';
+import { BLOG_COMMANDS, RunResponse, workspaceFilesDirSegment } from '../types';
+import { formatChatThreadKey, parseChatThreadKey, sanitizeRunOutputForChat } from '../lib/dashboardChatHistory';
 import { syncPrettyPtyTranscriptToDashboardThread } from '../lib/syncPtyTranscriptToDashboardChat';
 import {
   getPtyParseNormalizedPlain,
@@ -306,13 +306,24 @@ export default function ResultsView({
     return extractArtifactPathsFromRunText(chunks.join('\n\n'));
   }, [result?.rawOutput, result?.error, ptyMergedDisplayPlain, isHistoryEmbed]);
 
-  /** Prefer the blog audit markdown; otherwise last `.md` in discovery order (stable for this session). */
+  const pathNorm = (p: string) => p.replace(/\\/g, '/').toLowerCase();
+
+  /** Paths under `workspace-files/<commandKey>--<targetSlug>/` for the active Command Runner thread (falls back if transcript only has legacy dirs). */
+  const scopedWorkspaceArtifactPaths = useMemo(() => {
+    const { commandKey, target } = parseChatThreadKey(chatThreadKey);
+    const segment = workspaceFilesDirSegment(commandKey, target);
+    const dirNeedle = `workspace-files/${segment}/`.toLowerCase();
+    const scoped = artifactPaths.filter((p) => pathNorm(p).includes(dirNeedle));
+    return scoped.length > 0 ? scoped : artifactPaths;
+  }, [artifactPaths, chatThreadKey]);
+
+  /** Prefer the blog audit markdown for this command+target workspace dir; otherwise last `.md` in scope. */
   const primarySessionMarkdownPath = useMemo(() => {
-    const mds = artifactPaths.filter((p) => /\.md$/i.test(p));
+    const mds = scopedWorkspaceArtifactPaths.filter((p) => /\.md$/i.test(p));
     if (mds.length === 0) return null;
-    const prefer = mds.find((p) => /analysis-report\.md$/i.test(p.replace(/\\/g, '/')));
+    const prefer = mds.find((p) => /analysis-report\.md$/i.test(pathNorm(p)));
     return prefer ?? mds[mds.length - 1];
-  }, [artifactPaths]);
+  }, [scopedWorkspaceArtifactPaths]);
 
   useEffect(() => {
     // Reset state when chat thread changes
@@ -568,13 +579,13 @@ export default function ResultsView({
 
   return (
     <div className="space-y-6">
-      {artifactPaths.length > 0 ? (
+      {scopedWorkspaceArtifactPaths.length > 0 ? (
         <div className="flex flex-col gap-2 rounded-xl border border-emerald-200 bg-emerald-50/70 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-xs font-bold uppercase tracking-wide text-emerald-900 shrink-0">
             Workspace files
           </p>
           <div className="flex flex-wrap items-center gap-2">
-            {artifactPaths.map((p) => {
+            {scopedWorkspaceArtifactPaths.map((p) => {
               const label = p.split(/[/\\]/).filter(Boolean).pop() ?? p;
               return (
                 <a

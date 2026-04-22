@@ -36,6 +36,13 @@ export function formatChatThreadKey(commandKey: string, target: string): string 
   return `${commandKey}::${t}`;
 }
 
+/** Inverse of {@link formatChatThreadKey} for binding workspace artifacts to the active Command Runner thread. */
+export function parseChatThreadKey(threadKey: string): { commandKey: string; target: string } {
+  const i = threadKey.indexOf('::');
+  if (i < 0) return { commandKey: threadKey.trim(), target: '' };
+  return { commandKey: threadKey.slice(0, i).trim(), target: threadKey.slice(i + 2) };
+}
+
 /** Human-readable target portion for UI labels. */
 export function formatThreadKeyForDisplay(threadKey: string): string {
   const i = threadKey.indexOf('::');
