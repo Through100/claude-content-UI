@@ -317,6 +317,12 @@ export default function ResultsView({
     setActiveTab('pretty');
   }, [chatThreadKey]);
 
+  useEffect(() => {
+    if (!primarySessionMarkdownPath && activeTab === 'report') {
+      setActiveTab('pretty');
+    }
+  }, [primarySessionMarkdownPath, activeTab]);
+
   /** New Command Runner / PTY run started — allow one auto-switch to Full Report when this run finishes. */
   useEffect(() => {
     if (isHistoryEmbed) return;
@@ -577,17 +583,26 @@ export default function ResultsView({
       ) : null}
       <div className="flex items-center justify-between sticky top-0 z-10 bg-white/90 backdrop-blur-sm py-2 border-b border-gray-100 mb-4 -mx-2 px-2">
         <div className="flex bg-gray-100 p-1 rounded-xl">
-          {primarySessionMarkdownPath && (
-            <button
-              onClick={() => setActiveTab('report')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
-                activeTab === 'report' ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              <FileText size={16} />
-              Full Report
-            </button>
-          )}
+          <button
+            type="button"
+            disabled={!primarySessionMarkdownPath}
+            title={
+              primarySessionMarkdownPath
+                ? 'Open the saved markdown report from this session'
+                : 'No workspace .md path detected in captured output yet. Run an analysis that saves a report, then refresh if you already updated the server (production needs npm run build after git pull).'
+            }
+            onClick={() => {
+              if (primarySessionMarkdownPath) setActiveTab('report');
+            }}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-gray-500 ${
+              activeTab === 'report'
+                ? 'bg-white text-indigo-700 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <FileText size={16} />
+            Full Report
+          </button>
           <button
             onClick={() => setActiveTab('pretty')}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
