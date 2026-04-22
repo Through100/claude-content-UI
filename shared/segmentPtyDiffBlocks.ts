@@ -90,8 +90,8 @@ export function segmentDiffAndProse(raw: string): { kind: 'diff' | 'prose'; text
 /** Claude Code permission / multi-choice footer (Pretty markdown was turning `1. Yes…` into a fake “reply”). */
 function isLikelyClaudePermissionMenuFooter(line: string): boolean {
   const t = (line ?? '').replace(/\r$/, '').trim();
-  /** Long “tips” paragraphs can mention both phrases — real footers are one short Ink line. */
-  if (t.length > 120) return false;
+  /** Long “tips” paragraphs can mention both phrases — real footers are one short Ink line (allow ctrl+e chrome). */
+  if (t.length > 240) return false;
   return /\bEsc to cancel\b/i.test(t) && /\bTab to (?:amend|edit|change)\b/i.test(t);
 }
 
@@ -108,7 +108,7 @@ function findNumberedConsentMenuFooterJ(
   for (let j = i; j < windowEnd; j++) {
     const t = (lines[j] ?? '').trim();
     if (!anchor.test(t)) continue;
-    const maxK = Math.min(lines.length, j + 30);
+    const maxK = Math.min(lines.length, j + 120);
     let sawYes1 = false;
     let lastNum = -1;
     for (let k = j; k < maxK; k++) {
@@ -126,7 +126,8 @@ function isClaudeMenuQuestionLine(line: string): boolean {
   const L = line ?? '';
   /** ASCII `?` or fullwidth `？` (Ink / locale); fetch consent often uses “allow … ?”. */
   if (/Do you want to[^?\n\uFF1F]*(?:\?|？)/i.test(L)) return true;
-  if (/Do you.*?\\?/i.test(L)) return true;
+  /** Single-line “Do you …?” when “want to” is not literal (Ink rewrap). */
+  if (/Do you[^?\n]{0,120}(?:\?|？)/i.test(L)) return true;
   return false;
 }
 

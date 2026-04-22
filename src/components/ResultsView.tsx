@@ -222,17 +222,24 @@ export default function ResultsView({
     [prettyMode, headlessBlobForPermissionCue]
   );
 
-  /** Live PTY tail shows a numbered Esc/Tab menu — Reply UX hint (Ink rarely accepts the word “yes”). */
-  const replyPanelNumberedMenuHint = useMemo(() => {
-    const chunk = `${ptyFullSnapshotPlain}\n${ptyDisplayPlain}`.slice(-14000);
-    const plain = stripAnsiNormalizePtyMirror(chunk);
-    return plainTailShowsAnswerablePermissionMenu(plain);
+  /** Same normalized tail as permission detection — closer to Raw/Logon than Pretty-only `replyOrderingPlain`. */
+  const livePlainForMenuHint = useMemo(() => {
+    const chunk = `${ptyFullSnapshotPlain}\n${ptyDisplayPlain}`.slice(-24000);
+    return stripAnsiNormalizePtyMirror(chunk);
   }, [ptyFullSnapshotPlain, ptyDisplayPlain]);
+
+  /** Live PTY tail shows a numbered Esc/Tab menu — Reply UX hint (Ink rarely accepts the word “yes”). */
+  const replyPanelNumberedMenuHint = useMemo(
+    () => plainTailShowsAnswerablePermissionMenu(livePlainForMenuHint),
+    [livePlainForMenuHint]
+  );
 
   useEffect(() => {
     if (!autoApproveChoicePrompts || !replyPanelNumberedMenuHint || !ptySessionReady || isHistoryEmbed) return;
 
-    const menuSnapshot = extractLastChoiceMenuSnapshotForArchive(replyOrderingPlain);
+    const menuSnapshot =
+      extractLastChoiceMenuSnapshotForArchive(replyOrderingPlain) ??
+      extractLastChoiceMenuSnapshotForArchive(livePlainForMenuHint);
     if (!menuSnapshot) return;
 
     // Prevent double-sending for the exact same menu snapshot
@@ -274,7 +281,8 @@ export default function ResultsView({
     ptySessionReady,
     isHistoryEmbed,
     replyOrderingPlain,
-    sendToPty
+    sendToPty,
+    livePlainForMenuHint
   ]);
 
   /** Logon buffer tail looks like Claude Code’s idle welcome — “yes” has no pending question there. */
