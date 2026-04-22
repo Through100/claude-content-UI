@@ -88,7 +88,11 @@ export default function ResultsView({
   ptyMergedCaptureRef
 }: ResultsViewProps) {
   const isHistoryEmbed = embedMode === 'history';
-  const [activeTab, setActiveTab] = useState<'pretty' | 'raw'>('pretty');
+  const [activeTab, setActiveTab] = useState<'report' | 'pretty' | 'raw'>('pretty');
+  const [fetchedReportContent, setFetchedReportContent] = useState<string | null>(null);
+  const [fetchedReportPath, setFetchedReportPath] = useState<string | null>(null);
+  const [isFetchingReport, setIsFetchingReport] = useState(false);
+  const hasAutoSwitchedToReportRef = useRef(false);
   const [pdfExporting, setPdfExporting] = useState(false);
   const [manualReplyBubbles, setManualReplyBubbles] = useState<
     { id: string; text: string; sentAt: number; transcriptLenAtSend: number }[]
@@ -96,7 +100,7 @@ export default function ResultsView({
   const [archivedChoiceMenus, setArchivedChoiceMenus] = useState<PtyArchivedChoiceMenu[]>([]);
   const livePreRef = useRef<HTMLPreElement>(null);
   const prettyReportRef = useRef<HTMLDivElement>(null);
-  const extractedReportRef = useRef<HTMLDivElement>(null);
+  const fullReportRef = useRef<HTMLDivElement>(null);
   const pdfAfterPrettySwitchRef = useRef(false);
   const { ptyDisplayPlain, ptyFullSnapshotPlain, ptySessionGeneration, ptySessionReady, sendToPty } = usePtyBridge();
   const [autoApproveChoicePrompts, setAutoApproveChoicePrompts] = useState(false);
@@ -359,18 +363,60 @@ export default function ResultsView({
     return extractArtifactPathsFromRunText(chunks.join('\n\n'));
   }, [result?.rawOutput, result?.error, ptyMergedDisplayPlain, isHistoryEmbed]);
 
+  useEffect(() => {
+    // Reset state when chat thread changes
+    setFetchedReportContent(null);
+    setFetchedReportPath(null);
+    setIsFetchingReport(false);
+    hasAutoSwitchedToReportRef.current = false;
+    setActiveTab('pretty');
+  }, [chatThreadKey]);
+
+  useEffect(() => {
+    if (!isLoading && fetchedReportContent && !hasAutoSwitchedToReportRef.current) {
+      hasAutoSwitchedToReportRef.current = true;
+      setActiveTab('report');
+    }
+  }, [isLoading, fetchedReportContent]);
+
+  useEffect(() => {
+    // Fetch if the run is fully complete OR if the user manually switched to the report tab
+    if (isLoading && activeTab !== 'report') return;
+    
+    // Find the first markdown file in the artifacts
+    const mdPath = artifactPaths.find(p => p.endsWith('.md'));
+    
+    if (mdPath && mdPath !== fetchedReportPath && !isFetchingReport) {
+      setIsFetchingReport(true);
+      fetch(apiService.workspaceFileDownloadUrl(mdPath))
+        .then(res => res.text())
+        .then(text => {
+          setFetchedReportContent(text);
+          setFetchedReportPath(mdPath);
+        })
+        .catch(err => console.error('Failed to fetch report:', err))
+        .finally(() => setIsFetchingReport(false));
+    }
+  }, [isLoading, activeTab, artifactPaths, fetchedReportPath, isFetchingReport]);
+
   const historyPrettySource = useMemo(() => {
     if (!isHistoryEmbed || !result) return { conversation: '', report: null };
     const out = sanitizeRunOutputForChat(result.rawOutput ?? '').trim();
     const err = result.error?.trim();
     const raw = out || (err ? `Error: ${err}` : '') || '(no output captured)';
-    return extractAnalysisReport(raw);
+    
+    // We no longer extract the report from the conversation text
+    // as it's now displayed in its own tab from the written file.
+    let conversation = stripAnsi(raw);
+    conversation = conversation.replace(/━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[\s\S]*?Built by agricidaniel[\s\S]*?━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━/i, '');
+    
+    return { conversation, report: null };
   }, [isHistoryEmbed, result]);
 
   const liveActivity = useMemo(() => inferClaudeActivity(liveTerminal), [liveTerminal]);
 
   const runPdfExport = useCallback(async () => {
-    const el = extractedReportRef.current || prettyReportRef.current;
+    const el = fullReportRef.current || prettyReportRef.current;
     if (!el) return;
     setPdfExporting(true);
     try {
@@ -549,6 +595,17 @@ export default function ResultsView({
       ) : null}
       <div className="flex items-center justify-between sticky top-0 z-10 bg-white/90 backdrop-blur-sm py-2 border-b border-gray-100 mb-4 -mx-2 px-2">
         <div className="flex bg-gray-100 p-1 rounded-xl">
+          {artifactPaths.some(p => p.endsWith('.md')) && (
+            <button
+              onClick={() => setActiveTab('report')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+                activeTab === 'report' ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <FileText size={16} />
+              Full Report
+            </button>
+          )}
           <button
             onClick={() => setActiveTab('pretty')}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
@@ -604,7 +661,36 @@ export default function ResultsView({
       </div>
 
       <AnimatePresence mode="wait">
-        {activeTab === 'pretty' ? (
+        {activeTab === 'report' ? (
+          <motion.div
+            key="report"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="space-y-6"
+          >
+            <div ref={fullReportRef} className="rounded-2xl border border-indigo-100 bg-white shadow-sm overflow-hidden">
+              <div className="px-4 py-3 md:px-6 border-b border-indigo-100 bg-indigo-50/80 flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-bold uppercase tracking-widest text-indigo-900">📊 Full Report</h3>
+                  <p className="text-xs text-indigo-700 mt-0.5">
+                    Written file from this session.
+                  </p>
+                </div>
+              </div>
+              <div className="px-4 py-6 md:px-8 md:py-8">
+                {fetchedReportContent ? (
+                  <PrettyOutputBody text={fetchedReportContent} />
+                ) : (
+                  <div className="flex items-center justify-center py-12 text-indigo-500">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mr-3"></div>
+                    Loading report...
+                  </div>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        ) : activeTab === 'pretty' ? (
           <motion.div
             key="pretty"
             initial={{ opacity: 0, y: 10 }}
@@ -626,33 +712,6 @@ export default function ResultsView({
                       <PrettyOutputBody text={historyPrettySource.conversation} />
                     </div>
                   </div>
-                  {historyPrettySource.report ? (
-                    <div ref={extractedReportRef} className="mt-8 rounded-2xl border border-indigo-100 bg-white shadow-sm overflow-hidden">
-                      <div className="px-4 py-3 md:px-6 border-b border-indigo-100 bg-indigo-50/80 flex items-center justify-between">
-                        <div>
-                          <h3 className="text-sm font-bold uppercase tracking-widest text-indigo-900">📊 Audit Complete</h3>
-                          <p className="text-xs text-indigo-700 mt-0.5">
-                            Extracted from the final output.
-                          </p>
-                        </div>
-                      </div>
-                      <div className="px-4 py-6 md:px-8 md:py-8">
-                        <PrettyOutputBody text={historyPrettySource.report} />
-                        {artifactPaths.length > 0 && (
-                          <div className="mt-6">
-                            <a
-                              href={apiService.workspaceFileDownloadUrl(artifactPaths.find(p => p.endsWith('.md')) || artifactPaths[0])}
-                              download
-                              className="inline-flex items-center justify-center rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 transition-colors"
-                            >
-                              <FileText className="mr-2 -ml-0.5 h-4 w-4" aria-hidden="true" />
-                              📄 View Full Report
-                            </a>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ) : null}
                 </>
               ) : (
                 <PrettyOutputView
@@ -1241,21 +1300,6 @@ function appendDashboardRunAsPtyPlain(ptyHead: string, userSummary: string, assi
   return `${head}\n\n${runBlock}`;
 }
 
-function extractAnalysisReport(rawText: string): { conversation: string; report: string | null } {
-  const text = stripAnsi(rawText);
-  const regex = /(?:[●*•]\s*)?(?:All files saved\. Here is the full summary:|Here is the .*?summary|Blog Quality Analysis|Blog Analysis:|Analysis Report)/gi;
-  const matches = [...text.matchAll(regex)];
-  if (matches.length > 0) {
-    const match = matches[matches.length - 1];
-    let report = text.slice(match.index);
-    report = report.replace(/━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[\s\S]*?Built by agricidaniel[\s\S]*?━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━/i, '');
-    return {
-      conversation: text.slice(0, match.index).trimEnd(),
-      report: report.trim()
-    };
-  }
-  return { conversation: text, report: null };
-}
 
 function buildPtyForDisplayPlain(opts: {
   prettyMode: 'headless' | 'pty' | 'both';
@@ -1330,9 +1374,12 @@ function PrettyOutputView({
     [prettyMode, ptyForPretty, headlessResult, lastRunThreadMeta, chatThreadKey]
   );
 
-  const { ptyForDisplay, extractedReport } = useMemo(() => {
-    const { conversation, report } = extractAnalysisReport(ptyForDisplayRaw);
-    return { ptyForDisplay: conversation, extractedReport: report };
+  const ptyForDisplay = useMemo(() => {
+    // We no longer extract the report from the conversation text
+    // as it's now displayed in its own tab from the written file.
+    let conversation = stripAnsi(ptyForDisplayRaw);
+    conversation = conversation.replace(/━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[\s\S]*?Built by agricidaniel[\s\S]*?━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━/i, '');
+    return conversation;
   }, [ptyForDisplayRaw]);
 
   useEffect(() => {
@@ -1404,33 +1451,6 @@ function PrettyOutputView({
         <div className="flex flex-wrap items-center justify-end gap-x-2 px-1 pt-0.5">
           <PtyNarrativeLiveBadge rawOutput={ptyForDisplay} executing={isPtyActivelyExecuting} />
         </div>
-        {extractedReport ? (
-          <div ref={extractedReportRef} className="mt-8 rounded-2xl border border-indigo-100 bg-white shadow-sm overflow-hidden">
-            <div className="px-4 py-3 md:px-6 border-b border-indigo-100 bg-indigo-50/80 flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-bold uppercase tracking-widest text-indigo-900">📊 Audit Complete</h3>
-                <p className="text-xs text-indigo-700 mt-0.5">
-                  Extracted from the final output.
-                </p>
-              </div>
-            </div>
-            <div className="px-4 py-6 md:px-8 md:py-8">
-              <PrettyOutputBody text={extractedReport} />
-              {artifactPaths.length > 0 && (
-                <div className="mt-6">
-                  <a
-                    href={apiService.workspaceFileDownloadUrl(artifactPaths.find(p => p.endsWith('.md')) || artifactPaths[0])}
-                    download
-                    className="inline-flex items-center justify-center rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 transition-colors"
-                  >
-                    <FileText className="mr-2 -ml-0.5 h-4 w-4" aria-hidden="true" />
-                    📄 View Full Report
-                  </a>
-                </div>
-              )}
-            </div>
-          </div>
-        ) : null}
       </>
     ) : (
       emptySection
