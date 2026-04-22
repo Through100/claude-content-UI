@@ -931,7 +931,7 @@ export default function PtyMessengerThread({
           <p className="text-xs text-indigo-800 px-4 py-3 border-b border-indigo-100 bg-indigo-50/60">
             Live PTY — waiting for the assistant after your last line.
           </p>
-          <div className="px-4 py-8 md:px-8 max-h-[min(75vh,720px)] overflow-y-auto bg-white space-y-4">
+          <div className="px-4 py-8 md:px-8 max-h-[min(45vh,450px)] overflow-y-auto bg-white space-y-4">
             {showThinking ? <PtyAssistantPending /> : null}
             <div className="min-h-[5.25rem] w-full flex flex-col justify-end">
               {liveFooterLineDeduped ? <TerminalLiveFooterBar text={liveFooterLineDeduped} /> : null}
@@ -946,7 +946,7 @@ export default function PtyMessengerThread({
           No <code className="text-[11px] bg-gray-100 px-1 rounded">❯</code> prompts detected — showing the full
           capture as one reply.
         </p>
-        <div className="px-4 py-6 md:px-8 max-h-[min(75vh,720px)] overflow-y-auto bg-white">
+        <div className="px-4 py-6 md:px-8 max-h-[min(45vh,450px)] overflow-y-auto bg-white">
           <div className="flex justify-start">
             <div className="w-full max-w-[48rem]">
               <div className="rounded-2xl border border-gray-100 bg-white px-4 py-5 md:px-6 md:py-5 shadow-sm">
@@ -967,7 +967,7 @@ export default function PtyMessengerThread({
       <div
         ref={scrollerRef}
         onScroll={onScroll}
-        className="flex flex-col gap-10 md:gap-12 px-4 py-6 md:px-10 md:py-8 max-h-[min(75vh,720px)] min-h-[220px] overflow-y-auto bg-white"
+        className="flex flex-col gap-10 md:gap-12 px-4 py-6 md:px-10 md:py-8 max-h-[min(45vh,450px)] min-h-[220px] overflow-y-auto bg-white"
         role="log"
         aria-live="polite"
         aria-relevant="additions"

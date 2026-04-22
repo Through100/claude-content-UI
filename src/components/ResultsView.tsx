@@ -96,6 +96,7 @@ export default function ResultsView({
   const [archivedChoiceMenus, setArchivedChoiceMenus] = useState<PtyArchivedChoiceMenu[]>([]);
   const livePreRef = useRef<HTMLPreElement>(null);
   const prettyReportRef = useRef<HTMLDivElement>(null);
+  const extractedReportRef = useRef<HTMLDivElement>(null);
   const pdfAfterPrettySwitchRef = useRef(false);
   const { ptyDisplayPlain, ptyFullSnapshotPlain, ptySessionGeneration, ptySessionReady, sendToPty } = usePtyBridge();
   const [autoApproveChoicePrompts, setAutoApproveChoicePrompts] = useState(false);
@@ -368,7 +369,7 @@ export default function ResultsView({
   const liveActivity = useMemo(() => inferClaudeActivity(liveTerminal), [liveTerminal]);
 
   const runPdfExport = useCallback(async () => {
-    const el = prettyReportRef.current;
+    const el = extractedReportRef.current || prettyReportRef.current;
     if (!el) return;
     setPdfExporting(true);
     try {
@@ -638,6 +639,7 @@ export default function ResultsView({
                   isLoading={isLoading}
                   manualReplyBubbles={manualReplyBubbles}
                   archivedChoiceMenus={archivedChoiceMenus}
+                  extractedReportRef={extractedReportRef}
                 />
               )}
             </div>
@@ -1244,7 +1246,8 @@ function PrettyOutputView({
   ptySentAt = null,
   isLoading = false,
   manualReplyBubbles = [],
-  archivedChoiceMenus = []
+  archivedChoiceMenus = [],
+  extractedReportRef
 }: {
   prettyMode: PrettyOutputMode;
   ptyTranscript: string;
@@ -1259,6 +1262,7 @@ function PrettyOutputView({
   isLoading?: boolean;
   manualReplyBubbles?: { id: string; text: string; sentAt: number; transcriptLenAtSend: number }[];
   archivedChoiceMenus?: PtyArchivedChoiceMenu[];
+  extractedReportRef?: React.RefObject<HTMLDivElement>;
 }) {
   /** Splash + spinner lines hidden here only; Logon / Raw stay full-fidelity. */
   const ptyForPretty = useMemo(() => {
@@ -1268,7 +1272,7 @@ function PrettyOutputView({
   }, [ptyTranscript]);
 
   /** Command Runner output is not in the Logon xterm; append it after PTY here when both panes are shown for this topic. */
-  const ptyForDisplay = useMemo(
+  const ptyForDisplayRaw = useMemo(
     () =>
       buildPtyForDisplayPlain({
         prettyMode,
@@ -1279,6 +1283,22 @@ function PrettyOutputView({
       }),
     [prettyMode, ptyForPretty, headlessResult, lastRunThreadMeta, chatThreadKey]
   );
+
+  const { ptyForDisplay, extractedReport } = useMemo(() => {
+    const text = ptyForDisplayRaw;
+    const matches = [...text.matchAll(/(?:● Here is the full summary of the analysis:|Blog Quality Analysis — Summary)[\s\S]*?(?=(?:\n●|$))/gi)];
+    if (matches.length > 0) {
+      const match = matches[matches.length - 1];
+      let report = match[0];
+      // Remove the "Built by agricidaniel" block if it exists
+      report = report.replace(/━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[\s\S]*?Built by agricidaniel[\s\S]*?━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━/i, '');
+      return {
+        ptyForDisplay: text.slice(0, match.index).trimEnd(),
+        extractedReport: report.trim()
+      };
+    }
+    return { ptyForDisplay: text, extractedReport: null };
+  }, [ptyForDisplayRaw]);
 
   useEffect(() => {
     if (prettyMode === 'headless') return;
@@ -1321,6 +1341,12 @@ function PrettyOutputView({
   );
 
 
+  useEffect(() => {
+    if (extractedReport && extractedReportRef?.current) {
+      extractedReportRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [extractedReport, extractedReportRef]);
+
   const ptySection =
     ptyForDisplay.trim().length > 0 ? (
       <>
@@ -1343,6 +1369,21 @@ function PrettyOutputView({
         <div className="flex flex-wrap items-center justify-end gap-x-2 px-1 pt-0.5">
           <PtyNarrativeLiveBadge rawOutput={ptyForDisplay} executing={isPtyActivelyExecuting} />
         </div>
+        {extractedReport ? (
+          <div ref={extractedReportRef} className="mt-8 rounded-2xl border border-indigo-100 bg-white shadow-sm overflow-hidden">
+            <div className="px-4 py-3 md:px-6 border-b border-indigo-100 bg-indigo-50/80 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold uppercase tracking-widest text-indigo-900">Analysis Report</h3>
+                <p className="text-xs text-indigo-700 mt-0.5">
+                  Extracted from the final output.
+                </p>
+              </div>
+            </div>
+            <div className="px-4 py-6 md:px-8 md:py-8">
+              <PrettyOutputBody text={extractedReport} />
+            </div>
+          </div>
+        ) : null}
       </>
     ) : (
       emptySection
