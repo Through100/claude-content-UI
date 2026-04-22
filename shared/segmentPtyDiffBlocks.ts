@@ -151,6 +151,7 @@ function isPermissionPromptLeadInLine(line: string): boolean {
   if (/^⎿/.test(t)) return true;
   if (/^\s*Bash command\b/i.test(t)) return true;
   if (/^[─\-_\s|]{10,}$/.test(t)) return true;
+  if (/This command requires approval/i.test(t)) return true;
   return false;
 }
 
@@ -247,16 +248,21 @@ function splitProseMenuAndRest(prose: string): { kind: 'menu' | 'prose'; text: s
         menuStart = scan;
       } else {
         // Allow arbitrary lines if we are inside a Bash command block
-        let foundBash = false;
+        let foundBashK = -1;
+        let valid = true;
         for (let k = scan; k >= Math.max(i, scan - 500); k--) {
           const t = (lines[k] ?? '').trim();
+          if (/^\s*[●⎿]\s*/.test(t)) {
+            valid = false;
+            break;
+          }
           if (/^\s*Bash command\b/i.test(t) || /^[─\-_\s|]{10,}$/.test(t)) {
-            foundBash = true;
+            foundBashK = k;
             break;
           }
         }
-        if (foundBash) {
-          menuStart = scan;
+        if (valid && foundBashK >= 0) {
+          menuStart = foundBashK;
         } else {
           break;
         }

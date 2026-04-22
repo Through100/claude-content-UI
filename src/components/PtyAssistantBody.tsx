@@ -289,14 +289,14 @@ export default function PtyAssistantBody({
           return (
             <div
               key={`d-${idx}`}
-              className="rounded-xl border border-zinc-800/90 bg-[#09090b] overflow-hidden shadow-inner"
+              className="rounded-xl border border-zinc-200 bg-zinc-50 overflow-hidden shadow-sm my-2"
             >
-              <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-zinc-500 bg-zinc-900/95 border-b border-zinc-800">
-                Patch / diff (monospace)
+              <div className="px-3 py-2 text-[12px] font-medium text-zinc-500 flex items-center gap-2">
+                <svg className="w-4 h-4 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                File edited (diff hidden for readability)
               </div>
-              <pre className="m-0 max-h-[min(65vh,720px)] overflow-auto px-3 py-3 text-[11px] sm:text-[12px] leading-[1.45] font-mono text-zinc-100 whitespace-pre tabular-nums">
-                {p.text}
-              </pre>
             </div>
           );
         }
