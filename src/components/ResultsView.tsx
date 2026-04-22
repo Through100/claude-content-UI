@@ -545,7 +545,7 @@ export default function ResultsView({
           </div>
         </div>
       ) : null}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between sticky top-0 z-10 bg-white/90 backdrop-blur-sm py-2 border-b border-gray-100 mb-4 -mx-2 px-2">
         <div className="flex bg-gray-100 p-1 rounded-xl">
           <button
             onClick={() => setActiveTab('pretty')}
