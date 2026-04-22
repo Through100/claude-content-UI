@@ -225,24 +225,28 @@ export default function ResultsView({
     [prettyMode, headlessBlobForPermissionCue]
   );
 
-  /** Same normalized tail as permission detection — closer to Raw/Logon than Pretty-only `replyOrderingPlain`. */
-  const livePlainForMenuHint = useMemo(() => {
-    const chunk = `${ptyFullSnapshotPlain}\n${ptyDisplayPlain}`.slice(-24000);
+  /**
+   * Same “yellow card” menu detection Pretty uses (`extractLastChoiceMenuSnapshotForArchive`), not the narrower
+   * `plainTailShowsAnswerablePermissionMenu` on a short live tail (large Bash blocks could push the menu out of 24k).
+   */
+  const ptyLiveTailPlainForMenuBackstop = useMemo(() => {
+    const chunk = `${ptyFullSnapshotPlain}\n${ptyDisplayPlain}`.slice(-120_000);
     return stripAnsiNormalizePtyMirror(chunk);
   }, [ptyFullSnapshotPlain, ptyDisplayPlain]);
 
-  /** Live PTY tail shows a numbered Esc/Tab menu — Reply UX hint (Ink rarely accepts the word “yes”). */
-  const replyPanelNumberedMenuHint = useMemo(
-    () => plainTailShowsAnswerablePermissionMenu(livePlainForMenuHint),
-    [livePlainForMenuHint]
+  const ptyChoiceMenuSnapshot = useMemo(
+    () =>
+      extractLastChoiceMenuSnapshotForArchive(replyOrderingPlain) ??
+      extractLastChoiceMenuSnapshotForArchive(ptyLiveTailPlainForMenuBackstop),
+    [replyOrderingPlain, ptyLiveTailPlainForMenuBackstop]
   );
 
-  useEffect(() => {
-    if (!autoApproveChoicePrompts || !replyPanelNumberedMenuHint || !ptySessionReady || isHistoryEmbed) return;
+  const replyPanelShowsChoiceMenu = Boolean(ptyChoiceMenuSnapshot?.trim());
 
-    const menuSnapshot =
-      extractLastChoiceMenuSnapshotForArchive(replyOrderingPlain) ??
-      extractLastChoiceMenuSnapshotForArchive(livePlainForMenuHint);
+  useEffect(() => {
+    if (!autoApproveChoicePrompts || !ptySessionReady || isHistoryEmbed) return;
+
+    const menuSnapshot = ptyChoiceMenuSnapshot?.trim();
     if (!menuSnapshot) return;
 
     // Prevent double-sending for the exact same menu snapshot
@@ -278,15 +282,7 @@ export default function ResultsView({
         transcriptLenAtSend
       }
     ]);
-  }, [
-    autoApproveChoicePrompts,
-    replyPanelNumberedMenuHint,
-    ptySessionReady,
-    isHistoryEmbed,
-    replyOrderingPlain,
-    sendToPty,
-    livePlainForMenuHint
-  ]);
+  }, [autoApproveChoicePrompts, ptyChoiceMenuSnapshot, ptySessionReady, isHistoryEmbed, replyOrderingPlain, sendToPty]);
 
   /** Logon buffer tail looks like Claude Code’s idle welcome — “yes” has no pending question there. */
   const replyPanelWarnWelcomeSplash = useMemo(() => {
@@ -829,7 +825,7 @@ export default function ResultsView({
         <PtyReplyPanel
           warnHeadlessMenuReadOnly={replyPanelWarnHeadlessMenuReadOnly}
           warnWelcomeSplash={replyPanelWarnWelcomeSplash}
-          showNumberedMenuHint={replyPanelNumberedMenuHint}
+          showNumberedMenuHint={replyPanelShowsChoiceMenu}
           replyOrderingPlain={replyOrderingPlain}
           onReplySent={(payload) => {
             const snap = payload.choiceMenuSnapshot?.trim();
