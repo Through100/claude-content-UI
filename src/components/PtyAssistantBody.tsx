@@ -231,13 +231,13 @@ export default function PtyAssistantBody({
       <div className="space-y-4">
         {head.trim() ? <PrettyOutputBody text={head} /> : null}
         {tail.trim() ? (
-          <div className="rounded-xl border border-zinc-700/95 bg-[#09090b] overflow-hidden shadow-inner ring-1 ring-zinc-800/80">
-            <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-zinc-400 bg-zinc-900/95 border-b border-zinc-800">
-              Live PTY activity
+          <div className="rounded-xl border border-zinc-200 bg-zinc-50 overflow-hidden shadow-sm my-2">
+            <div className="px-3 py-2 text-[12px] font-medium text-zinc-500 flex items-center gap-2">
+              <svg className="w-4 h-4 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+              Terminal activity (hidden for readability)
             </div>
-            <pre className="m-0 max-h-[min(50vh,480px)] overflow-x-auto overflow-y-auto px-3 py-3 text-[11px] sm:text-[12px] leading-[1.45] font-mono text-zinc-100 whitespace-pre">
-              {tail}
-            </pre>
           </div>
         ) : null}
       </div>
@@ -332,13 +332,13 @@ export default function PtyAssistantBody({
           <React.Fragment key={`p-${idx}`}>
             {head.trim() ? <PrettyOutputBody text={head} /> : null}
             {tail.trim() ? (
-              <div className="rounded-xl border border-zinc-700/95 bg-[#09090b] overflow-hidden shadow-inner ring-1 ring-zinc-800/80">
-                <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-zinc-400 bg-zinc-900/95 border-b border-zinc-800">
-                  Live PTY activity
+              <div className="rounded-xl border border-zinc-200 bg-zinc-50 overflow-hidden shadow-sm my-2">
+                <div className="px-3 py-2 text-[12px] font-medium text-zinc-500 flex items-center gap-2">
+                  <svg className="w-4 h-4 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                  Terminal activity (hidden for readability)
                 </div>
-                <pre className="m-0 max-h-[min(50vh,480px)] overflow-x-auto overflow-y-auto px-3 py-3 text-[11px] sm:text-[12px] leading-[1.45] font-mono text-zinc-100 whitespace-pre">
-                  {tail}
-                </pre>
               </div>
             ) : null}
           </React.Fragment>

@@ -630,7 +630,7 @@ export default function ResultsView({
                     <div ref={extractedReportRef} className="mt-8 rounded-2xl border border-indigo-100 bg-white shadow-sm overflow-hidden">
                       <div className="px-4 py-3 md:px-6 border-b border-indigo-100 bg-indigo-50/80 flex items-center justify-between">
                         <div>
-                          <h3 className="text-sm font-bold uppercase tracking-widest text-indigo-900">Analysis Report</h3>
+                          <h3 className="text-sm font-bold uppercase tracking-widest text-indigo-900">📊 Audit Complete</h3>
                           <p className="text-xs text-indigo-700 mt-0.5">
                             Extracted from the final output.
                           </p>
@@ -638,6 +638,18 @@ export default function ResultsView({
                       </div>
                       <div className="px-4 py-6 md:px-8 md:py-8">
                         <PrettyOutputBody text={historyPrettySource.report} />
+                        {artifactPaths.length > 0 && (
+                          <div className="mt-6">
+                            <a
+                              href={apiService.workspaceFileDownloadUrl(artifactPaths.find(p => p.endsWith('.md')) || artifactPaths[0])}
+                              download
+                              className="inline-flex items-center justify-center rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 transition-colors"
+                            >
+                              <FileText className="mr-2 -ml-0.5 h-4 w-4" aria-hidden="true" />
+                              📄 View Full Report
+                            </a>
+                          </div>
+                        )}
                       </div>
                     </div>
                   ) : null}
@@ -1396,7 +1408,7 @@ function PrettyOutputView({
           <div ref={extractedReportRef} className="mt-8 rounded-2xl border border-indigo-100 bg-white shadow-sm overflow-hidden">
             <div className="px-4 py-3 md:px-6 border-b border-indigo-100 bg-indigo-50/80 flex items-center justify-between">
               <div>
-                <h3 className="text-sm font-bold uppercase tracking-widest text-indigo-900">Analysis Report</h3>
+                <h3 className="text-sm font-bold uppercase tracking-widest text-indigo-900">📊 Audit Complete</h3>
                 <p className="text-xs text-indigo-700 mt-0.5">
                   Extracted from the final output.
                 </p>
@@ -1404,6 +1416,18 @@ function PrettyOutputView({
             </div>
             <div className="px-4 py-6 md:px-8 md:py-8">
               <PrettyOutputBody text={extractedReport} />
+              {artifactPaths.length > 0 && (
+                <div className="mt-6">
+                  <a
+                    href={apiService.workspaceFileDownloadUrl(artifactPaths.find(p => p.endsWith('.md')) || artifactPaths[0])}
+                    download
+                    className="inline-flex items-center justify-center rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 transition-colors"
+                  >
+                    <FileText className="mr-2 -ml-0.5 h-4 w-4" aria-hidden="true" />
+                    📄 View Full Report
+                  </a>
+                </div>
+              )}
             </div>
           </div>
         ) : null}
