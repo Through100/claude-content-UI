@@ -22,13 +22,14 @@ export function textContainsClaudePermissionMenu(text: string): boolean {
 
 /** Plain PTY text (ANSI stripped, teletype lines normalized) shows Claude Code’s numbered permission menu. */
 export function plainTextShowsClaudePermissionMenu(plainNormalized: string): boolean {
-  const tail = plainNormalized.slice(-500);
-  const veryTail = plainNormalized.slice(-500);
+  const trimmed = plainNormalized.trimEnd();
+  const tail = trimmed.slice(-500);
+  const veryTail = trimmed.slice(-500);
   if (!/\bEsc to cancel\b/i.test(veryTail) || !/\bTab to (?:amend|edit|change)\b/i.test(veryTail)) return false;
   /** Require a numbered option line so we never auto-send on stray footer text alone (e.g. after a PTY restart). */
   if (!/(^|\n)\s*(?:[❯›>]\s*)?\d+\.\s+\S/m.test(tail)) return false;
   return (
-    /Do you want to/i.test(tail) ||
+    /Do you.*?\\?/i.test(tail) ||
       /(^|\n)\s*(?:[❯›>]\s*)?\d+\.\s+Yes,/im.test(tail) ||
       /Yes, and don't ask again/i.test(tail) ||
       /Yes, and don’t ask again/i.test(tail) ||
@@ -49,9 +50,10 @@ export function plainTailShowsAnswerablePermissionMenu(plainNormalized: string):
   if (isInkSpinnerTokenStatusLine(lastLine)) return false;
 
   if (plainTextShowsClaudePermissionMenu(plainNormalized)) return true;
-  const tail = plainNormalized.slice(-500);
+  const trimmed = plainNormalized.trimEnd();
+  const tail = trimmed.slice(-500);
   if (!NUMBERED_MENU_ROW.test(tail)) return false;
-  if (/Do you want to/i.test(tail) && /^\s*(?:[?❯›>]\s*)?1\.\s+Yes\b/im.test(tail)) return true;
+  if (/Do you.*?\\?/i.test(tail) && /^\s*(?:[?❯›>]\s*)?1\.\s+Yes\b/im.test(tail)) return true;
   return false;
 }
 

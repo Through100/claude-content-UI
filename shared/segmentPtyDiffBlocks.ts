@@ -126,7 +126,7 @@ function isClaudeMenuQuestionLine(line: string): boolean {
   const L = line ?? '';
   /** ASCII `?` or fullwidth `？` (Ink / locale); fetch consent often uses “allow … ?”. */
   if (/Do you want to[^?\n\uFF1F]*(?:\?|？)/i.test(L)) return true;
-  if (/Do you want to/i.test(L)) return true;
+  if (/Do you.*?\\?/i.test(L)) return true;
   return false;
 }
 
