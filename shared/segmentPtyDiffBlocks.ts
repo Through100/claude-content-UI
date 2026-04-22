@@ -149,6 +149,8 @@ function isPermissionPromptLeadInLine(line: string): boolean {
   if (/^Globbed\s+\S+/i.test(t)) return true;
   if (/^Grep\s+\S+/i.test(t) && t.length < 140) return true;
   if (/^⎿/.test(t)) return true;
+  if (/^\s*Bash command\b/i.test(t)) return true;
+  if (/^[─\-_\s|]{10,}$/.test(t)) return true;
   return false;
 }
 
@@ -236,7 +238,7 @@ function splitProseMenuAndRest(prose: string): { kind: 'menu' | 'prose'; text: s
 
     /** Pull short tool/fetch context lines above the question (skip blank lines between). */
     let menuStart = start;
-    for (let step = 0; step < 4 && menuStart > i; step++) {
+    for (let step = 0; step < 50 && menuStart > i; step++) {
       let scan = menuStart - 1;
       while (scan >= i && !(lines[scan] ?? '').trim()) scan--;
       if (scan < i) break;
@@ -244,7 +246,20 @@ function splitProseMenuAndRest(prose: string): { kind: 'menu' | 'prose'; text: s
       if (isPermissionPromptLeadInLine(prev)) {
         menuStart = scan;
       } else {
-        break;
+        // Allow arbitrary lines if we are inside a Bash command block
+        let foundBash = false;
+        for (let k = scan; k >= Math.max(i, scan - 50); k--) {
+          const t = (lines[k] ?? '').trim();
+          if (/^\s*Bash command\b/i.test(t) || /^[─\-_\s|]{10,}$/.test(t)) {
+            foundBash = true;
+            break;
+          }
+        }
+        if (foundBash) {
+          menuStart = scan;
+        } else {
+          break;
+        }
       }
     }
 
