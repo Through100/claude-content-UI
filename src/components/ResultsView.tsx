@@ -360,10 +360,11 @@ export default function ResultsView({
   }, [result?.rawOutput, result?.error, ptyMergedDisplayPlain, isHistoryEmbed]);
 
   const historyPrettySource = useMemo(() => {
-    if (!isHistoryEmbed || !result) return '';
+    if (!isHistoryEmbed || !result) return { conversation: '', report: null };
     const out = sanitizeRunOutputForChat(result.rawOutput ?? '').trim();
     const err = result.error?.trim();
-    return out || (err ? `Error: ${err}` : '') || '(no output captured)';
+    const raw = out || (err ? `Error: ${err}` : '') || '(no output captured)';
+    return extractAnalysisReport(raw);
   }, [isHistoryEmbed, result]);
 
   const liveActivity = useMemo(() => inferClaudeActivity(liveTerminal), [liveTerminal]);
@@ -613,17 +614,34 @@ export default function ResultsView({
           >
             <div ref={prettyReportRef} className="space-y-6">
               {isHistoryEmbed ? (
-                <div className="rounded-2xl border border-gray-100 bg-white shadow-sm overflow-hidden">
-                  <div className="px-4 py-3 md:px-6 border-b border-gray-100 bg-gray-50/80">
-                    <h3 className="text-[11px] font-bold uppercase tracking-wider text-gray-500">Saved run (Pretty)</h3>
-                    <p className="text-xs text-gray-500 mt-1">
-                      From history — not the live Logon PTY. Same text as Raw, formatted for reading.
-                    </p>
+                <>
+                  <div className="rounded-2xl border border-gray-100 bg-white shadow-sm overflow-hidden">
+                    <div className="px-4 py-3 md:px-6 border-b border-gray-100 bg-gray-50/80">
+                      <h3 className="text-[11px] font-bold uppercase tracking-wider text-gray-500">Saved run (Pretty)</h3>
+                      <p className="text-xs text-gray-500 mt-1">
+                        From history — not the live Logon PTY. Same text as Raw, formatted for reading.
+                      </p>
+                    </div>
+                    <div className="px-4 py-6 md:px-8 md:py-8">
+                      <PrettyOutputBody text={historyPrettySource.conversation} />
+                    </div>
                   </div>
-                  <div className="px-4 py-6 md:px-8 md:py-8">
-                    <PrettyOutputBody text={historyPrettySource} />
-                  </div>
-                </div>
+                  {historyPrettySource.report ? (
+                    <div ref={extractedReportRef} className="mt-8 rounded-2xl border border-indigo-100 bg-white shadow-sm overflow-hidden">
+                      <div className="px-4 py-3 md:px-6 border-b border-indigo-100 bg-indigo-50/80 flex items-center justify-between">
+                        <div>
+                          <h3 className="text-sm font-bold uppercase tracking-widest text-indigo-900">Analysis Report</h3>
+                          <p className="text-xs text-indigo-700 mt-0.5">
+                            Extracted from the final output.
+                          </p>
+                        </div>
+                      </div>
+                      <div className="px-4 py-6 md:px-8 md:py-8">
+                        <PrettyOutputBody text={historyPrettySource.report} />
+                      </div>
+                    </div>
+                  ) : null}
+                </>
               ) : (
                 <PrettyOutputView
                   key={`pretty-${chatThreadKey}`}
@@ -1211,6 +1229,21 @@ function appendDashboardRunAsPtyPlain(ptyHead: string, userSummary: string, assi
   return `${head}\n\n${runBlock}`;
 }
 
+function extractAnalysisReport(rawText: string): { conversation: string; report: string | null } {
+  const text = stripAnsi(rawText);
+  const matches = [...text.matchAll(/(?:[●*•]\s*)?(?:Here is the full summary|Blog Quality Analysis [-—–] Summary)[\s\S]*/gi)];
+  if (matches.length > 0) {
+    const match = matches[matches.length - 1];
+    let report = match[0];
+    report = report.replace(/━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[\s\S]*?Built by agricidaniel[\s\S]*?━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━/i, '');
+    return {
+      conversation: text.slice(0, match.index).trimEnd(),
+      report: report.trim()
+    };
+  }
+  return { conversation: text, report: null };
+}
+
 function buildPtyForDisplayPlain(opts: {
   prettyMode: 'headless' | 'pty' | 'both';
   ptyForPretty: string;
@@ -1285,19 +1318,8 @@ function PrettyOutputView({
   );
 
   const { ptyForDisplay, extractedReport } = useMemo(() => {
-    const text = ptyForDisplayRaw;
-    const matches = [...text.matchAll(/(?:● Here is the full summary of the analysis:|Blog Quality Analysis — Summary)[\s\S]*?(?=(?:\n●|$))/gi)];
-    if (matches.length > 0) {
-      const match = matches[matches.length - 1];
-      let report = match[0];
-      // Remove the "Built by agricidaniel" block if it exists
-      report = report.replace(/━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[\s\S]*?Built by agricidaniel[\s\S]*?━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━/i, '');
-      return {
-        ptyForDisplay: text.slice(0, match.index).trimEnd(),
-        extractedReport: report.trim()
-      };
-    }
-    return { ptyForDisplay: text, extractedReport: null };
+    const { conversation, report } = extractAnalysisReport(ptyForDisplayRaw);
+    return { ptyForDisplay: conversation, extractedReport: report };
   }, [ptyForDisplayRaw]);
 
   useEffect(() => {
