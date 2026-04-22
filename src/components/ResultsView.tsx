@@ -1231,7 +1231,22 @@ function appendDashboardRunAsPtyPlain(ptyHead: string, userSummary: string, assi
 
 function extractAnalysisReport(rawText: string): { conversation: string; report: string | null } {
   const text = stripAnsi(rawText);
-  const matches = [...text.matchAll(/(?:[●*•]\s*)?(?:Here is the .*?summary|Blog Quality Analysis|Blog Analysis:|Analysis Report|Here is the full analysis summary:)[\s\S]*/gi)];
+  // First, try to find the "All files saved. Here is the full summary:" or similar marker
+  // which indicates the true final report, bypassing any diffs or file writes.
+  const finalSummaryRegex = /(?:[●*•]\s*)?(?:All files saved\. Here is the full summary:|Here is the full summary:|Here is the full analysis summary:)[\s\S]*/i;
+  const finalMatch = text.match(finalSummaryRegex);
+
+  if (finalMatch) {
+    let report = finalMatch[0];
+    report = report.replace(/━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[\s\S]*?Built by agricidaniel[\s\S]*?━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━/i, '');
+    return {
+      conversation: text.slice(0, finalMatch.index).trimEnd(),
+      report: report.trim()
+    };
+  }
+
+  // Fallback to broader regex if the specific final marker isn't found
+  const matches = [...text.matchAll(/(?:[●*•]\s*)?(?:Here is the .*?summary|Blog Quality Analysis|Blog Analysis:|Analysis Report)[\s\S]*/gi)];
   if (matches.length > 0) {
     const match = matches[matches.length - 1];
     let report = match[0];
