@@ -170,19 +170,18 @@ function splitProseMenuAndRest(prose: string): { kind: 'menu' | 'prose'; text: s
 
   while (i < n) {
     let footerJ = -1;
-    const windowEnd = Math.min(n, i + 500);
-    for (let j = i; j < windowEnd; j++) {
+    for (let j = i; j < n; j++) {
       if (isLikelyClaudePermissionMenuFooter(lines[j] ?? '')) {
         footerJ = j;
         break;
       }
     }
     if (footerJ < 0) {
-      footerJ = findNumberedConsentMenuFooterJ(lines, i, windowEnd, /Do you want to/i);
+      footerJ = findNumberedConsentMenuFooterJ(lines, i, n, /Do you want to/i);
     }
     if (footerJ < 0) {
       /** Fetch consent body line when the explicit “Do you want…” row was redrawn away or wrapped oddly. */
-      footerJ = findNumberedConsentMenuFooterJ(lines, i, windowEnd, /\bClaude wants to fetch\b/i);
+      footerJ = findNumberedConsentMenuFooterJ(lines, i, n, /\bClaude wants to fetch\b/i);
     }
     if (footerJ < 0) {
       const rest = lines.slice(i).join('\n');

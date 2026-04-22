@@ -570,7 +570,7 @@ function TerminalLiveFooterBar({ text }: { text: string }) {
     <div className="flex justify-start w-full">
       <div className="w-full max-w-[min(100%,44rem)] md:max-w-[56rem] pr-2 md:pr-16">
         <div className="rounded-xl border border-zinc-700/95 bg-[#09090b] px-3 py-2.5 shadow-inner ring-1 ring-zinc-800/80 min-h-[5.25rem] flex flex-col">
-          <p className="text-[11px] sm:text-[12px] leading-snug font-mono text-zinc-200 whitespace-pre-wrap break-words min-h-[2.75rem] flex-1">
+          <p className="text-[11px] sm:text-[12px] leading-snug font-mono text-zinc-200 whitespace-nowrap overflow-hidden text-ellipsis min-h-[2.75rem] flex-1">
             {text}
           </p>
           <time

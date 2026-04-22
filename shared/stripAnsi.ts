@@ -19,6 +19,10 @@ export function normalizeTeletypeLines(input: string): string {
   for (let i = 0; i < input.length; i++) {
     const c = input[i];
     if (c === '\r') {
+      // If it's \r\n, don't clear the line, just let the \n handle it
+      if (i + 1 < input.length && input[i + 1] === '\n') {
+        continue;
+      }
       line = '';
     } else if (c === '\n') {
       lines.push(line);
