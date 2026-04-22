@@ -103,9 +103,9 @@ export default function ResultsView({
   >([]);
   const [archivedChoiceMenus, setArchivedChoiceMenus] = useState<PtyArchivedChoiceMenu[]>([]);
   const livePreRef = useRef<HTMLPreElement>(null);
-  const prettyReportRef = useRef<HTMLDivElement>(null);
   const fullReportRef = useRef<HTMLDivElement>(null);
-  const pdfAfterPrettySwitchRef = useRef(false);
+  /** After "Download Report in PDF", switch to Full Report tab first so `fullReportRef` is mounted. */
+  const pdfAfterFullReportTabSwitchRef = useRef(false);
   const { ptyDisplayPlain, ptyFullSnapshotPlain, ptySessionGeneration, ptySessionReady, sendToPty } = usePtyBridge();
   const [autoApproveChoicePrompts, setAutoApproveChoicePrompts] = useState(false);
   const lastAutoApproveMenuRef = useRef<string | null>(null);
@@ -384,8 +384,13 @@ export default function ResultsView({
   const liveActivity = useMemo(() => inferClaudeActivity(liveTerminal), [liveTerminal]);
 
   const runPdfExport = useCallback(async () => {
-    const el = fullReportRef.current || prettyReportRef.current;
-    if (!el) return;
+    const el = fullReportRef.current;
+    if (!el) {
+      window.alert(
+        'The Full Report view is not available yet. Wait until the report file has loaded, or run an analysis that saves a markdown report to the workspace.'
+      );
+      return;
+    }
     setPdfExporting(true);
     try {
       const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
@@ -393,7 +398,7 @@ export default function ResultsView({
     } catch (e) {
       console.error(e);
       window.alert(
-        'Could not create PDF. If the output is very long, try the Raw View tab and save from your browser, or try again after scrolling through the full Pretty Output once.'
+        'Could not create PDF from the Full Report. If the report is very long, scroll through the Full Report tab once so it is fully laid out, then try again.'
       );
     } finally {
       setPdfExporting(false);
@@ -401,22 +406,31 @@ export default function ResultsView({
   }, []);
 
   const handlePdfClick = () => {
-    if (activeTab !== 'pretty') {
-      pdfAfterPrettySwitchRef.current = true;
-      setActiveTab('pretty');
+    const hasReportSource = Boolean(primarySessionMarkdownPath) || Boolean(fetchedReportContent?.trim());
+    if (!hasReportSource) {
+      window.alert(
+        'No report file was found for this session. Run an analysis that saves a markdown report (for example analysis-report.md), then use Download Report in PDF again.'
+      );
+      return;
+    }
+    if (activeTab !== 'report') {
+      pdfAfterFullReportTabSwitchRef.current = true;
+      setActiveTab('report');
       return;
     }
     void runPdfExport();
   };
 
   useEffect(() => {
-    if (!pdfAfterPrettySwitchRef.current || activeTab !== 'pretty') return;
-    pdfAfterPrettySwitchRef.current = false;
+    if (!pdfAfterFullReportTabSwitchRef.current || activeTab !== 'report') return;
+    if (isFetchingReport && !fetchedReportContent?.trim()) return;
+
+    pdfAfterFullReportTabSwitchRef.current = false;
     const t = window.setTimeout(() => {
       void runPdfExport();
     }, 450);
     return () => clearTimeout(t);
-  }, [activeTab, runPdfExport]);
+  }, [activeTab, isFetchingReport, fetchedReportContent, runPdfExport]);
 
   useEffect(() => {
     const el = livePreRef.current;
@@ -614,7 +628,7 @@ export default function ResultsView({
             onClick={handlePdfClick}
             disabled={pdfExporting}
             className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold border border-gray-200 bg-white text-gray-800 shadow-sm hover:bg-gray-50 hover:border-gray-300 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-            title="Save the Pretty Output as a PDF"
+            title="Save the Full Report (markdown) as a PDF"
           >
             <FileDown size={16} className="text-indigo-600 shrink-0" aria-hidden />
             <span className="whitespace-nowrap">{pdfExporting ? 'Preparing PDF…' : 'Download Report in PDF'}</span>
@@ -666,7 +680,7 @@ export default function ResultsView({
             exit={{ opacity: 0, y: -10 }}
             className="space-y-6"
           >
-            <div ref={prettyReportRef} className="space-y-6">
+            <div className="space-y-6">
               {isHistoryEmbed ? (
                 <>
                   <div className="rounded-2xl border border-gray-100 bg-white shadow-sm overflow-hidden">
