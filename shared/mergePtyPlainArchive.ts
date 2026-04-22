@@ -11,7 +11,6 @@ import { plainTailShowsAnswerablePermissionMenu } from './claudeCodePtyPermissio
  * new turns — Pretty stopped after the first exchange while Raw still grew.
  */
 const MAX_OVERLAP_SCAN = 250_000;
-let _snapTailMatchLogAt = 0;
 
 export function mergePtyPlainArchive(prev: string, fullPlain: string): string {
   const p = prev.replace(/\r\n/g, '\n');
@@ -43,39 +42,13 @@ export function mergePtyPlainArchive(prev: string, fullPlain: string): string {
   }
 
   const fallback = f.length > p.length ? f : p;
-  // #region agent log
   if (fallback === p && f.trim() && f !== p) {
     /** Overlap can miss rapid stacked Ink prompts; align tail to live before keeping stale `prev`. */
     const healed = snapMergedPtyTailToLiveFullSnapshot(p, f, 280_000);
     if (healed !== p) {
-      fetch('http://127.0.0.1:7823/ingest/0f30680b-0aa0-4d4a-ba6d-262bf6a78290', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '456dbf' },
-        body: JSON.stringify({
-          sessionId: '456dbf',
-          hypothesisId: 'H17',
-          location: 'mergePtyPlainArchive.ts:mergePtyPlainArchive',
-          message: 'merge fallback healed via snap tail',
-          data: { pLen: p.length, fLen: f.length, healedLen: healed.length },
-          timestamp: Date.now()
-        })
-      }).catch(() => {});
       return healed;
     }
-    fetch('http://127.0.0.1:7823/ingest/0f30680b-0aa0-4d4a-ba6d-262bf6a78290', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '456dbf' },
-      body: JSON.stringify({
-        sessionId: '456dbf',
-        hypothesisId: 'H3',
-        location: 'mergePtyPlainArchive.ts:mergePtyPlainArchive',
-        message: 'merge fallback kept prev',
-        data: { pLen: p.length, fLen: f.length },
-        timestamp: Date.now()
-      })
-    }).catch(() => {});
   }
-  // #endregion
   return fallback;
 }
 
@@ -108,34 +81,12 @@ export function snapMergedPtyTailToLiveFullSnapshot(
   liveFullPlain: string,
   maxTailScan: number
 ): string {
-  // #region agent log
-  const dbg = (branch: string, extra: Record<string, unknown> = {}) => {
-    fetch('http://127.0.0.1:7823/ingest/0f30680b-0aa0-4d4a-ba6d-262bf6a78290', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '456dbf' },
-      body: JSON.stringify({
-        sessionId: '456dbf',
-        hypothesisId: 'H1',
-        location: 'mergePtyPlainArchive.ts:snapMergedPtyTailToLiveFullSnapshot',
-        message: branch,
-        data: {
-          mergedLen: merged.length,
-          liveLen: (liveFullPlain ?? '').length,
-          ...extra
-        },
-        timestamp: Date.now()
-      })
-    }).catch(() => {});
-  };
-  // #endregion
   if (!liveFullPlain?.trim()) {
-    dbg('early-no-live');
     return merged;
   }
   const m = merged.replace(/\r\n/g, '\n');
   const live = liveFullPlain.replace(/\r\n/g, '\n');
   if (!m.trim()) {
-    dbg('early-empty-merged');
     return merged;
   }
 
@@ -144,26 +95,8 @@ export function snapMergedPtyTailToLiveFullSnapshot(
   const mergedMarkers = countMenuMarkersInTail(m, markerWin);
   /** Live shows more stacked consent UIs than merged in the same tail window — do not trust cheap exits. */
   const forceTailResync = liveMarkers > mergedMarkers;
-  if (forceTailResync) {
-    // #region agent log
-    fetch('http://127.0.0.1:7823/ingest/0f30680b-0aa0-4d4a-ba6d-262bf6a78290', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '456dbf' },
-      body: JSON.stringify({
-        sessionId: '456dbf',
-        hypothesisId: 'H18',
-        location: 'mergePtyPlainArchive.ts:snapMergedPtyTailToLiveFullSnapshot',
-        message: 'live tail has more menu markers than merged; forcing tail resync',
-        data: { liveMarkers, mergedMarkers, markerWin, mergedLen: m.length, liveLen: live.length },
-        timestamp: Date.now()
-      })
-    }).catch(() => {});
-    // #endregion
-    dbg('force-tail-resync-markers', { liveMarkers, mergedMarkers, markerWin });
-  }
 
   if (!forceTailResync && (m === live || m.endsWith(live))) {
-    dbg(m === live ? 'early-m-eq-live' : 'early-m-endsWith-live', { mLen: m.length, liveLen: live.length });
     return merged;
   }
 
@@ -179,11 +112,6 @@ export function snapMergedPtyTailToLiveFullSnapshot(
   };
 
   if (!forceTailResync && mTailEq(tEff)) {
-    const now = Date.now();
-    if (now - _snapTailMatchLogAt > 800) {
-      _snapTailMatchLogAt = now;
-      dbg('early-tail-match', { t: tEff, liveLen: live.length, mLen: m.length });
-    }
     return merged;
   }
 
@@ -196,7 +124,7 @@ export function snapMergedPtyTailToLiveFullSnapshot(
     const approxCut = m.length - tEff;
     const cut = alignCutBackwardToNewline(m, approxCut);
     const chunk = m.slice(cut, cut + 100);
-    
+
     // If chunk is too small, we can't reliably match it
     if (chunk.length < 40) {
       tEff = Math.floor(tEff * 0.82);
@@ -207,11 +135,9 @@ export function snapMergedPtyTailToLiveFullSnapshot(
     if (liveCut >= 0) {
       const liveSuffix = live.slice(liveCut);
       if (m.slice(cut) === liveSuffix) {
-        dbg('abort-slice-already-live-suffix', { tEff });
         return merged;
       }
 
-      dbg('patched', { cut, liveCut, tEff, outLen: cut + liveSuffix.length });
       return m.slice(0, cut) + liveSuffix;
     }
 
@@ -226,37 +152,17 @@ export function snapMergedPtyTailToLiveFullSnapshot(
   if (live.length >= 200 && m.length > live.length && !m.endsWith(live)) {
     const tailM = m.slice(-live.length);
     const liveHasMenuAtTail = plainTailShowsAnswerablePermissionMenu(live);
-    const mergedHasSameMenuAtTail = plainTailShowsAnswerablePermissionMenu(tailM) && tailM.slice(-1000) === live.slice(-1000);
-    
+    const mergedHasSameMenuAtTail =
+      plainTailShowsAnswerablePermissionMenu(tailM) && tailM.slice(-1000) === live.slice(-1000);
+
     if (
       countMenuMarkersInTail(live, live.length) > countMenuMarkersInTail(tailM, tailM.length) ||
       countFetchConsentPrompts(live) > countFetchConsentPrompts(tailM) ||
       (liveHasMenuAtTail && !mergedHasSameMenuAtTail)
     ) {
-      // #region agent log
-      fetch('http://127.0.0.1:7823/ingest/0f30680b-0aa0-4d4a-ba6d-262bf6a78290', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '456dbf' },
-        body: JSON.stringify({
-          sessionId: '456dbf',
-          hypothesisId: 'H16',
-          location: 'mergePtyPlainArchive.ts:snapMergedPtyTailToLiveFullSnapshot',
-          message: 'graft full live buffer onto merged head',
-          data: {
-            mergedLen: m.length,
-            liveLen: live.length,
-            liveFetch: countFetchConsentPrompts(live),
-            mergedTailFetch: countFetchConsentPrompts(tailM)
-          },
-          timestamp: Date.now()
-        })
-      }).catch(() => {});
-      // #endregion
-      dbg('graft-full-live', { mergedLen: m.length, liveLen: live.length });
       return m.slice(0, m.length - live.length) + live;
     }
   }
 
-  dbg('snap-gave-up', { mergedLen: m.length, liveLen: live.length });
   return merged;
 }

@@ -93,6 +93,10 @@ export default function ResultsView({
   const [fetchedReportPath, setFetchedReportPath] = useState<string | null>(null);
   const [isFetchingReport, setIsFetchingReport] = useState(false);
   const hasAutoSwitchedToReportRef = useRef(false);
+  /** Latest `isLoading` for async fetch callbacks (avoid stale closure when switching tabs after run ends). */
+  const isLoadingRef = useRef(isLoading);
+  isLoadingRef.current = isLoading;
+  const prevIsLoadingForRunRef = useRef(isLoading);
   const [pdfExporting, setPdfExporting] = useState(false);
   const [manualReplyBubbles, setManualReplyBubbles] = useState<
     { id: string; text: string; sentAt: number; transcriptLenAtSend: number }[]
@@ -139,25 +143,6 @@ export default function ResultsView({
         return loadPtyPrettyArchive(chatThreadKey);
       }
       if (topicLiveHoldRef.current === chatThreadKey) {
-        // #region agent log
-        fetch('http://127.0.0.1:7823/ingest/0f30680b-0aa0-4d4a-ba6d-262bf6a78290', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '456dbf' },
-          body: JSON.stringify({
-            sessionId: '456dbf',
-            hypothesisId: 'H2',
-            location: 'ResultsView.tsx:ptyMergeEffect',
-            message: 'merge skipped topicLiveHold',
-            data: {
-              hold: topicLiveHoldRef.current,
-              chatThreadKey,
-              prevLen: prev.length,
-              plainLen: ptyPlainForMerge.length
-            },
-            timestamp: Date.now()
-          })
-        }).catch(() => {});
-        // #endregion
         return prev;
       }
       return mergePtyPlainArchive(prev, ptyPlainForMerge);
@@ -209,60 +194,11 @@ export default function ResultsView({
     [ptyMergedArchive, ptyPlainForMerge]
   );
 
-  // #region agent log
-  useEffect(() => {
-    if (isHistoryEmbed) return;
-    const tail = (s: string) => s.replace(/\r\n/g, '\n').slice(-14_000);
-    const countFetchAsks = (s: string) => ((tail(s).match(/\bDo you want to allow Claude to fetch\b/gi) ?? []).length);
-    const mc = countFetchAsks(ptyMergedDisplayPlain);
-    const lc = countFetchAsks(ptyPlainForMerge);
-    if (lc > mc) {
-      fetch('http://127.0.0.1:7823/ingest/0f30680b-0aa0-4d4a-ba6d-262bf6a78290', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '456dbf' },
-        body: JSON.stringify({
-          sessionId: '456dbf',
-          hypothesisId: 'H14',
-          location: 'ResultsView.tsx:fetchAskTailDrift',
-          message: 'live tail has more fetch consent asks than merged Pretty tail',
-          data: {
-            mergedLen: ptyMergedDisplayPlain.length,
-            liveLen: ptyPlainForMerge.length,
-            mergedFetchAsksInTail: mc,
-            liveFetchAsksInTail: lc
-          },
-          timestamp: Date.now()
-        })
-      }).catch(() => {});
-    }
-  }, [isHistoryEmbed, ptyMergedDisplayPlain, ptyPlainForMerge]);
-  // #endregion
-
   /** Same plain string Pretty uses for the thread — anchors Reply bubbles in transcript order. */
   const replyOrderingPlain = useMemo(() => {
     const ptyForPretty = (() => {
       const s = sanitizePtyPrettyTranscript(ptyMergedDisplayPlain);
       if (!s.trim() && ptyMergedDisplayPlain.trim()) return ptyMergedDisplayPlain;
-      // #region agent log
-      if (s.length !== ptyMergedDisplayPlain.length) {
-        fetch('http://127.0.0.1:7823/ingest/0f30680b-0aa0-4d4a-ba6d-262bf6a78290', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '456dbf' },
-          body: JSON.stringify({
-            sessionId: '456dbf',
-            hypothesisId: 'H7',
-            location: 'ResultsView.tsx:replyOrderingPlain',
-            message: 'sanitize changed length',
-            data: {
-              beforeLen: ptyMergedDisplayPlain.length,
-              afterLen: s.length,
-              tailHasFetch: /Fetch\s+https?:\/\//i.test(ptyMergedDisplayPlain.slice(-6000))
-            },
-            timestamp: Date.now()
-          })
-        }).catch(() => {});
-      }
-      // #endregion
       return s;
     })();
     return buildPtyForDisplayPlain({
@@ -363,41 +299,73 @@ export default function ResultsView({
     return extractArtifactPathsFromRunText(chunks.join('\n\n'));
   }, [result?.rawOutput, result?.error, ptyMergedDisplayPlain, isHistoryEmbed]);
 
+  /** Prefer the blog audit markdown; otherwise last `.md` in discovery order (stable for this session). */
+  const primarySessionMarkdownPath = useMemo(() => {
+    const mds = artifactPaths.filter((p) => /\.md$/i.test(p));
+    if (mds.length === 0) return null;
+    const prefer = mds.find((p) => /analysis-report\.md$/i.test(p.replace(/\\/g, '/')));
+    return prefer ?? mds[mds.length - 1];
+  }, [artifactPaths]);
+
   useEffect(() => {
     // Reset state when chat thread changes
     setFetchedReportContent(null);
     setFetchedReportPath(null);
     setIsFetchingReport(false);
     hasAutoSwitchedToReportRef.current = false;
+    prevIsLoadingForRunRef.current = isLoading;
     setActiveTab('pretty');
   }, [chatThreadKey]);
 
+  /** New Command Runner / PTY run started — allow one auto-switch to Full Report when this run finishes. */
   useEffect(() => {
-    if (!isLoading && fetchedReportContent && !hasAutoSwitchedToReportRef.current) {
-      hasAutoSwitchedToReportRef.current = true;
-      setActiveTab('report');
+    if (isHistoryEmbed) return;
+    const prev = prevIsLoadingForRunRef.current;
+    prevIsLoadingForRunRef.current = isLoading;
+    if (isLoading && !prev) {
+      hasAutoSwitchedToReportRef.current = false;
+      setFetchedReportContent(null);
+      setFetchedReportPath(null);
     }
-  }, [isLoading, fetchedReportContent]);
+  }, [isHistoryEmbed, isLoading]);
+
+  const tryAutoSwitchToFullReport = useCallback(() => {
+    if (hasAutoSwitchedToReportRef.current) return;
+    if (isLoadingRef.current) return;
+    hasAutoSwitchedToReportRef.current = true;
+    setActiveTab('report');
+  }, []);
 
   useEffect(() => {
-    // Fetch if the run is fully complete OR if the user manually switched to the report tab
-    if (isLoading && activeTab !== 'report') return;
-    
-    // Find the first markdown file in the artifacts
-    const mdPath = artifactPaths.find(p => p.endsWith('.md'));
-    
-    if (mdPath && mdPath !== fetchedReportPath && !isFetchingReport) {
-      setIsFetchingReport(true);
-      fetch(apiService.workspaceFileDownloadUrl(mdPath))
-        .then(res => res.text())
-        .then(text => {
-          setFetchedReportContent(text);
-          setFetchedReportPath(mdPath);
-        })
-        .catch(err => console.error('Failed to fetch report:', err))
-        .finally(() => setIsFetchingReport(false));
+    if (!isLoading && fetchedReportContent?.trim() && !hasAutoSwitchedToReportRef.current) {
+      tryAutoSwitchToFullReport();
     }
-  }, [isLoading, activeTab, artifactPaths, fetchedReportPath, isFetchingReport]);
+  }, [isLoading, fetchedReportContent, tryAutoSwitchToFullReport]);
+
+  useEffect(() => {
+    const mdPath = primarySessionMarkdownPath;
+    if (!mdPath || mdPath === fetchedReportPath || isFetchingReport) return;
+
+    setIsFetchingReport(true);
+    fetch(apiService.workspaceFileDownloadUrl(mdPath))
+      .then((res) => {
+        if (!res.ok) throw new Error(`Report fetch ${res.status}`);
+        return res.text();
+      })
+      .then((text) => {
+        setFetchedReportContent(text);
+        setFetchedReportPath(mdPath);
+        if (!isLoadingRef.current && text.trim()) {
+          tryAutoSwitchToFullReport();
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to fetch report:', err);
+        setFetchedReportPath(mdPath);
+        setFetchedReportContent(null);
+      })
+      .finally(() => setIsFetchingReport(false));
+  }, [primarySessionMarkdownPath, fetchedReportPath, isFetchingReport, tryAutoSwitchToFullReport]);
 
   const historyPrettySource = useMemo(() => {
     if (!isHistoryEmbed || !result) return { conversation: '', report: null };
@@ -595,7 +563,7 @@ export default function ResultsView({
       ) : null}
       <div className="flex items-center justify-between sticky top-0 z-10 bg-white/90 backdrop-blur-sm py-2 border-b border-gray-100 mb-4 -mx-2 px-2">
         <div className="flex bg-gray-100 p-1 rounded-xl">
-          {artifactPaths.some(p => p.endsWith('.md')) && (
+          {primarySessionMarkdownPath && (
             <button
               onClick={() => setActiveTab('report')}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
