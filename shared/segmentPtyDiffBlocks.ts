@@ -96,6 +96,21 @@ function isLikelyClaudePermissionMenuFooter(line: string): boolean {
 }
 
 /**
+ * True when lines between anchor and the last numbered row look like Claude’s Ink choice rows
+ * (not markdown “1.” body lists that happen to start with “Yes”).
+ */
+function consentBlockHasInkChoiceRows(lines: string[], j: number, lastNum: number): boolean {
+  for (let k = j; k <= lastNum; k++) {
+    const u = (lines[k] ?? '').trim();
+    if (/^\s*(?:[❯›>]\s*)?2\.\s+Yes\b/i.test(u)) return true;
+    if (/^\s*(?:[❯›>]\s*)?2\.\s+Yes,\s+/i.test(u)) return true;
+    if (/^\s*(?:[❯›>]\s*)?2\.\s+No\b/i.test(u)) return true;
+    if (/^\s*(?:[❯›>]\s*)?3\.\s+No\b/i.test(u)) return true;
+  }
+  return false;
+}
+
+/**
  * Fetch / tool consent often ends at the last numbered option without an Esc/Tab footer line in the buffer.
  * Returns the line index of that last `1./2./3.` row, or -1.
  */
@@ -103,7 +118,8 @@ function findNumberedConsentMenuFooterJ(
   lines: string[],
   i: number,
   windowEnd: number,
-  anchor: RegExp
+  anchor: RegExp,
+  requireInkChoiceRows: boolean
 ): number {
   /** Prefer the *last* matching anchor so embedded code / citations cannot steal the match from the real tail menu. */
   let bestLastNum = -1;
@@ -118,7 +134,11 @@ function findNumberedConsentMenuFooterJ(
       if (/^\s*(?:[❯›>]\s*)?1\.\s+Yes\b/i.test(u)) sawYes1 = true;
       if (/^\s*(?:[❯›>]\s*)?\d+\.\s+\S/m.test(u)) lastNum = k;
     }
-    if (sawYes1 && lastNum >= j) bestLastNum = lastNum;
+    if (sawYes1 && lastNum >= j) {
+      if (!requireInkChoiceRows || consentBlockHasInkChoiceRows(lines, j, lastNum)) {
+        bestLastNum = lastNum;
+      }
+    }
   }
   return bestLastNum;
 }
@@ -181,11 +201,18 @@ function splitProseMenuAndRest(prose: string): { kind: 'menu' | 'prose'; text: s
       if (isLikelyClaudePermissionMenuFooter(lines[j] ?? '')) footerJ = j;
     }
     if (footerJ < 0) {
-      footerJ = findNumberedConsentMenuFooterJ(lines, i, n, /Do you want to/i);
+      /** Require `?` on the anchor line and Ink-style `2./3.` rows so pillar-page prose cannot match `/Do you want to/i` alone. */
+      footerJ = findNumberedConsentMenuFooterJ(
+        lines,
+        i,
+        n,
+        /Do you want to\b[^\n]{0,240}(?:\?|？)/i,
+        true
+      );
     }
     if (footerJ < 0) {
       /** Fetch consent body line when the explicit “Do you want…” row was redrawn away or wrapped oddly. */
-      footerJ = findNumberedConsentMenuFooterJ(lines, i, n, /\bClaude wants to fetch\b/i);
+      footerJ = findNumberedConsentMenuFooterJ(lines, i, n, /\bClaude wants to fetch\b/i, false);
     }
     if (footerJ < 0) {
       const rest = lines.slice(i).join('\n');
