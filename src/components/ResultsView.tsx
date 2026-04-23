@@ -483,6 +483,17 @@ export default function ResultsView({
     }
   }, [isLoading, fetchedReportContent, tryAutoSwitchToFullReport]);
 
+  /** After a headless/stream run finishes, retry file read (404 often means the file was not flushed yet). */
+  const prevIsLoadingForReportRef = useRef(isLoading);
+  useEffect(() => {
+    const was = prevIsLoadingForReportRef.current;
+    prevIsLoadingForReportRef.current = isLoading;
+    if (was && !isLoading && isReportFetchErrorPlaceholder(fetchedReportContent ?? '')) {
+      setFetchedReportContent(null);
+      setFetchedReportPath(null);
+    }
+  }, [isLoading, fetchedReportContent]);
+
   useEffect(() => {
     const mdPath = primarySessionMarkdownPath;
     if (!mdPath) return;
@@ -502,16 +513,18 @@ export default function ResultsView({
     let cancelled = false;
     setIsFetchingReport(true);
     const url = apiService.workspaceFileDownloadUrl(mdPath);
+    const maxAttempts = 28;
+    const backoffMs = (attempt: number) => Math.min(3200, 500 + attempt * 160);
 
     void (async () => {
       let lastErr: unknown = null;
-      for (let attempt = 0; attempt < 12; attempt++) {
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
         if (cancelled) return;
         try {
           const res = await fetch(url);
           if (res.status === 404) {
-            if (attempt < 11) {
-              await new Promise((r) => setTimeout(r, 400 + attempt * 120));
+            if (attempt < maxAttempts - 1) {
+              await new Promise((r) => setTimeout(r, backoffMs(attempt)));
               continue;
             }
             lastErr = new Error('Report fetch 404');
@@ -523,7 +536,7 @@ export default function ResultsView({
             setFetchedReportPath(mdPath);
             setFetchedReportContent(
               `## Report could not be loaded\n\n${err.message}\n\n**Attempted path:** \`${mdPath.replace(/`/g, "'")}\`\n\n` +
-                'Check **Raw View** for the exact `Write(...)` path or confirm the API host can read `CLAUDE_WORKDIR`.'
+                'Check **Raw View** for the exact `Write(...)` path or confirm the API host can read `CLAUDE_WORKDIR` (the same root the PTY session writes under).'
             );
             return;
           }
@@ -537,8 +550,8 @@ export default function ResultsView({
           return;
         } catch (e) {
           lastErr = e;
-          if (attempt < 11) {
-            await new Promise((r) => setTimeout(r, 400 + attempt * 120));
+          if (attempt < maxAttempts - 1) {
+            await new Promise((r) => setTimeout(r, backoffMs(attempt)));
           }
         }
       }
@@ -547,7 +560,7 @@ export default function ResultsView({
       setFetchedReportPath(mdPath);
       setFetchedReportContent(
         `## Report could not be loaded\n\n${msg}\n\n**Attempted path:** \`${mdPath.replace(/`/g, "'")}\`\n\n` +
-          'If Claude just finished writing the file, wait a few seconds and click **Full Report** again (the server can briefly return 404 until the file is visible). If it keeps failing, check **Raw View** for the exact `Write(...)` path or redeploy the latest UI.'
+          'The server polls for the file for about a minute. Use **Try loading again** below, or switch away and open **Full Report** again. If it still fails, the API host may not see the same disk as the Claude PTY (check `CLAUDE_WORKDIR`). **Raw View** shows the exact `Write(...)` path.'
       );
     })().finally(() => {
       if (!cancelled) setIsFetchingReport(false);
@@ -778,7 +791,12 @@ export default function ResultsView({
                 : 'No workspace .md path detected in captured output yet. Run an analysis that saves a report, then refresh if you already updated the server (production needs npm run build after git pull).'
             }
             onClick={() => {
-              if (primarySessionMarkdownPath) setActiveTab('report');
+              if (!primarySessionMarkdownPath) return;
+              if (isReportFetchErrorPlaceholder(fetchedReportContent ?? '')) {
+                setFetchedReportContent(null);
+                setFetchedReportPath(null);
+              }
+              setActiveTab('report');
             }}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-gray-500 ${
               activeTab === 'report'
@@ -876,11 +894,39 @@ export default function ResultsView({
               </div>
               <div className="px-4 py-6 md:px-8 md:py-8 min-w-0 max-w-full overflow-x-auto">
                 {fetchedReportContent ? (
-                  <PrettyOutputBody text={fetchedReportContent} />
+                  <>
+                    <PrettyOutputBody text={fetchedReportContent} />
+                    {isReportFetchErrorPlaceholder(fetchedReportContent) ? (
+                      <div className="mt-6 flex flex-col items-center gap-3 border-t border-indigo-100 pt-6">
+                        <button
+                          type="button"
+                          disabled={isFetchingReport}
+                          onClick={() => {
+                            setFetchedReportContent(null);
+                            setFetchedReportPath(null);
+                          }}
+                          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-indigo-600 text-white shadow-sm hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                          {isFetchingReport ? (
+                            <>
+                              <Loader2 className="h-4 w-4 animate-spin shrink-0" aria-hidden />
+                              Loading…
+                            </>
+                          ) : (
+                            'Try loading again'
+                          )}
+                        </button>
+                        <p className="text-xs text-center text-indigo-600/90 max-w-md">
+                          Use this if the file was written just after the first attempt finished. The UI waits longer
+                          on each retry than before.
+                        </p>
+                      </div>
+                    ) : null}
+                  </>
                 ) : (
                   <div className="flex items-center justify-center py-12 text-indigo-500">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mr-3"></div>
-                    Loading report...
+                    Loading report…
                   </div>
                 )}
               </div>
