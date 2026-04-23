@@ -27,16 +27,16 @@ export function textContainsClaudePermissionMenu(text: string): boolean {
 export function plainTextShowsClaudePermissionMenu(plainNormalized: string): boolean {
   const trimmed = plainNormalized.trimEnd();
   const tail = trimmed.slice(-PTY_PERMISSION_MENU_TAIL_CHARS);
-  const veryTail = trimmed.slice(-PTY_PERMISSION_MENU_TAIL_CHARS);
+  const veryTail = trimmed.slice(-400);
   if (!/\bEsc to cancel\b/i.test(veryTail) || !/\bTab to (?:amend|edit|change)\b/i.test(veryTail)) return false;
   /** Require a numbered option line so we never auto-send on stray footer text alone (e.g. after a PTY restart). */
-  if (!/(^|\n)\s*(?:[❯›>]\s*)?\d+\.\s+\S/m.test(tail)) return false;
+  if (!/(^|\n)\s*(?:[❯›>]\s*)?\d+\.\s+\S/m.test(veryTail)) return false;
   return (
     /Do you[^\n]*\?/i.test(tail) ||
-      /(^|\n)\s*(?:[❯›>]\s*)?\d+\.\s+Yes,/im.test(tail) ||
-      /Yes, and don't ask again/i.test(tail) ||
-      /Yes, and don’t ask again/i.test(tail) ||
-      /Yes, allow all edits/i.test(tail)
+      /(^|\n)\s*(?:[❯›>]\s*)?\d+\.\s+Yes,/im.test(veryTail) ||
+      /Yes, and don't ask again/i.test(veryTail) ||
+      /Yes, and don’t ask again/i.test(veryTail) ||
+      /Yes, allow all edits/i.test(veryTail)
   );
 }
 
@@ -55,8 +55,9 @@ export function plainTailShowsAnswerablePermissionMenu(plainNormalized: string):
   if (plainTextShowsClaudePermissionMenu(plainNormalized)) return true;
   const trimmed = plainNormalized.trimEnd();
   const tail = trimmed.slice(-PTY_PERMISSION_MENU_TAIL_CHARS);
-  if (!NUMBERED_MENU_ROW.test(tail)) return false;
-  if (/Do you[^\n]*\?/i.test(tail) && /^\s*(?:[?❯›>]\s*)?1\.\s+Yes\b/im.test(tail)) return true;
+  const veryTail = trimmed.slice(-400);
+  if (!NUMBERED_MENU_ROW.test(veryTail)) return false;
+  if (/Do you[^\n]*\?/i.test(tail) && /^\s*(?:[?❯›>]\s*)?1\.\s+Yes\b/im.test(veryTail)) return true;
   return false;
 }
 
