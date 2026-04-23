@@ -456,6 +456,18 @@ export default function ResultsView({
     return null;
   }, [scopedWorkspaceArtifactPaths, chatThreadKey, isHistoryEmbed]);
 
+  /** Download strip: extracted paths plus the Full Report `.md` when it was inferred or chosen but not in the transcript. */
+  const workspaceDownloadPaths = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of scopedWorkspaceArtifactPaths) {
+      const t = p.trim();
+      if (t) set.add(t);
+    }
+    const primary = primarySessionMarkdownPath?.trim();
+    if (primary) set.add(primary);
+    return Array.from(set);
+  }, [scopedWorkspaceArtifactPaths, primarySessionMarkdownPath]);
+
   useEffect(() => {
     // Reset state when chat thread changes
     setFetchedReportContent(null);
@@ -771,13 +783,13 @@ export default function ResultsView({
 
   return (
     <div className="space-y-6">
-      {scopedWorkspaceArtifactPaths.length > 0 ? (
+      {workspaceDownloadPaths.length > 0 ? (
         <div className="flex flex-col gap-2 rounded-xl border border-emerald-200 bg-emerald-50/70 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-xs font-bold uppercase tracking-wide text-emerald-900 shrink-0">
             Workspace files
           </p>
           <div className="flex flex-wrap items-center gap-2">
-            {scopedWorkspaceArtifactPaths.map((p) => {
+            {workspaceDownloadPaths.map((p) => {
               const label = p.split(/[/\\]/).filter(Boolean).pop() ?? p;
               return (
                 <a
