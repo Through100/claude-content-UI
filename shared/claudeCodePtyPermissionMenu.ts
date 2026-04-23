@@ -3,6 +3,8 @@ import { normalizeTeletypeLines, stripAnsi } from './stripAnsi';
 
 /** Ink menus can wrap huge command text on “2. Yes…” — keep question + “1. Yes” + Esc footer in one window. */
 const PTY_PERMISSION_MENU_TAIL_CHARS = 16_000;
+/** Last N chars used for strict “very tail” checks — long box-drawn separators / citations can sit between the question and `1. Yes`. */
+const PTY_PERMISSION_MENU_VERY_TAIL_CHARS = 1400;
 
 /** Web / tool permission menu (Fetch + Esc to cancel footer) — must survive “trivial tail” / chrome filters for dashboard sync. */
 export function textContainsClaudePermissionMenu(text: string): boolean {
@@ -27,7 +29,7 @@ export function textContainsClaudePermissionMenu(text: string): boolean {
 export function plainTextShowsClaudePermissionMenu(plainNormalized: string): boolean {
   const trimmed = plainNormalized.trimEnd();
   const tail = trimmed.slice(-PTY_PERMISSION_MENU_TAIL_CHARS);
-  const veryTail = trimmed.slice(-400);
+  const veryTail = trimmed.slice(-PTY_PERMISSION_MENU_VERY_TAIL_CHARS);
   if (!/\bEsc to cancel\b/i.test(veryTail) || !/\bTab to (?:amend|edit|change)\b/i.test(veryTail)) return false;
   /** Require a numbered option line so we never auto-send on stray footer text alone (e.g. after a PTY restart). */
   if (!/(^|\n)\s*(?:[❯›>]\s*)?\d+\.\s+\S/m.test(veryTail)) return false;
@@ -55,7 +57,7 @@ export function plainTailShowsAnswerablePermissionMenu(plainNormalized: string):
   if (plainTextShowsClaudePermissionMenu(plainNormalized)) return true;
   const trimmed = plainNormalized.trimEnd();
   const tail = trimmed.slice(-PTY_PERMISSION_MENU_TAIL_CHARS);
-  const veryTail = trimmed.slice(-400);
+  const veryTail = trimmed.slice(-PTY_PERMISSION_MENU_VERY_TAIL_CHARS);
   if (!NUMBERED_MENU_ROW.test(veryTail)) return false;
   if (/Do you[^\n]*\?/i.test(tail) && /^\s*(?:[?❯›>]\s*)?1\.\s+Yes\b/im.test(veryTail)) return true;
   return false;

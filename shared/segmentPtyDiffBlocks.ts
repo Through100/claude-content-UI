@@ -105,6 +105,8 @@ function findNumberedConsentMenuFooterJ(
   windowEnd: number,
   anchor: RegExp
 ): number {
+  /** Prefer the *last* matching anchor so embedded code / citations cannot steal the match from the real tail menu. */
+  let bestLastNum = -1;
   for (let j = i; j < windowEnd; j++) {
     const t = (lines[j] ?? '').trim();
     if (!anchor.test(t)) continue;
@@ -116,9 +118,9 @@ function findNumberedConsentMenuFooterJ(
       if (/^\s*(?:[❯›>]\s*)?1\.\s+Yes\b/i.test(u)) sawYes1 = true;
       if (/^\s*(?:[❯›>]\s*)?\d+\.\s+\S/m.test(u)) lastNum = k;
     }
-    if (sawYes1 && lastNum >= j) return lastNum;
+    if (sawYes1 && lastNum >= j) bestLastNum = lastNum;
   }
-  return -1;
+  return bestLastNum;
 }
 
 /** Any single-line “Do you want to …?” used before numbered Yes/No rows (proceed, make this edit, run tool, …). */
@@ -173,12 +175,10 @@ function splitProseMenuAndRest(prose: string): { kind: 'menu' | 'prose'; text: s
   };
 
   while (i < n) {
+    /** Last Esc/Tab footer in this slice — long diff + menu chunks can mention the same chrome earlier in prose. */
     let footerJ = -1;
     for (let j = i; j < n; j++) {
-      if (isLikelyClaudePermissionMenuFooter(lines[j] ?? '')) {
-        footerJ = j;
-        break;
-      }
+      if (isLikelyClaudePermissionMenuFooter(lines[j] ?? '')) footerJ = j;
     }
     if (footerJ < 0) {
       footerJ = findNumberedConsentMenuFooterJ(lines, i, n, /Do you want to/i);
@@ -201,8 +201,9 @@ function splitProseMenuAndRest(prose: string): { kind: 'menu' | 'prose'; text: s
       }
     }
 
+    /** Nearest `1. Yes` above the footer (scan backward) so earlier doc/examples cannot steal the start line. */
     let firstYesLine = -1;
-    for (let s = i; s < footerJ; s++) {
+    for (let s = footerJ - 1; s >= i; s--) {
       if (/^\s*(?:[❯›>]\s*)?1\.\s+Yes\b/i.test(lines[s] ?? '')) {
         firstYesLine = s;
         break;
