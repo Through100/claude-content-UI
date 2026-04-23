@@ -84,7 +84,8 @@ export default function App() {
     };
   }, [refreshHeaderSession]);
 
-  const { sendToPty, clearLiveTranscript, ptySessionReady, requestPtyReconnect } = usePtyBridge();
+  const { sendToPty, clearLiveTranscript, ptySessionReady, requestPtyReconnect, flushLiveTranscriptNow } =
+    usePtyBridge();
 
   const handleRestartPtySession = useCallback(() => {
     try {
@@ -246,10 +247,29 @@ export default function App() {
    */
   const ptyIsProcessing = false;
 
+  /** Persist the latest Pretty merge before leaving the dashboard (append only ran on tab-hide or next Run before). */
+  const handleViewChange = useCallback(
+    (view: 'dashboard' | 'history' | 'usage' | 'account' | 'logon') => {
+      void (async () => {
+        if (activeView === 'dashboard' && view !== 'dashboard') {
+          try {
+            flushLiveTranscriptNow();
+            await new Promise((r) => setTimeout(r, 0));
+            await tryAppendPtyConversationToHistory();
+          } catch {
+            /* non-fatal: History still opens; user may see an older capture until next append */
+          }
+        }
+        setActiveView(view);
+      })();
+    },
+    [activeView, flushLiveTranscriptNow, tryAppendPtyConversationToHistory]
+  );
+
   return (
     <Layout
       activeView={activeView}
-      onViewChange={setActiveView}
+      onViewChange={handleViewChange}
       headerSession={headerSession}
       terminalWsEnabled={terminalWsEnabled}
       onPtyWelcomeBackDetected={onPtyWelcomeName}

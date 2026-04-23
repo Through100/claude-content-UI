@@ -430,16 +430,31 @@ export default function ResultsView({
 
   /** Prefer command-specific report names, then analysis-report, else last `.md` in scope. */
   const primarySessionMarkdownPath = useMemo(() => {
+    const { commandKey, target } = parseChatThreadKey(chatThreadKey);
     const mds = scopedWorkspaceArtifactPaths.filter((p) => /\.md$/i.test(p));
-    if (mds.length === 0) return null;
-    const { commandKey } = parseChatThreadKey(chatThreadKey);
-    if (commandKey === 'geo') {
-      const geo = mds.find((p) => /geo-audit-report\.md$/i.test(pathNorm(p)));
-      if (geo) return geo;
+    if (mds.length > 0) {
+      if (commandKey === 'geo') {
+        const geo = mds.find((p) => /geo-audit-report\.md$/i.test(pathNorm(p)));
+        if (geo) return geo;
+      }
+      const prefer = mds.find((p) => /analysis-report\.md$/i.test(pathNorm(p)));
+      return prefer ?? mds[mds.length - 1];
     }
-    const prefer = mds.find((p) => /analysis-report\.md$/i.test(pathNorm(p)));
-    return prefer ?? mds[mds.length - 1];
-  }, [scopedWorkspaceArtifactPaths, chatThreadKey]);
+    /**
+     * History can store a transcript captured before “File saved:” appeared (append used to run only on tab-hide
+     * or the next Run). Guess canonical workspace paths so Full Report still works for common blog flows.
+     */
+    if (!isHistoryEmbed) return null;
+    const slug = workspaceFilesDirSegment(commandKey, target);
+    if (commandKey === 'write') {
+      const tail = slug.includes('--') ? slug.slice(slug.indexOf('--') + 2) : 'output';
+      return `workspace-files/${slug}/${tail}.md`;
+    }
+    if (commandKey === 'analyze') {
+      return `workspace-files/${slug}/analysis-report.md`;
+    }
+    return null;
+  }, [scopedWorkspaceArtifactPaths, chatThreadKey, isHistoryEmbed]);
 
   useEffect(() => {
     // Reset state when chat thread changes
@@ -788,7 +803,9 @@ export default function ResultsView({
             title={
               primarySessionMarkdownPath
                 ? 'Open the saved markdown report from this session'
-                : 'No workspace .md path detected in captured output yet. Run an analysis that saves a report, then refresh if you already updated the server (production needs npm run build after git pull).'
+                : isHistoryEmbed
+                  ? 'No predictable workspace .md for this command in History (check Raw View for paths).'
+                  : 'No workspace .md path detected in captured output yet. Run an analysis that saves a report, then refresh if you already updated the server (production needs npm run build after git pull).'
             }
             onClick={() => {
               if (!primarySessionMarkdownPath) return;
