@@ -161,7 +161,7 @@ export default function App() {
       return;
     }
     if (!ptySessionReady) {
-      setError('PTY session disconnected. Click Restart to start the Claude terminal.');
+      setError('PTY session disconnected, Click Restart to start the claude terminal.');
       return;
     }
     const cmd = BLOG_COMMANDS.find((c) => c.key === commandKey);
@@ -231,7 +231,7 @@ export default function App() {
           scheduleEnter();
           onSentToPty();
         } else {
-          setError('PTY session disconnected. Click Restart to start the Claude terminal, then try Run again.');
+          setError('PTY session disconnected, Click Restart to start the claude terminal.');
           releaseRunnerUi();
         }
       }, 120);

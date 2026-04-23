@@ -115,7 +115,7 @@ export default function ResultsView({
   const pdfAfterFullReportTabSwitchRef = useRef(false);
   const { ptyDisplayPlain, ptyFullSnapshotPlain, ptySessionGeneration, ptySessionReady, sendToPty } = usePtyBridge();
   const [autoApproveChoicePrompts, setAutoApproveChoicePrompts] = useState(false);
-  const lastAutoApproveMenuRef = useRef<string | null>(null);
+  const lastAutoApproveMenuRef = useRef<{ menu: string; len: number } | null>(null);
   /** `mergePtyPlainArchive` expects a full-buffer snapshot (line 0). `ptyDisplayPlain` can start mid-buffer after “From here only”, which breaks overlap and drops new tails (e.g. permission menus) from Pretty while the status bar still updates. */
   const ptyPlainForMerge =
     ptyFullSnapshotPlain.trim().length > 0 ? ptyFullSnapshotPlain : ptyDisplayPlain;
@@ -253,9 +253,15 @@ export default function ResultsView({
     const menuSnapshot = ptyChoiceMenuSnapshot?.trim();
     if (!menuSnapshot) return;
 
-    // Prevent double-sending for the exact same menu snapshot
-    if (lastAutoApproveMenuRef.current === menuSnapshot) return;
-    lastAutoApproveMenuRef.current = menuSnapshot;
+    const currentLen = replyOrderingPlain.length;
+    const last = lastAutoApproveMenuRef.current;
+
+    // Prevent double-sending for the exact same menu snapshot instance.
+    // If the transcript has grown significantly (> 500 chars), treat it as a new prompt.
+    if (last && last.menu === menuSnapshot && Math.abs(currentLen - last.len) < 500) {
+      return;
+    }
+    lastAutoApproveMenuRef.current = { menu: menuSnapshot, len: currentLen };
 
     const tryDeliver = async () => {
       sendToPty('1');
