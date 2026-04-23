@@ -116,6 +116,16 @@ export default function ResultsView({
   const { ptyDisplayPlain, ptyFullSnapshotPlain, ptySessionGeneration, ptySessionReady, sendToPty } = usePtyBridge();
   const [autoApproveChoicePrompts, setAutoApproveChoicePrompts] = useState(false);
   const lastAutoApproveMenuRef = useRef<{ menu: string; len: number } | null>(null);
+  /** Invalidate in-flight auto-approve timers when deps change or effect cleans up (avoids queued duplicate `1`). */
+  const autoApproveDeliverGenRef = useRef(0);
+  /** Wall time of last `sendToPty('1')` from auto-approve — throttle so Ink can redraw before another digit. */
+  const lastAutoApproveDigitSentAtRef = useRef(0);
+  const autoApproveChoicePromptsRef = useRef(autoApproveChoicePrompts);
+  autoApproveChoicePromptsRef.current = autoApproveChoicePrompts;
+  const ptySessionReadyRef = useRef(ptySessionReady);
+  ptySessionReadyRef.current = ptySessionReady;
+  const isHistoryEmbedRef = useRef(isHistoryEmbed);
+  isHistoryEmbedRef.current = isHistoryEmbed;
   /** `mergePtyPlainArchive` expects a full-buffer snapshot (line 0). `ptyDisplayPlain` can start mid-buffer after “From here only”, which breaks overlap and drops new tails (e.g. permission menus) from Pretty while the status bar still updates. */
   const ptyPlainForMerge =
     ptyFullSnapshotPlain.trim().length > 0 ? ptyFullSnapshotPlain : ptyDisplayPlain;
@@ -268,9 +278,32 @@ export default function ResultsView({
     }
     lastAutoApproveMenuRef.current = { menu: menuSnapshot, len: currentLen };
 
+    const myGen = ++autoApproveDeliverGenRef.current;
+
+    /** Let Ink redraw the menu before digits; gap between bursts so we do not queue many `1` lines. */
+    const SETTLE_BEFORE_ONE_MS = 450;
+    const AFTER_ONE_BEFORE_ENTER_MS = 450;
+    const MIN_MS_BETWEEN_AUTO_ONE = 1000;
+
     const tryDeliver = async () => {
-      sendToPty('1');
-      await new Promise((r) => setTimeout(r, 95));
+      await new Promise((r) => setTimeout(r, SETTLE_BEFORE_ONE_MS));
+      if (myGen !== autoApproveDeliverGenRef.current) return;
+      if (!autoApproveChoicePromptsRef.current || !ptySessionReadyRef.current || isHistoryEmbedRef.current)
+        return;
+
+      const since = Date.now() - lastAutoApproveDigitSentAtRef.current;
+      if (since < MIN_MS_BETWEEN_AUTO_ONE) {
+        await new Promise((r) => setTimeout(r, MIN_MS_BETWEEN_AUTO_ONE - since));
+      }
+      if (myGen !== autoApproveDeliverGenRef.current) return;
+      if (!autoApproveChoicePromptsRef.current || !ptySessionReadyRef.current || isHistoryEmbedRef.current)
+        return;
+
+      if (!sendToPty('1')) return;
+      lastAutoApproveDigitSentAtRef.current = Date.now();
+
+      await new Promise((r) => setTimeout(r, AFTER_ONE_BEFORE_ENTER_MS));
+      if (myGen !== autoApproveDeliverGenRef.current) return;
       sendToPty('\r');
     };
 
@@ -297,6 +330,10 @@ export default function ResultsView({
         transcriptLenAtSend
       }
     ]);
+
+    return () => {
+      autoApproveDeliverGenRef.current++;
+    };
   }, [
     autoApproveChoicePrompts,
     ptyChoiceMenuSnapshot,
