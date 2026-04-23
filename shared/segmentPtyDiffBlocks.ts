@@ -111,6 +111,23 @@ function consentBlockHasInkChoiceRows(lines: string[], j: number, lastNum: numbe
 }
 
 /**
+ * `Do you want to … ?` prompts are often split across lines when the path is long; the strict single-line anchor
+ * misses and the menu never segments.
+ */
+function consentAnchorMatchesAtLine(
+  lines: string[],
+  j: number,
+  windowEnd: number,
+  anchor: RegExp
+): boolean {
+  const t = (lines[j] ?? '').trim();
+  if (anchor.test(t)) return true;
+  if (!/Do you want to/i.test(anchor.source)) return false;
+  const chunk = lines.slice(j, Math.min(j + 12, windowEnd)).join('\n');
+  return /Do you want to\b[\s\S]{0,1800}(?:\?|？)/im.test(chunk);
+}
+
+/**
  * Fetch / tool consent often ends at the last numbered option without an Esc/Tab footer line in the buffer.
  * Returns the line index of that last `1./2./3.` row, or -1.
  */
@@ -124,8 +141,7 @@ function findNumberedConsentMenuFooterJ(
   /** Prefer the *last* matching anchor so embedded code / citations cannot steal the match from the real tail menu. */
   let bestLastNum = -1;
   for (let j = i; j < windowEnd; j++) {
-    const t = (lines[j] ?? '').trim();
-    if (!anchor.test(t)) continue;
+    if (!consentAnchorMatchesAtLine(lines, j, windowEnd, anchor)) continue;
     const maxK = Math.min(lines.length, j + 120);
     let sawYes1 = false;
     let lastNum = -1;
@@ -237,6 +253,18 @@ function splitProseMenuAndRest(prose: string): { kind: 'menu' | 'prose'; text: s
       }
     }
 
+    if (questionLine < 0 && firstYesLine >= 0 && firstYesLine > i) {
+      const pre = lines.slice(Math.max(i, firstYesLine - 16), firstYesLine).join('\n');
+      if (/Do you want to\b[\s\S]{0,2000}(?:\?|？)/im.test(pre)) {
+        for (let q = firstYesLine - 1; q >= Math.max(i, firstYesLine - 16); q--) {
+          if (/Do you want to\b/i.test((lines[q] ?? '').trim())) {
+            questionLine = q;
+            break;
+          }
+        }
+      }
+    }
+
     let start = i;
     if (questionLine >= 0) {
       start = questionLine;
@@ -255,6 +283,7 @@ function splitProseMenuAndRest(prose: string): { kind: 'menu' | 'prose'; text: s
     const candidate = lines.slice(start, footerJ + 1).join('\n');
     const looksMenu =
       /Do you want to[^?\n\uFF1F]*(?:\?|？)/i.test(candidate) ||
+      /Do you want to\b[\s\S]{0,2000}(?:\?|？)/i.test(candidate) ||
       /\bDo you want to allow\b/i.test(candidate) ||
       /^\s*(?:[❯›>]\s*)?\d+\.\s+Yes\b/im.test(candidate);
 

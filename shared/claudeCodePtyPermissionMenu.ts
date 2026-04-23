@@ -34,7 +34,7 @@ export function plainTextShowsClaudePermissionMenu(plainNormalized: string): boo
   /** Require a numbered option line so we never auto-send on stray footer text alone (e.g. after a PTY restart). */
   if (!/(^|\n)\s*(?:[❯›>]\s*)?\d+\.\s+\S/m.test(veryTail)) return false;
   return (
-    /Do you[^\n]*\?/i.test(tail) ||
+    plainTailHasDoYouPermissionQuestion(tail) ||
       /(^|\n)\s*(?:[❯›>]\s*)?\d+\.\s+Yes,/im.test(veryTail) ||
       /Yes, and don't ask again/i.test(veryTail) ||
       /Yes, and don’t ask again/i.test(veryTail) ||
@@ -43,6 +43,17 @@ export function plainTextShowsClaudePermissionMenu(plainNormalized: string): boo
 }
 
 const NUMBERED_MENU_ROW = /(^|\n)\s*(?:[❯›>]\s*)?\d+\.\s+\S/m;
+
+/**
+ * Ink often wraps long “Do you want to create … .md?” prompts across terminal rows — `Do you` and `?` are not on one
+ * line, so a single-line regex misses and auto-approve / tail gating never arms.
+ */
+function plainTailHasDoYouPermissionQuestion(tailSlice: string): boolean {
+  if (/Do you[^\n]*\?/i.test(tailSlice)) return true;
+  if (/Do you want to create[\s\S]{0,1400}\?/i.test(tailSlice)) return true;
+  if (/Do you want to\b[\s\S]{0,1400}\?/i.test(tailSlice)) return true;
+  return false;
+}
 
 /**
  * True when the PTY tail shows a permission menu (Esc/Tab “proceed” UI **or** Fetch / compact consent without that
@@ -59,7 +70,7 @@ export function plainTailShowsAnswerablePermissionMenu(plainNormalized: string):
   const tail = trimmed.slice(-PTY_PERMISSION_MENU_TAIL_CHARS);
   const veryTail = trimmed.slice(-PTY_PERMISSION_MENU_VERY_TAIL_CHARS);
   if (!NUMBERED_MENU_ROW.test(veryTail)) return false;
-  if (/Do you[^\n]*\?/i.test(tail) && /^\s*(?:[?❯›>]\s*)?1\.\s+Yes\b/im.test(veryTail)) return true;
+  if (plainTailHasDoYouPermissionQuestion(tail) && /^\s*(?:[?❯›>]\s*)?1\.\s+Yes\b/im.test(veryTail)) return true;
   return false;
 }
 
