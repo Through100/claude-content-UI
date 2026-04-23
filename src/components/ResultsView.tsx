@@ -12,7 +12,8 @@ import {
   Send,
   FileCode,
   Loader2,
-  AlertCircle
+  AlertCircle,
+  RotateCcw
 } from 'lucide-react';
 import { BLOG_COMMANDS, RunResponse, workspaceFilesDirSegment } from '../types';
 import { formatChatThreadKey, parseChatThreadKey, sanitizeRunOutputForChat } from '../lib/dashboardChatHistory';
@@ -64,6 +65,8 @@ interface ResultsViewProps {
   ptySentAt?: number | null;
   /** Parent reads merged Pretty PTY transcript before the next Run (server History for interactive sessions). */
   ptyMergedCaptureRef?: React.MutableRefObject<() => string>;
+  /** Same as Logon → Restart: kill PTY if needed, clear Pretty transcript, reconnect WebSocket. */
+  onRestartPtySession?: () => void;
 }
 
 function formatElapsed(startedAt: number) {
@@ -89,7 +92,8 @@ export default function ResultsView({
   lastRunThreadMeta = null,
   embedMode = 'live',
   ptySentAt = null,
-  ptyMergedCaptureRef
+  ptyMergedCaptureRef,
+  onRestartPtySession
 }: ResultsViewProps) {
   const isHistoryEmbed = embedMode === 'history';
   const [activeTab, setActiveTab] = useState<'report' | 'pretty' | 'raw'>('pretty');
@@ -700,18 +704,31 @@ export default function ResultsView({
 
         <div className="flex items-center gap-2 sm:gap-3 flex-wrap justify-end">
           {!isHistoryEmbed ? (
-            <label
-              className="flex items-center gap-2 text-sm font-semibold text-emerald-800 cursor-pointer mr-2 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 hover:bg-emerald-100 transition-colors"
-              title="Automatically answer '1. Yes' to all choice prompts"
-            >
-              <input
-                type="checkbox"
-                checked={autoApproveChoicePrompts}
-                onChange={(e) => setAutoApproveChoicePrompts(e.target.checked)}
-                className="rounded border-emerald-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
-              />
-              Auto-Approve Prompts
-            </label>
+            <>
+              {onRestartPtySession ? (
+                <button
+                  type="button"
+                  onClick={onRestartPtySession}
+                  title="Same as Logon → Restart: end this PTY and open a fresh Claude terminal."
+                  className="inline-flex items-center gap-1.5 text-sm font-semibold text-gray-800 bg-white px-3 py-1.5 rounded-lg border border-gray-200 shadow-sm hover:bg-gray-50 hover:border-gray-300 transition-colors mr-1"
+                >
+                  <RotateCcw size={15} className="text-indigo-600 shrink-0" aria-hidden />
+                  Restart
+                </button>
+              ) : null}
+              <label
+                className="flex items-center gap-2 text-sm font-semibold text-emerald-800 cursor-pointer mr-2 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 hover:bg-emerald-100 transition-colors"
+                title="Automatically answer '1. Yes' to all choice prompts"
+              >
+                <input
+                  type="checkbox"
+                  checked={autoApproveChoicePrompts}
+                  onChange={(e) => setAutoApproveChoicePrompts(e.target.checked)}
+                  className="rounded border-emerald-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
+                />
+                Auto-Approve Prompts
+              </label>
+            </>
           ) : null}
           <button
             type="button"

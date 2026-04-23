@@ -161,7 +161,7 @@ export default function App() {
       return;
     }
     if (!ptySessionReady) {
-      setError('PTY session is not connected yet. Open the Logon tab to start the terminal, then try again.');
+      setError('PTY session disconnected. Click Restart to start the Claude terminal.');
       return;
     }
     const cmd = BLOG_COMMANDS.find((c) => c.key === commandKey);
@@ -231,9 +231,7 @@ export default function App() {
           scheduleEnter();
           onSentToPty();
         } else {
-          setError(
-            'Could not send the command to the PTY. Open Logon, wait until the terminal shows Connected, then try Run again.'
-          );
+          setError('PTY session disconnected. Click Restart to start the Claude terminal, then try Run again.');
           releaseRunnerUi();
         }
       }, 120);
@@ -311,13 +309,14 @@ export default function App() {
                 <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest">Conversation</h3>
                 <div className="flex-1 h-px bg-gray-100"></div>
               </div>
-              <ResultsView 
-                result={null} 
-                isLoading={ptyIsProcessing} 
+              <ResultsView
+                result={null}
+                isLoading={ptyIsProcessing}
                 loadingStartedAt={ptySentAt}
-                chatThreadKey={chatThreadKey} 
+                chatThreadKey={chatThreadKey}
                 ptySentAt={ptySentAt}
                 ptyMergedCaptureRef={ptyMergedCaptureRef}
+                onRestartPtySession={terminalWsEnabled ? handleRestartPtySession : undefined}
               />
             </div>
           </motion.div>
