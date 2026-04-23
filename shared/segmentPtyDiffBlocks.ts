@@ -397,6 +397,24 @@ function splitProseAsciiGridBlocks(prose: string): { kind: 'grid' | 'prose'; tex
   return out;
 }
 
+/**
+ * Write/previews often use `  123` line-number columns, so the whole tail (including Ink
+ * `Do you want to create …?` / `1. Yes`) is one `diff` chunk. Run the same menu splitter on it.
+ */
+function splitDiffChunkWithEmbeddedMenus(diffText: string): { kind: 'diff' | 'menu'; text: string }[] {
+  const parts = splitProseMenuAndRest(diffText);
+  if (parts.length === 0) return [{ kind: 'diff', text: diffText }];
+  const out: { kind: 'diff' | 'menu'; text: string }[] = [];
+  for (const p of parts) {
+    if (p.kind === 'menu') {
+      out.push({ kind: 'menu', text: p.text });
+    } else if (p.text.replace(/\r/g, '').trim().length > 0) {
+      out.push({ kind: 'diff', text: p.text });
+    }
+  }
+  return out.length > 0 ? out : [{ kind: 'diff', text: diffText }];
+}
+
 /** Diff chunks + prose chunks, with permission menus peeled out of prose (monospace like diffs). */
 export function segmentPtyAssistantDisplayBlocks(
   raw: string
@@ -405,7 +423,9 @@ export function segmentPtyAssistantDisplayBlocks(
   const out: { kind: 'diff' | 'menu' | 'prose' | 'grid'; text: string }[] = [];
   for (const c of coarse) {
     if (c.kind === 'diff') {
-      out.push(c);
+      for (const d of splitDiffChunkWithEmbeddedMenus(c.text)) {
+        out.push(d);
+      }
       continue;
     }
     for (const m of splitProseMenuAndRest(c.text)) {
