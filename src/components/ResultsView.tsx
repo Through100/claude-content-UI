@@ -245,10 +245,15 @@ export default function ResultsView({
     [replyOrderingPlain, ptyLiveTailPlainForMenuBackstop]
   );
 
+  const isChoiceMenuActive = useMemo(
+    () => plainTailShowsAnswerablePermissionMenu(ptyLiveTailPlainForMenuBackstop),
+    [ptyLiveTailPlainForMenuBackstop]
+  );
+
   const replyPanelShowsChoiceMenu = Boolean(ptyChoiceMenuSnapshot?.trim());
 
   useEffect(() => {
-    if (!autoApproveChoicePrompts || !ptySessionReady || isHistoryEmbed) return;
+    if (!autoApproveChoicePrompts || !ptySessionReady || isHistoryEmbed || !isChoiceMenuActive) return;
 
     const menuSnapshot = ptyChoiceMenuSnapshot?.trim();
     if (!menuSnapshot) return;
@@ -292,7 +297,15 @@ export default function ResultsView({
         transcriptLenAtSend
       }
     ]);
-  }, [autoApproveChoicePrompts, ptyChoiceMenuSnapshot, ptySessionReady, isHistoryEmbed, replyOrderingPlain, sendToPty]);
+  }, [
+    autoApproveChoicePrompts,
+    ptyChoiceMenuSnapshot,
+    isChoiceMenuActive,
+    ptySessionReady,
+    isHistoryEmbed,
+    replyOrderingPlain,
+    sendToPty
+  ]);
 
   /** Logon buffer tail looks like Claude Code’s idle welcome — “yes” has no pending question there. */
   const replyPanelWarnWelcomeSplash = useMemo(() => {
