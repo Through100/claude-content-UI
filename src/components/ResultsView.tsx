@@ -30,6 +30,7 @@ import { stripAnsi } from '../../shared/stripAnsi';
 import { inferClaudeActivity } from '../../shared/inferClaudeActivity';
 import { headlessOutputLooksLikeInteractivePermissionAsk } from '../../shared/headlessStalePermissionCue';
 import {
+  countPtyProceedPrompts,
   plainTailShowsAnswerablePermissionMenu,
   plainTextShowsClaudePermissionMenu,
   stripAnsiNormalizePtyMirror
@@ -115,11 +116,18 @@ export default function ResultsView({
   const pdfAfterFullReportTabSwitchRef = useRef(false);
   const { ptyDisplayPlain, ptyFullSnapshotPlain, ptySessionGeneration, ptySessionReady, sendToPty } = usePtyBridge();
   const [autoApproveChoicePrompts, setAutoApproveChoicePrompts] = useState(false);
-  const lastAutoApproveMenuRef = useRef<{ menu: string; len: number } | null>(null);
+  /** Set only after a successful auto `1` — avoids treating a new prompt as the same instance (len-only dedupe). */
+  const lastAutoApproveDeliveredRef = useRef<{
+    menu: string;
+    proceedCount: number;
+    tailProbe: string;
+  } | null>(null);
   /** Invalidate in-flight auto-approve timers when deps change or effect cleans up (avoids queued duplicate `1`). */
   const autoApproveDeliverGenRef = useRef(0);
   /** Wall time of last `sendToPty('1')` from auto-approve — throttle so Ink can redraw before another digit. */
   const lastAutoApproveDigitSentAtRef = useRef(0);
+  /** True while an auto-approve `tryDeliver` is in progress — avoids watchdog + initial `consider` stacking two deliveries. */
+  const autoApproveTryInFlightRef = useRef(false);
   const autoApproveChoicePromptsRef = useRef(autoApproveChoicePrompts);
   autoApproveChoicePromptsRef.current = autoApproveChoicePrompts;
   const ptySessionReadyRef = useRef(ptySessionReady);
@@ -184,6 +192,7 @@ export default function ResultsView({
     if (isHistoryEmbed) return;
     setManualReplyBubbles([]);
     setArchivedChoiceMenus([]);
+    lastAutoApproveDeliveredRef.current = null;
   }, [isHistoryEmbed, chatThreadKey, ptySessionGeneration]);
 
   const hasFreshPtyCapture =
@@ -227,6 +236,9 @@ export default function ResultsView({
     });
   }, [prettyMode, ptyMergedDisplayPlain, result, lastRunThreadMeta, chatThreadKey]);
 
+  const replyOrderingPlainRef = useRef(replyOrderingPlain);
+  replyOrderingPlainRef.current = replyOrderingPlain;
+
   const headlessBlobForPermissionCue = useMemo(() => {
     const out = sanitizeRunOutputForChat(result?.rawOutput ?? '').trim();
     const err = result?.error?.trim();
@@ -248,12 +260,18 @@ export default function ResultsView({
     return stripAnsiNormalizePtyMirror(chunk);
   }, [ptyFullSnapshotPlain, ptyDisplayPlain]);
 
+  const ptyLiveTailPlainForMenuBackstopRef = useRef(ptyLiveTailPlainForMenuBackstop);
+  ptyLiveTailPlainForMenuBackstopRef.current = ptyLiveTailPlainForMenuBackstop;
+
   const ptyChoiceMenuSnapshot = useMemo(
     () =>
       extractLastChoiceMenuSnapshotForArchive(replyOrderingPlain) ??
       extractLastChoiceMenuSnapshotForArchive(ptyLiveTailPlainForMenuBackstop),
     [replyOrderingPlain, ptyLiveTailPlainForMenuBackstop]
   );
+
+  const ptyChoiceMenuSnapshotRef = useRef(ptyChoiceMenuSnapshot);
+  ptyChoiceMenuSnapshotRef.current = ptyChoiceMenuSnapshot;
 
   const isChoiceMenuActive = useMemo(
     () => plainTailShowsAnswerablePermissionMenu(ptyLiveTailPlainForMenuBackstop),
@@ -265,74 +283,107 @@ export default function ResultsView({
   useEffect(() => {
     if (!autoApproveChoicePrompts || !ptySessionReady || isHistoryEmbed || !isChoiceMenuActive) return;
 
-    const menuSnapshot = ptyChoiceMenuSnapshot?.trim();
-    if (!menuSnapshot) return;
+    /** Re-read live transcript from refs so this effect does not depend on `replyOrderingPlain` (streaming was invalidating delivery gen every tick). */
+    const consider = () => {
+      if (autoApproveTryInFlightRef.current) return;
 
-    const currentLen = replyOrderingPlain.length;
-    const last = lastAutoApproveMenuRef.current;
+      const tail = ptyLiveTailPlainForMenuBackstopRef.current;
+      if (!plainTailShowsAnswerablePermissionMenu(tail)) return;
 
-    // Prevent double-sending for the exact same menu snapshot instance.
-    // If the transcript has grown significantly (> 500 chars), treat it as a new prompt.
-    if (last && last.menu === menuSnapshot && Math.abs(currentLen - last.len) < 500) {
-      return;
-    }
-    lastAutoApproveMenuRef.current = { menu: menuSnapshot, len: currentLen };
+      const ro = replyOrderingPlainRef.current;
+      const menuSnapshot =
+        (extractLastChoiceMenuSnapshotForArchive(ro) ??
+          extractLastChoiceMenuSnapshotForArchive(tail))?.trim() ??
+        ptyChoiceMenuSnapshotRef.current?.trim();
+      if (!menuSnapshot) return;
 
-    const myGen = ++autoApproveDeliverGenRef.current;
-
-    /** Let Ink redraw the menu before digits; gap between bursts so we do not queue many `1` lines. */
-    const SETTLE_BEFORE_ONE_MS = 450;
-    const AFTER_ONE_BEFORE_ENTER_MS = 450;
-    const MIN_MS_BETWEEN_AUTO_ONE = 1000;
-
-    const tryDeliver = async () => {
-      await new Promise((r) => setTimeout(r, SETTLE_BEFORE_ONE_MS));
-      if (myGen !== autoApproveDeliverGenRef.current) return;
-      if (!autoApproveChoicePromptsRef.current || !ptySessionReadyRef.current || isHistoryEmbedRef.current)
+      const proceedCount = countPtyProceedPrompts(ro);
+      const tailProbe = ro.slice(-220);
+      const delivered = lastAutoApproveDeliveredRef.current;
+      if (
+        delivered &&
+        delivered.menu === menuSnapshot &&
+        delivered.proceedCount === proceedCount &&
+        delivered.tailProbe === tailProbe
+      ) {
         return;
-
-      const since = Date.now() - lastAutoApproveDigitSentAtRef.current;
-      if (since < MIN_MS_BETWEEN_AUTO_ONE) {
-        await new Promise((r) => setTimeout(r, MIN_MS_BETWEEN_AUTO_ONE - since));
       }
-      if (myGen !== autoApproveDeliverGenRef.current) return;
-      if (!autoApproveChoicePromptsRef.current || !ptySessionReadyRef.current || isHistoryEmbedRef.current)
-        return;
 
-      if (!sendToPty('1')) return;
-      lastAutoApproveDigitSentAtRef.current = Date.now();
+      autoApproveTryInFlightRef.current = true;
+      const myGen = ++autoApproveDeliverGenRef.current;
 
-      await new Promise((r) => setTimeout(r, AFTER_ONE_BEFORE_ENTER_MS));
-      if (myGen !== autoApproveDeliverGenRef.current) return;
-      sendToPty('\r');
+      /** Let Ink redraw the menu before digits; gap between bursts so we do not queue many `1` lines. */
+      const SETTLE_BEFORE_ONE_MS = 450;
+      const AFTER_ONE_BEFORE_ENTER_MS = 450;
+      const MIN_MS_BETWEEN_AUTO_ONE = 1000;
+
+      const tryDeliver = async () => {
+        try {
+          await new Promise((r) => setTimeout(r, SETTLE_BEFORE_ONE_MS));
+          if (myGen !== autoApproveDeliverGenRef.current) return;
+          if (!autoApproveChoicePromptsRef.current || !ptySessionReadyRef.current || isHistoryEmbedRef.current)
+            return;
+
+          const since = Date.now() - lastAutoApproveDigitSentAtRef.current;
+          if (since < MIN_MS_BETWEEN_AUTO_ONE) {
+            await new Promise((r) => setTimeout(r, MIN_MS_BETWEEN_AUTO_ONE - since));
+          }
+          if (myGen !== autoApproveDeliverGenRef.current) return;
+          if (!autoApproveChoicePromptsRef.current || !ptySessionReadyRef.current || isHistoryEmbedRef.current)
+            return;
+
+          if (!sendToPty('1')) return;
+          lastAutoApproveDigitSentAtRef.current = Date.now();
+          lastAutoApproveDeliveredRef.current = {
+            menu: menuSnapshot,
+            proceedCount,
+            tailProbe
+          };
+
+          const sentAt = Date.now();
+          const transcriptLenAtSend = getPtyParseNormalizedPlain(replyOrderingPlainRef.current).length;
+          setManualReplyBubbles((prev) => [
+            ...prev,
+            {
+              id: `auto-${sentAt}-${Math.random().toString(36).slice(2, 7)}`,
+              text: '1',
+              sentAt,
+              transcriptLenAtSend
+            }
+          ]);
+          setArchivedChoiceMenus((prev) => [
+            ...prev,
+            {
+              id: `auto-menu-${sentAt}-${Math.random().toString(36).slice(2, 7)}`,
+              menuPlain: menuSnapshot,
+              sentAt,
+              transcriptLenAtSend
+            }
+          ]);
+
+          await new Promise((r) => setTimeout(r, AFTER_ONE_BEFORE_ENTER_MS));
+          if (myGen !== autoApproveDeliverGenRef.current) return;
+          sendToPty('\r');
+        } finally {
+          autoApproveTryInFlightRef.current = false;
+        }
+      };
+
+      void tryDeliver();
     };
 
-    void tryDeliver();
-
-    const sentAt = Date.now();
-    const transcriptLenAtSend = getPtyParseNormalizedPlain(replyOrderingPlain).length;
-
-    setManualReplyBubbles((prev) => [
-      ...prev,
-      {
-        id: `auto-${sentAt}-${Math.random().toString(36).slice(2, 7)}`,
-        text: '1',
-        sentAt,
-        transcriptLenAtSend
-      }
-    ]);
-    setArchivedChoiceMenus((prev) => [
-      ...prev,
-      {
-        id: `auto-menu-${sentAt}-${Math.random().toString(36).slice(2, 7)}`,
-        menuPlain: menuSnapshot,
-        sentAt,
-        transcriptLenAtSend
-      }
-    ]);
+    consider();
+    /** Catch a second prompt that appears before React deps update; ~5s window, ~1s cadence. */
+    const WATCHDOG_TICK_MS = 950;
+    const WATCHDOG_WINDOW_MS = 5200;
+    const watchdogId = window.setInterval(consider, WATCHDOG_TICK_MS);
+    const watchdogEnd = window.setTimeout(() => window.clearInterval(watchdogId), WATCHDOG_WINDOW_MS);
 
     return () => {
+      window.clearInterval(watchdogId);
+      window.clearTimeout(watchdogEnd);
       autoApproveDeliverGenRef.current++;
+      autoApproveTryInFlightRef.current = false;
     };
   }, [
     autoApproveChoicePrompts,
@@ -340,7 +391,7 @@ export default function ResultsView({
     isChoiceMenuActive,
     ptySessionReady,
     isHistoryEmbed,
-    replyOrderingPlain,
+    ptySessionGeneration,
     sendToPty
   ]);
 
