@@ -389,8 +389,16 @@ export function workspaceFilesDirSegment(commandKey: string, targetTrimmed: stri
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '');
   if (!targetSlug) targetSlug = 'output';
-  const maxTarget = 200;
-  if (targetSlug.length > maxTarget) targetSlug = targetSlug.slice(0, maxTarget);
+  const maxTarget = 80;
+  if (targetSlug.length > maxTarget) {
+    let hash = 0;
+    for (let i = 0; i < t.length; i++) {
+      hash = (hash << 5) - hash + t.charCodeAt(i);
+      hash |= 0;
+    }
+    const hashStr = Math.abs(hash).toString(36).slice(0, 6);
+    targetSlug = targetSlug.slice(0, maxTarget - hashStr.length - 1).replace(/-+$/, '') + '-' + hashStr;
+  }
   const cmdPart = commandKey
     .trim()
     .toLowerCase()
