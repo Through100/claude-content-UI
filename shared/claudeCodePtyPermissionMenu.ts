@@ -3,8 +3,8 @@ import { normalizeTeletypeLines, stripAnsi } from './stripAnsi';
 
 /** Ink menus can wrap huge command text on “2. Yes…” — keep question + “1. Yes” + Esc footer in one window. */
 const PTY_PERMISSION_MENU_TAIL_CHARS = 16_000;
-/** Last N chars used for strict “very tail” checks — long box-drawn separators / citations can sit between the question and `1. Yes`. */
-const PTY_PERMISSION_MENU_VERY_TAIL_CHARS = 1400;
+/** Last N chars used for strict “very tail” checks — long tool blocks (Web Search) + separators can push Esc/choices up. */
+const PTY_PERMISSION_MENU_VERY_TAIL_CHARS = 2800;
 
 /** Web / tool permission menu (Fetch + Esc to cancel footer) — must survive “trivial tail” / chrome filters for dashboard sync. */
 export function textContainsClaudePermissionMenu(text: string): boolean {
@@ -20,6 +20,7 @@ export function textContainsClaudePermissionMenu(text: string): boolean {
   return (
     /Do you want/i.test(t) ||
     /\bClaude wants to fetch\b/i.test(t) ||
+    /\bClaude wants to search\b/i.test(t) ||
     /^fetch\b/im.test(t) ||
     /\bfetch content from\b/i.test(t)
   );
@@ -38,7 +39,8 @@ export function plainTextShowsClaudePermissionMenu(plainNormalized: string): boo
       /(^|\n)\s*(?:[❯›>]\s*)?\d+\.\s+Yes,/im.test(veryTail) ||
       /Yes, and don't ask again/i.test(veryTail) ||
       /Yes, and don’t ask again/i.test(veryTail) ||
-      /Yes, allow all edits/i.test(veryTail)
+      /Yes, allow all edits/i.test(veryTail) ||
+      /\bClaude wants to search\b/i.test(veryTail)
   );
 }
 
@@ -61,14 +63,31 @@ function plainTailHasDoYouPermissionQuestion(tailSlice: string): boolean {
  */
 
 export function plainTailShowsAnswerablePermissionMenu(plainNormalized: string): boolean {
-  const lines = plainNormalized.trimEnd().split('\n');
-  const lastLine = lines[lines.length - 1] ?? '';
-  if (isInkSpinnerTokenStatusLine(lastLine)) return false;
-
-  if (plainTextShowsClaudePermissionMenu(plainNormalized)) return true;
   const trimmed = plainNormalized.trimEnd();
   const tail = trimmed.slice(-PTY_PERMISSION_MENU_TAIL_CHARS);
   const veryTail = trimmed.slice(-PTY_PERMISSION_MENU_VERY_TAIL_CHARS);
+
+  const lines = trimmed.split('\n');
+  let lastNonEmpty = '';
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if ((lines[i] ?? '').replace(/\r$/, '').trim()) {
+      lastNonEmpty = lines[i] ?? '';
+      break;
+    }
+  }
+  /**
+   * Ink often draws a token/spinner line after the Esc footer while the menu is still pending.
+   * Treat as inactive only when that line is a spinner *and* we do not see a consent shape in the tail window.
+   */
+  if (lastNonEmpty && isInkSpinnerTokenStatusLine(lastNonEmpty)) {
+    const menuDespiteSpinner =
+      NUMBERED_MENU_ROW.test(veryTail) &&
+      plainTailHasDoYouPermissionQuestion(tail) &&
+      /^\s*(?:[?❯›>]\s*)?1\.\s+Yes\b/im.test(veryTail);
+    if (!menuDespiteSpinner) return false;
+  }
+
+  if (plainTextShowsClaudePermissionMenu(plainNormalized)) return true;
   if (!NUMBERED_MENU_ROW.test(veryTail)) return false;
   if (plainTailHasDoYouPermissionQuestion(tail) && /^\s*(?:[?❯›>]\s*)?1\.\s+Yes\b/im.test(veryTail)) return true;
   return false;

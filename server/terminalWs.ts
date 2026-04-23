@@ -22,6 +22,19 @@ const WS_PATH = '/api/terminal/ws';
 function bindClaudePtySocket(ws: WebSocket, opts: TerminalWsOpts): void {
   let session: PtySession | null = null;
 
+  /** Keep idle WebSockets warm so reverse proxies (nginx, ALB, etc.) do not drop long-running PTY sessions. */
+  const pingMsRaw = parseInt(process.env.CLAUDE_TERMINAL_WS_PING_MS ?? '20000', 10);
+  const pingMs = Number.isFinite(pingMsRaw) && pingMsRaw >= 5000 ? pingMsRaw : 20_000;
+  const heartbeat = setInterval(() => {
+    if (ws.readyState === WebSocket.OPEN) {
+      try {
+        ws.ping();
+      } catch {
+        /* ignore */
+      }
+    }
+  }, pingMs);
+
   const safeSend = (obj: unknown) => {
     if (ws.readyState === WebSocket.OPEN) {
       try {
@@ -127,6 +140,7 @@ function bindClaudePtySocket(ws: WebSocket, opts: TerminalWsOpts): void {
   });
 
   const cleanup = () => {
+    clearInterval(heartbeat);
     if (session) {
       detachSession(session.id);
       session = null;
