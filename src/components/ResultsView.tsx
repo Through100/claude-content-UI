@@ -32,6 +32,7 @@ import { headlessOutputLooksLikeInteractivePermissionAsk } from '../../shared/he
 import {
   countPtyProceedPrompts,
   plainTailShowsAnswerablePermissionMenu,
+  plainTailShowsLivePrettyChoiceMenu,
   plainTextShowsClaudePermissionMenu,
   stripAnsiNormalizePtyMirror
 } from '../../shared/claudeCodePtyPermissionMenu';
@@ -252,14 +253,9 @@ export default function ResultsView({
   );
 
   /**
-   * Same “yellow card” menu detection Pretty uses (`extractLastChoiceMenuSnapshotForArchive`), not the narrower
-   * `plainTailShowsAnswerablePermissionMenu` on a short live tail (large Bash blocks could push the menu out of 24k).
-   */
-  /**
    * Same light sanitization as Pretty (`sanitizePtyPrettyTranscript`): reflows soft-wrapped Ink rows so
    * `Do you want` / `to allow…?` becomes one line, and strips `⎿ Running…` noise. Raw xterm slices without this
-   * could miss menus in `plainTailShowsAnswerablePermissionMenu` while Pretty still showed a yellow card —
-   * which also blocked Auto-Approve (it keys off `isChoiceMenuActive`).
+   * could miss menus in `plainTailShowsAnswerablePermissionMenu` while Pretty still showed a yellow card.
    */
   const ptyLiveTailPlainForMenuBackstop = useMemo(() => {
     const chunk = `${ptyFullSnapshotPlain}\n${ptyDisplayPlain}`.slice(-120_000);
@@ -281,9 +277,12 @@ export default function ResultsView({
   const ptyChoiceMenuSnapshotRef = useRef(ptyChoiceMenuSnapshot);
   ptyChoiceMenuSnapshotRef.current = ptyChoiceMenuSnapshot;
 
+  /** Arms Auto-Approve whenever Pretty would show a live yellow PTY choice card, not only on the narrower Ink tail regex. */
   const isChoiceMenuActive = useMemo(
-    () => plainTailShowsAnswerablePermissionMenu(ptyLiveTailPlainForMenuBackstop),
-    [ptyLiveTailPlainForMenuBackstop]
+    () =>
+      plainTailShowsAnswerablePermissionMenu(ptyLiveTailPlainForMenuBackstop) ||
+      plainTailShowsLivePrettyChoiceMenu(ptyLiveTailPlainForMenuBackstop, ptyChoiceMenuSnapshot),
+    [ptyLiveTailPlainForMenuBackstop, ptyChoiceMenuSnapshot]
   );
 
   const replyPanelShowsChoiceMenu = Boolean(ptyChoiceMenuSnapshot?.trim());
@@ -296,14 +295,18 @@ export default function ResultsView({
       if (autoApproveTryInFlightRef.current) return;
 
       const tail = ptyLiveTailPlainForMenuBackstopRef.current;
-      if (!plainTailShowsAnswerablePermissionMenu(tail)) return;
-
       const ro = replyOrderingPlainRef.current;
       const menuSnapshot =
         (extractLastChoiceMenuSnapshotForArchive(ro) ??
           extractLastChoiceMenuSnapshotForArchive(tail))?.trim() ??
         ptyChoiceMenuSnapshotRef.current?.trim();
       if (!menuSnapshot) return;
+      if (
+        !plainTailShowsAnswerablePermissionMenu(tail) &&
+        !plainTailShowsLivePrettyChoiceMenu(tail, menuSnapshot)
+      ) {
+        return;
+      }
 
       const proceedCount = countPtyProceedPrompts(ro);
       const tailProbe = ro.slice(-220);

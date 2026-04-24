@@ -69,6 +69,24 @@ function plainTailHasDoYouPermissionQuestion(tailSlice: string): boolean {
  * footer). Used so dashboard copy (e.g. welcome splash) does not warn while a real menu is visible.
  */
 
+/**
+ * True when the last Pretty-segmented choice menu is still present in this PTY tail and the default
+ * `1. Yes` row appears in the answerable tail window. Pairs with {@link extractLastChoiceMenuSnapshotForArchive}
+ * so Auto-Approve can follow the same “yellow card” the user sees, even when {@link plainTailShowsAnswerablePermissionMenu}
+ * is overly strict (e.g. unusual Ink chrome or tail layout).
+ */
+export function plainTailShowsLivePrettyChoiceMenu(
+  plainNormalizedTail: string,
+  menuSnapshot: string | null | undefined
+): boolean {
+  const snap = (menuSnapshot ?? '').replace(/\r/g, '').trim();
+  if (!snap || !textContainsClaudePermissionMenu(snap)) return false;
+  const t = (plainNormalizedTail ?? '').replace(/\r/g, '');
+  if (!t.includes(snap)) return false;
+  const veryTail = t.slice(-PTY_PERMISSION_MENU_VERY_TAIL_CHARS);
+  return /(^|\n)\s*(?:[?❯›>]\s*)?1\.\s+Yes\b/im.test(veryTail);
+}
+
 export function plainTailShowsAnswerablePermissionMenu(plainNormalized: string): boolean {
   const trimmed = plainNormalized.trimEnd();
   const tail = trimmed.slice(-PTY_PERMISSION_MENU_TAIL_CHARS);
