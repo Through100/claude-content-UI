@@ -16,6 +16,13 @@ export function textContainsClaudePermissionMenu(text: string): boolean {
   ) {
     return true;
   }
+  /** Ink wraps “Do you want” / “to allow …?” across rows — no contiguous `Do you want to` substring. */
+  if (
+    /Do you want to\b[\s\S]{0,1400}(?:\?|？)/i.test(t) &&
+    /^\s*(?:[❯›>]\s*)?1\.\s+Yes\b/im.test(t)
+  ) {
+    return true;
+  }
   if (!/\bEsc to cancel\b/i.test(t) || !/\bTab to (?:amend|edit|change)\b/i.test(t)) return false;
   return (
     /Do you want/i.test(t) ||

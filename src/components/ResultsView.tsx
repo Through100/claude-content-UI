@@ -255,9 +255,17 @@ export default function ResultsView({
    * Same “yellow card” menu detection Pretty uses (`extractLastChoiceMenuSnapshotForArchive`), not the narrower
    * `plainTailShowsAnswerablePermissionMenu` on a short live tail (large Bash blocks could push the menu out of 24k).
    */
+  /**
+   * Same light sanitization as Pretty (`sanitizePtyPrettyTranscript`): reflows soft-wrapped Ink rows so
+   * `Do you want` / `to allow…?` becomes one line, and strips `⎿ Running…` noise. Raw xterm slices without this
+   * could miss menus in `plainTailShowsAnswerablePermissionMenu` while Pretty still showed a yellow card —
+   * which also blocked Auto-Approve (it keys off `isChoiceMenuActive`).
+   */
   const ptyLiveTailPlainForMenuBackstop = useMemo(() => {
     const chunk = `${ptyFullSnapshotPlain}\n${ptyDisplayPlain}`.slice(-120_000);
-    return stripAnsiNormalizePtyMirror(chunk);
+    const prettyish = sanitizePtyPrettyTranscript(chunk);
+    const merged = prettyish.trim().length > 0 ? prettyish : chunk;
+    return stripAnsiNormalizePtyMirror(merged);
   }, [ptyFullSnapshotPlain, ptyDisplayPlain]);
 
   const ptyLiveTailPlainForMenuBackstopRef = useRef(ptyLiveTailPlainForMenuBackstop);
