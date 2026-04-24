@@ -3,8 +3,13 @@ import { normalizeTeletypeLines, stripAnsi } from './stripAnsi';
 
 /** Ink menus can wrap huge command text on “2. Yes…” — keep question + “1. Yes” + Esc footer in one window. */
 const PTY_PERMISSION_MENU_TAIL_CHARS = 16_000;
-/** Last N chars used for strict “very tail” checks — long tool blocks (Web Search) + separators can push Esc/choices up. */
-const PTY_PERMISSION_MENU_VERY_TAIL_CHARS = 2800;
+/**
+ * Last N chars for numbered-choice / Esc detection. Long bash/heredoc + Ink status redraws can leave the
+ * permission block many KB above a final “Scurrying… tokens” line — 2.8k was too small for long runs.
+ */
+const PTY_PERMISSION_MENU_VERY_TAIL_CHARS = 14_000;
+/** When the last line is an Ink spinner, scan this far up for a pending menu (spinner sits below the consent UI). */
+const PTY_PERMISSION_MENU_SPINNER_LOOKBACK_CHARS = 52_000;
 
 /** Web / tool permission menu (Fetch + Esc to cancel footer) — must survive “trivial tail” / chrome filters for dashboard sync. */
 export function textContainsClaudePermissionMenu(text: string): boolean {
@@ -83,7 +88,7 @@ export function plainTailShowsLivePrettyChoiceMenu(
   if (!snap || !textContainsClaudePermissionMenu(snap)) return false;
   const t = (plainNormalizedTail ?? '').replace(/\r/g, '');
   if (!t.includes(snap)) return false;
-  const veryTail = t.slice(-PTY_PERMISSION_MENU_VERY_TAIL_CHARS);
+  const veryTail = t.slice(-Math.min(t.length, PTY_PERMISSION_MENU_VERY_TAIL_CHARS));
   return /(^|\n)\s*(?:[?❯›>]\s*)?1\.\s+Yes\b/im.test(veryTail);
 }
 
@@ -105,10 +110,13 @@ export function plainTailShowsAnswerablePermissionMenu(plainNormalized: string):
    * Treat as inactive only when that line is a spinner *and* we do not see a consent shape in the tail window.
    */
   if (lastNonEmpty && isInkSpinnerTokenStatusLine(lastNonEmpty)) {
+    const wideForMenu = trimmed.slice(
+      -Math.min(trimmed.length, Math.max(PTY_PERMISSION_MENU_VERY_TAIL_CHARS, PTY_PERMISSION_MENU_SPINNER_LOOKBACK_CHARS))
+    );
     const menuDespiteSpinner =
-      NUMBERED_MENU_ROW.test(veryTail) &&
+      NUMBERED_MENU_ROW.test(wideForMenu) &&
       plainTailHasDoYouPermissionQuestion(tail) &&
-      /^\s*(?:[?❯›>]\s*)?1\.\s+Yes\b/im.test(veryTail);
+      /^\s*(?:[?❯›>]\s*)?1\.\s+Yes\b/im.test(wideForMenu);
     if (!menuDespiteSpinner) return false;
   }
 

@@ -144,7 +144,8 @@ function findNumberedConsentMenuFooterJ(
   let bestLastNum = -1;
   for (let j = i; j < windowEnd; j++) {
     if (!consentAnchorMatchesAtLine(lines, j, windowEnd, anchor)) continue;
-    const maxK = Math.min(lines.length, j + 120);
+    /** Long wrapped bash / heredoc bodies can push `1. Yes` hundreds of lines below `Do you want to proceed?`. */
+    const maxK = Math.min(lines.length, j + 2000);
     let sawYes1 = false;
     let lastNum = -1;
     for (let k = j; k < maxK; k++) {

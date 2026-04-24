@@ -1,4 +1,5 @@
 import { plainTailShowsAnswerablePermissionMenu } from './claudeCodePtyPermissionMenu';
+import { collectChoiceMenuSnapshotsInDisplayOrder } from './segmentPtyDiffBlocks';
 
 /**
  * Merge a saved PTY plain transcript with the latest full xterm snapshot (from line 0).
@@ -61,6 +62,10 @@ function alignCutBackwardToNewline(s: string, approxCut: number): number {
 
 function countFetchConsentPrompts(s: string): number {
   return (s.match(/\bDo you want to allow Claude to fetch\b/gi) ?? []).length;
+}
+
+function countProceedConsentPrompts(s: string): number {
+  return (s.match(/Do you want to proceed\?/gi) ?? []).length;
 }
 
 /** Rough signal for stacked fetch consent UIs (3rd/4th prompt in one Ink run). */
@@ -151,13 +156,19 @@ export function snapMergedPtyTailToLiveFullSnapshot(
    */
   if (live.length >= 200 && m.length > live.length && !m.endsWith(live)) {
     const tailM = m.slice(-live.length);
-    const liveHasMenuAtTail = plainTailShowsAnswerablePermissionMenu(live);
+    const liveScan = live.slice(-Math.min(live.length, 180_000));
+    const tailMScan = tailM.slice(-Math.min(tailM.length, 180_000));
+    const liveHasMenuAtTail =
+      plainTailShowsAnswerablePermissionMenu(liveScan) || collectChoiceMenuSnapshotsInDisplayOrder(liveScan).length > 0;
     const mergedHasSameMenuAtTail =
-      plainTailShowsAnswerablePermissionMenu(tailM) && tailM.slice(-1000) === live.slice(-1000);
+      (plainTailShowsAnswerablePermissionMenu(tailMScan) ||
+        collectChoiceMenuSnapshotsInDisplayOrder(tailMScan).length > 0) &&
+      tailM.slice(-1000) === live.slice(-1000);
 
     if (
       countMenuMarkersInTail(live, live.length) > countMenuMarkersInTail(tailM, tailM.length) ||
       countFetchConsentPrompts(live) > countFetchConsentPrompts(tailM) ||
+      countProceedConsentPrompts(live) > countProceedConsentPrompts(tailM) ||
       (liveHasMenuAtTail && !mergedHasSameMenuAtTail)
     ) {
       return m.slice(0, m.length - live.length) + live;

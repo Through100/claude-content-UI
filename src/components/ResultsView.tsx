@@ -217,7 +217,7 @@ export default function ResultsView({
    * to the live xterm full snapshot so Pretty matches Raw / Logon.
    */
   const ptyMergedDisplayPlain = useMemo(
-    () => snapMergedPtyTailToLiveFullSnapshot(ptyMergedArchive, ptyPlainForMerge, 96_000),
+    () => snapMergedPtyTailToLiveFullSnapshot(ptyMergedArchive, ptyPlainForMerge, 240_000),
     [ptyMergedArchive, ptyPlainForMerge]
   );
 
