@@ -12,7 +12,10 @@ import {
 } from '../../shared/parsePtyTranscriptToMessages';
 import { textContainsClaudePermissionMenu } from '../../shared/claudeCodePtyPermissionMenu';
 import { isInkSpinnerTokenStatusLine } from '../../shared/inkSpinnerTokenStatusLine';
-import { segmentPtyAssistantDisplayBlocks } from '../../shared/segmentPtyDiffBlocks';
+import {
+  collectChoiceMenuSnapshotsInDisplayOrder,
+  segmentPtyAssistantDisplayBlocks
+} from '../../shared/segmentPtyDiffBlocks';
 import {
   extractPtyLiveFooterLine,
   stripInkStatusFooterLinesFromAssistantPlain
@@ -112,7 +115,7 @@ function findLastAssistantRowIndexWithMenu(rows: MergedRow[]): number | null {
   for (let i = rows.length - 1; i >= 0; i--) {
     const r = rows[i];
     if (r.kind === 'pty' && r.turn.role === 'assistant') {
-      if (segmentPtyAssistantDisplayBlocks(r.turn.text).some((p) => p.kind === 'menu')) return i;
+      if (collectChoiceMenuSnapshotsInDisplayOrder(r.turn.text).length > 0) return i;
     }
   }
   return null;
@@ -129,10 +132,9 @@ function findLastAssistantRowIndex(rows: MergedRow[]): number | null {
 function menuSnapshotStillInAssistantText(assistantPlain: string, menuPlain: string): boolean {
   const want = menuPlain.replace(/\r\n/g, '\n').trim();
   if (!want) return false;
-  for (const p of segmentPtyAssistantDisplayBlocks(assistantPlain)) {
-    if (p.kind === 'menu' && p.text.replace(/\r\n/g, '\n').trim() === want) return true;
-  }
-  return false;
+  return collectChoiceMenuSnapshotsInDisplayOrder(assistantPlain).some(
+    (snap) => snap.replace(/\r\n/g, '\n').trim() === want
+  );
 }
 
 /**
@@ -233,12 +235,10 @@ function partitionInterleavedHeadNoiseToTail(raw: string): [string, string] {
 
 /** Last permission menu block from the **same** segmentation as Pretty cards — substring-safe in `headPlain`. */
 function findLastPermissionMenuTextFromSegments(plain: string): string | null {
-  const parts = segmentPtyAssistantDisplayBlocks(plain);
-  for (let i = parts.length - 1; i >= 0; i--) {
-    const p = parts[i];
-    if (p.kind === 'menu' && textContainsClaudePermissionMenu(p.text)) {
-      return p.text;
-    }
+  const snaps = collectChoiceMenuSnapshotsInDisplayOrder(plain);
+  for (let i = snaps.length - 1; i >= 0; i--) {
+    const s = snaps[i]!;
+    if (textContainsClaudePermissionMenu(s)) return s;
   }
   return null;
 }

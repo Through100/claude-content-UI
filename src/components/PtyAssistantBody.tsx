@@ -1,5 +1,8 @@
-import React, { useMemo, useRef } from 'react';
-import { segmentPtyAssistantDisplayBlocks } from '../../shared/segmentPtyDiffBlocks';
+import React, { Fragment, useMemo, useRef } from 'react';
+import {
+  collectChoiceMenuSnapshotsInDisplayOrder,
+  segmentPtyAssistantDisplayBlocks
+} from '../../shared/segmentPtyDiffBlocks';
 import { normalizeAsciiTableForPretty } from '../../shared/normalizeAsciiTableForPretty';
 import { splitPinnedAssistantStreamHeadTail } from '../../shared/splitPtyPinnedThinkingTail';
 import PrettyOutputBody from './PrettyOutputBody';
@@ -158,9 +161,10 @@ export function shouldRenderPtyAssistantBubble(text: string, menusRender: PtyAss
     return Boolean(text?.trim());
   }
   if (parts.length === 1 && parts[0].kind === 'prose') {
-    return menusRender !== 'menusOnly';
+    if (menusRender === 'menusOnly') return collectChoiceMenuSnapshotsInDisplayOrder(text).length > 0;
+    return true;
   }
-  const hasMenu = parts.some((p) => p.kind === 'menu');
+  const hasMenu = collectChoiceMenuSnapshotsInDisplayOrder(text).length > 0;
   const hasNonMenu = parts.some((p) => p.kind !== 'menu');
   if (menusRender === 'menusOnly') return hasMenu;
   if (menusRender === 'omit') return hasNonMenu;
@@ -190,6 +194,7 @@ export default function PtyAssistantBody({
   const internalSlotsRef = useRef<PtyLiveMenuSlot[]>([]);
   const internalNextIdRef = useRef(0);
   const parts = useMemo(() => segmentPtyAssistantDisplayBlocks(text), [text]);
+  const allMenuTextsOrdered = useMemo(() => collectChoiceMenuSnapshotsInDisplayOrder(text), [text]);
 
   if (parts.length === 0) {
     if (menusRender === 'menusOnly') {
@@ -210,45 +215,6 @@ export default function PtyAssistantBody({
     return <PrettyOutputBody text={text} omitDividers />;
   }
 
-  if (parts.length === 1 && parts[0].kind === 'prose') {
-    if (menusRender === 'menusOnly') {
-      if (menuSlotBundle) {
-        menuSlotBundle.slots = [];
-        menuSlotBundle.nextId = 0;
-      } else {
-        internalSlotsRef.current = [];
-      }
-      return null;
-    }
-    if (menuSlotBundle) {
-      menuSlotBundle.slots = [];
-      menuSlotBundle.nextId = 0;
-    } else {
-      internalSlotsRef.current = [];
-    }
-    const { head, tail } = splitPinnedAssistantStreamHeadTail(parts[0].text);
-    return (
-      <div className="space-y-4">
-        {head.trim() ? <PrettyOutputBody text={head} omitDividers /> : null}
-        {tail.trim() ? (
-          <div className="rounded-xl border border-zinc-200 bg-zinc-50 overflow-hidden shadow-sm my-2">
-            <div className="px-3 py-2 text-[12px] font-medium text-zinc-500 flex items-center gap-2">
-              <svg className="w-4 h-4 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-              Terminal activity (hidden for readability)
-            </div>
-          </div>
-        ) : null}
-      </div>
-    );
-  }
-
-  const curMenuTexts: string[] = [];
-  for (const p of parts) {
-    if (p.kind === 'menu') curMenuTexts.push(p.text);
-  }
-
   const nextIdRef = menuSlotBundle
     ? { get current() {
         return menuSlotBundle.nextId;
@@ -258,7 +224,7 @@ export default function PtyAssistantBody({
     : internalNextIdRef;
 
   const slotsRefTarget = menuSlotBundle ? menuSlotBundle.slots : internalSlotsRef.current;
-  const reconciled = reconcileLiveMenuSlots(curMenuTexts, slotsRefTarget, nextIdRef);
+  const reconciled = reconcileLiveMenuSlots(allMenuTextsOrdered, slotsRefTarget, nextIdRef);
   if (menuSlotBundle) {
     menuSlotBundle.slots = reconciled;
   } else {
@@ -266,24 +232,19 @@ export default function PtyAssistantBody({
   }
   const menuSlots = reconciled;
 
-  const menuSlotAtPartIdx = new Map<number, PtyLiveMenuSlot>();
-  let mi = 0;
-  for (let i = 0; i < parts.length; i++) {
-    if (parts[i].kind === 'menu') {
-      const slot = menuSlots[mi++];
-      if (slot) menuSlotAtPartIdx.set(i, slot);
-    }
-  }
-
   const renderMenu = menusRender !== 'omit';
   const renderNonMenu = menusRender !== 'menusOnly';
-  const hasVisible = parts.some((p) => (p.kind === 'menu' ? renderMenu : renderNonMenu));
+  const hasVisible =
+    menusRender === 'menusOnly'
+      ? allMenuTextsOrdered.length > 0
+      : parts.some((p) => (p.kind === 'menu' ? renderMenu : renderNonMenu));
   if (!hasVisible) return null;
+
+  let menuSlotConsume = 0;
 
   return (
     <div className="space-y-4">
       {parts.map((p, idx) => {
-        if (p.kind === 'menu' && !renderMenu) return null;
         if (p.kind !== 'menu' && !renderNonMenu) return null;
         if (p.kind === 'diff') {
           return (
@@ -301,7 +262,8 @@ export default function PtyAssistantBody({
           );
         }
         if (p.kind === 'menu') {
-          const slot = menuSlotAtPartIdx.get(idx);
+          const slot = menuSlots[menuSlotConsume++];
+          if (!renderMenu) return <Fragment key={slot ? `m-sk-${slot.id}` : `m-sk-${idx}`} />;
           return (
             <div key={slot ? `m-${slot.id}` : `m-${idx}`}>
               <PtyChoicePromptCard text={p.text} shownAt={slot?.shownAt ?? null} />
@@ -328,10 +290,22 @@ export default function PtyAssistantBody({
         }
         
         const { head, tail } = splitPinnedAssistantStreamHeadTail(p.text);
+        const tailSegs = tail.trim() ? segmentPtyAssistantDisplayBlocks(tail) : [];
+        const tailMenus = tailSegs.filter((t): t is { kind: 'menu'; text: string } => t.kind === 'menu');
+        const tailHasHidden = tailSegs.some((t) => t.kind !== 'menu');
         return (
           <React.Fragment key={`p-${idx}`}>
-            {head.trim() ? <PrettyOutputBody text={head} omitDividers /> : null}
-            {tail.trim() ? (
+            {head.trim() && renderNonMenu ? <PrettyOutputBody text={head} omitDividers /> : null}
+            {tailMenus.map((tm, j) => {
+              const slot = menuSlots[menuSlotConsume++];
+              if (!renderMenu) return <Fragment key={slot ? `tm-sk-${slot.id}` : `tm-sk-${idx}-${j}`} />;
+              return (
+                <div key={slot ? `tm-${slot.id}` : `tm-${idx}-${j}`}>
+                  <PtyChoicePromptCard text={tm.text} shownAt={slot?.shownAt ?? null} />
+                </div>
+              );
+            })}
+            {tail.trim() && tailHasHidden && renderNonMenu ? (
               <div className="rounded-xl border border-zinc-200 bg-zinc-50 overflow-hidden shadow-sm my-2">
                 <div className="px-3 py-2 text-[12px] font-medium text-zinc-500 flex items-center gap-2">
                   <svg className="w-4 h-4 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">

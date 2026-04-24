@@ -34,7 +34,18 @@ function isThinkingActivityStartLine(line: string): boolean {
   if (/^\s*⎿\s*KillShell\b/i.test(t)) return true;
   if (/^\s*⎿\s*ExitPlanMode\b/i.test(t)) return true;
   if (/^\s*⎿\s*AskUserQuestion\b/i.test(t)) return true;
-  if (/^\s*[a-z0-9_-]+\(/i.test(t)) return true;
+  /**
+   * Lowercase `foo(` tool lines — exclude Python / shell builtins so a heredoc body starting with
+   * `print(` does not peel the whole script (and the permission menu) into the hidden “Terminal activity” tail.
+   */
+  if (
+    /^\s*[a-z0-9_-]{2,40}\(/i.test(t) &&
+    !/^\s*(?:print|len|str|int|float|bool|list|dict|set|tuple|range|enumerate|open|input|exec|eval|compile|super|type|isinstance|hasattr|getattr|setattr|vars|id|hash|iter|next|abs|all|any|bin|chr|hex|oct|ord|pow|round|sum|sorted|repr|format|min|max|delattr|callable)\s*\(/i.test(
+      t
+    )
+  ) {
+    return true;
+  }
   if (/^\s*Fetching[….]?\s*$/i.test(t)) return true;
   if (/^\+\d+\s+more\s+tool\s+uses\b/i.test(t)) return true;
   if (/\bctrl\+o\s+to\s+expand\b/i.test(t)) return true;

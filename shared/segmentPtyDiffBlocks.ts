@@ -1,3 +1,5 @@
+import { splitPinnedAssistantStreamHeadTail } from './splitPtyPinnedThinkingTail';
+
 /**
  * Detect Claude Code / terminal unified-diff style lines (column numbers + +/-, ⎿, etc.)
  * so Live PTY Pretty can render those blocks as monospace pre instead of markdown paragraphs.
@@ -508,17 +510,33 @@ function slicePlainTailForMenuSnapshot(plain: string): string {
   return plain.slice(start);
 }
 
+/**
+ * Choice menus in document order, including blocks that only appear after peeling the pinned “tool tail”
+ * off prose (Pretty previously hid that tail wholesale, so `Do you want to proceed?` never became a card).
+ */
+export function collectChoiceMenuSnapshotsInDisplayOrder(plain: string): string[] {
+  const out: string[] = [];
+  for (const p of segmentPtyAssistantDisplayBlocks(plain)) {
+    if (p.kind === 'menu') {
+      out.push(p.text);
+    } else if (p.kind === 'prose') {
+      const { tail } = splitPinnedAssistantStreamHeadTail(p.text);
+      if (!tail.trim()) continue;
+      for (const t of segmentPtyAssistantDisplayBlocks(tail)) {
+        if (t.kind === 'menu') out.push(t.text);
+      }
+    }
+  }
+  return out;
+}
+
 /** Last permission-menu block from the same segmentation as Pretty — used to archive the yellow card when the user replies. */
 export function extractLastChoiceMenuSnapshotForArchive(plain: string): string | null {
   const window = slicePlainTailForMenuSnapshot(plain);
-  const parts = segmentPtyAssistantDisplayBlocks(window);
-  for (let i = parts.length - 1; i >= 0; i--) {
-    if (parts[i].kind === 'menu') {
-      const t = parts[i].text.trim();
-      if (t.length > 0) {
-        return parts[i].text;
-      }
-    }
+  const snaps = collectChoiceMenuSnapshotsInDisplayOrder(window);
+  for (let i = snaps.length - 1; i >= 0; i--) {
+    const t = snaps[i]?.trim();
+    if (t) return snaps[i]!;
   }
   return null;
 }
