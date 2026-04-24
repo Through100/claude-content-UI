@@ -11,6 +11,23 @@ const PTY_PERMISSION_MENU_VERY_TAIL_CHARS = 14_000;
 /** When the last line is an Ink spinner, scan this far up for a pending menu (spinner sits below the consent UI). */
 const PTY_PERMISSION_MENU_SPINNER_LOOKBACK_CHARS = 52_000;
 
+/**
+ * Logon injects “session ended” lines after `term.writeln` on WebSocket exit — they often land between
+ * `❯ 1. Yes` and `Esc to cancel`, so `tail.includes(menuSnapshot)` and Esc/Tab proximity checks fail unless removed.
+ */
+export function stripPtySessionEndInjections(s: string): string {
+  let t = (s ?? '').replace(/\r/g, '');
+  t = t.replace(/\n\s*\[[^\n]*Interactive terminal session ended[^\n]*\]\s*/gi, '\n');
+  t = t.replace(/\n\s*\([^)]*This is only the live PTY[^)]*\)\s*/gi, '\n');
+  return t;
+}
+
+function proceedMenuCoreFingerprint(s: string): string | null {
+  const t = stripPtySessionEndInjections(s);
+  const m = /\bDo you want to proceed\?\s*[\s\S]{0,12000}?\bEsc to cancel\b/i.exec(t);
+  return m ? m[0].trim() : null;
+}
+
 /** Web / tool permission menu (Fetch + Esc to cancel footer) — must survive “trivial tail” / chrome filters for dashboard sync. */
 export function textContainsClaudePermissionMenu(text: string): boolean {
   const t = (text || '').replace(/\r/g, '');
@@ -84,16 +101,20 @@ export function plainTailShowsLivePrettyChoiceMenu(
   plainNormalizedTail: string,
   menuSnapshot: string | null | undefined
 ): boolean {
-  const snap = (menuSnapshot ?? '').replace(/\r/g, '').trim();
-  if (!snap || !textContainsClaudePermissionMenu(snap)) return false;
-  const t = (plainNormalizedTail ?? '').replace(/\r/g, '');
-  if (!t.includes(snap)) return false;
+  const snapRaw = (menuSnapshot ?? '').replace(/\r/g, '').trim();
+  if (!snapRaw || !textContainsClaudePermissionMenu(snapRaw)) return false;
+  const snap = stripPtySessionEndInjections(snapRaw).trim();
+  const t = stripPtySessionEndInjections((plainNormalizedTail ?? '').replace(/\r/g, ''));
+  if (!t.includes(snap)) {
+    const core = proceedMenuCoreFingerprint(snapRaw);
+    if (!core || !t.includes(core)) return false;
+  }
   const veryTail = t.slice(-Math.min(t.length, PTY_PERMISSION_MENU_VERY_TAIL_CHARS));
   return /(^|\n)\s*(?:[?❯›>]\s*)?1\.\s+Yes\b/im.test(veryTail);
 }
 
 export function plainTailShowsAnswerablePermissionMenu(plainNormalized: string): boolean {
-  const trimmed = plainNormalized.trimEnd();
+  const trimmed = stripPtySessionEndInjections(plainNormalized).trimEnd();
   const tail = trimmed.slice(-PTY_PERMISSION_MENU_TAIL_CHARS);
   const veryTail = trimmed.slice(-PTY_PERMISSION_MENU_VERY_TAIL_CHARS);
 

@@ -1,3 +1,4 @@
+import { stripPtySessionEndInjections } from './claudeCodePtyPermissionMenu';
 import { splitPinnedAssistantStreamHeadTail } from './splitPtyPinnedThinkingTail';
 
 /**
@@ -537,7 +538,7 @@ export function extractLastChoiceMenuSnapshotForArchive(plain: string): string |
   const snaps = collectChoiceMenuSnapshotsInDisplayOrder(window);
   for (let i = snaps.length - 1; i >= 0; i--) {
     const t = snaps[i]?.trim();
-    if (t) return snaps[i]!;
+    if (t) return stripPtySessionEndInjections(snaps[i]!).replace(/\n{3,}/g, '\n\n').trimEnd();
   }
   return null;
 }

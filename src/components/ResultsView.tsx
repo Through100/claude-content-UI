@@ -288,7 +288,9 @@ export default function ResultsView({
   const replyPanelShowsChoiceMenu = Boolean(ptyChoiceMenuSnapshot?.trim());
 
   useEffect(() => {
-    if (!autoApproveChoicePrompts || !ptySessionReady || isHistoryEmbed || !isChoiceMenuActive) return;
+    /** Keep the watchdog armed while a menu is visible even if `ptySessionReady` is briefly false (e.g. WS
+     * reconnect), so we send `1` as soon as the transport accepts input again. */
+    if (!autoApproveChoicePrompts || isHistoryEmbed || !isChoiceMenuActive) return;
 
     /** Re-read live transcript from refs so this effect does not depend on `replyOrderingPlain` (streaming was invalidating delivery gen every tick). */
     const consider = () => {
@@ -307,6 +309,7 @@ export default function ResultsView({
       ) {
         return;
       }
+      if (!ptySessionReadyRef.current) return;
 
       const proceedCount = countPtyProceedPrompts(ro);
       const tailProbe = ro.slice(-220);
