@@ -355,15 +355,34 @@ export default function ClaudeTerminalView({
     };
     term.element?.addEventListener('contextmenu', onContextMenu);
 
-    const ro = new ResizeObserver(() => {
+    let geometryRaf: number | null = null;
+    const syncGeometryAndSnapshot = () => {
       fitAddon.fit();
       if (ws.readyState === WebSocket.OPEN) {
         const { cols, rows } = term;
         ws.send(JSON.stringify({ type: 'resize', cols, rows }));
       }
       ptyBridgeRef.current.refreshPtyScreenSnapshot();
-    });
+    };
+    const scheduleGeometrySync = () => {
+      if (geometryRaf != null) return;
+      geometryRaf = requestAnimationFrame(() => {
+        geometryRaf = null;
+        syncGeometryAndSnapshot();
+      });
+    };
+
+    const ro = new ResizeObserver(() => scheduleGeometrySync());
     ro.observe(containerRef.current);
+    /**
+     * Off-screen Logon (`Layout` fixed -9999px) still drives Pretty’s `ptyDisplayPlain`. Browser zoom and
+     * some viewport changes do not always resize that element’s box (e.g. `min(100vw,720px)` cap), so
+     * ResizeObserver alone can leave stale column layout until the user zooms. Window / visualViewport
+     * resize forces fit + a fresh buffer serialize for the bridge.
+     */
+    window.addEventListener('resize', scheduleGeometrySync);
+    const vv = window.visualViewport;
+    vv?.addEventListener('resize', scheduleGeometrySync);
 
     return () => {
       destroyed = true;
@@ -398,6 +417,12 @@ export default function ClaudeTerminalView({
       document.removeEventListener('paste', onDocumentPasteCapture, true);
       document.removeEventListener('keydown', onDocumentKeyDownCapture, true);
       term.element?.removeEventListener('contextmenu', onContextMenu);
+      if (geometryRaf != null) {
+        cancelAnimationFrame(geometryRaf);
+        geometryRaf = null;
+      }
+      window.removeEventListener('resize', scheduleGeometrySync);
+      vv?.removeEventListener('resize', scheduleGeometrySync);
       ro.disconnect();
       ws.onopen = null;
       ws.onmessage = null;
