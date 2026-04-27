@@ -48,8 +48,20 @@ function isThinkingActivityStartLine(line: string): boolean {
   }
   if (/^\s*Fetching[….]?\s*$/i.test(t)) return true;
   if (/^\+\d+\s+more\s+tool\s+uses\b/i.test(t)) return true;
-  if (/\bctrl\+o\s+to\s+expand\b/i.test(t)) return true;
-  if (/\bctrl\+b\s+to\s+run\s+in\s+background\b/i.test(t)) return true;
+  /**
+   * Ink “ctrl+o to expand” appears on real tool rows **and** on collapsed-block hints (`… +555 lines (ctrl+o to expand)`).
+   * Treating the hint as the stream head splits the assistant bubble at the first fold line — everything after
+   * (parallel agents, later Bash prompts, permission menus) lands in the hidden tail and auto-approve / menu
+   * segmentation miss the real prompt at the bottom.
+   */
+  if (/\bctrl\+o\s+to\s+expand\b/i.test(t)) {
+    if (/\+\d+\s+lines\b/i.test(t)) return false;
+    return true;
+  }
+  if (/\bctrl\+b\s+to\s+run\s+in\s+background\b/i.test(t)) {
+    if (/\+\d+\s+lines\b/i.test(t)) return false;
+    return true;
+  }
   return false;
 }
 

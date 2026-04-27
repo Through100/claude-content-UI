@@ -24,7 +24,7 @@ export function stripPtySessionEndInjections(s: string): string {
 
 function proceedMenuCoreFingerprint(s: string): string | null {
   const t = stripPtySessionEndInjections(s);
-  const m = /\bDo you want to proceed\?\s*[\s\S]{0,12000}?\bEsc to cancel\b/i.exec(t);
+  const m = /\bDo you want to proceed\?\s*[\s\S]{0,100000}?\bEsc to cancel\b/i.exec(t);
   return m ? m[0].trim() : null;
 }
 
