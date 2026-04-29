@@ -59,13 +59,14 @@ function buildPtyClaudeArgs(): string[] {
   const extra = process.env.CLAUDE_EXTRA_ARGS?.trim();
   const extraForScan = ` ${extra ?? ''} `;
   const disableAutoPerm = envTruthy(process.env.CLAUDE_DISABLE_AUTO_PERMISSION_MODE);
-  const extraAlreadyHasPermission = /--permission-mode\b/.test(extraForScan);
-  if (!disableAutoPerm && !extraAlreadyHasPermission && !isUnixSuperuser()) {
+  const extraPermissionMatch = /--permission-mode\s+([^\s]+)/.exec(extraForScan);
+  if (extraPermissionMatch?.[1]) {
+    args.push('--permission-mode', extraPermissionMatch[1]);
+    return args;
+  }
+  if (!disableAutoPerm && !isUnixSuperuser()) {
     const mode = process.env.CLAUDE_PERMISSION_MODE?.trim() || 'bypassPermissions';
     args.push('--permission-mode', mode);
-  }
-  if (extra) {
-    args.push(...extra.split(/\s+/).filter(Boolean));
   }
   return args;
 }
