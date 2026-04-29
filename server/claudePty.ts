@@ -45,6 +45,31 @@ function envTruthy(v: string | undefined): boolean {
   return ['1', 'true', 'yes'].includes(String(v ?? '').trim().toLowerCase());
 }
 
+function isUnixSuperuser(): boolean {
+  if (process.platform === 'win32') return false;
+  try {
+    return typeof process.getuid === 'function' && process.getuid() === 0;
+  } catch {
+    return false;
+  }
+}
+
+function buildPtyClaudeArgs(): string[] {
+  const args: string[] = [];
+  const extra = process.env.CLAUDE_EXTRA_ARGS?.trim();
+  const extraForScan = ` ${extra ?? ''} `;
+  const disableAutoPerm = envTruthy(process.env.CLAUDE_DISABLE_AUTO_PERMISSION_MODE);
+  const extraAlreadyHasPermission = /--permission-mode\b/.test(extraForScan);
+  if (!disableAutoPerm && !extraAlreadyHasPermission && !isUnixSuperuser()) {
+    const mode = process.env.CLAUDE_PERMISSION_MODE?.trim() || 'bypassPermissions';
+    args.push('--permission-mode', mode);
+  }
+  if (extra) {
+    args.push(...extra.split(/\s+/).filter(Boolean));
+  }
+  return args;
+}
+
 /** execvp does not expand `~`; normalize so pty-proxy receives a real path when .env uses ~/. */
 function resolveClaudeBinForPty(bin: string): string {
   const t = bin.trim();
@@ -98,6 +123,7 @@ function ptySpawnFailureHint(): string {
 /** argv for the PTY child: POSIX Python proxy, WSL-wrapped proxy, or Windows help stub. */
 function resolvePtyChildArgv(claudeBin: string): { file: string; args: string[] } {
   const claudeResolved = resolveClaudeBinForPty(claudeBin);
+  const claudeArgs = buildPtyClaudeArgs();
   if (process.platform === 'win32' && !envTruthy(process.env.CLAUDE_PTY_WSL)) {
     return { file: process.execPath, args: [WIN_STUB] };
   }
@@ -109,12 +135,12 @@ function resolvePtyChildArgv(claudeBin: string): { file: string; args: string[] 
         : claudeResolved;
     const distro = process.env.CLAUDE_WSL_DISTRO?.trim();
     const args = distro
-      ? ['-d', distro, '-e', 'python3', proxyWsl, claudeWsl]
-      : ['-e', 'python3', proxyWsl, claudeWsl];
+      ? ['-d', distro, '-e', 'python3', proxyWsl, claudeWsl, ...claudeArgs]
+      : ['-e', 'python3', proxyWsl, claudeWsl, ...claudeArgs];
     return { file: 'wsl.exe', args };
   }
   const py = resolvePtyPythonSpawn();
-  return { file: py.file, args: [...py.args, PROXY_SCRIPT, claudeResolved] };
+  return { file: py.file, args: [...py.args, PROXY_SCRIPT, claudeResolved, ...claudeArgs] };
 }
 
 export interface PtySession {
