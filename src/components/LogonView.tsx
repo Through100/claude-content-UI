@@ -13,21 +13,19 @@ export type LogonViewProps = {
 };
 
 export default function LogonView({ onVisible }: LogonViewProps) {
-  const [terminalWsEnabled, setTerminalWsEnabled] = useState(true);
+  /** From a successful GET /api/health only. `null` means we could not read health (do not guess PTY is disabled). */
+  const [serverTerminalWs, setServerTerminalWs] = useState<boolean | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
 
   const checkHealth = useCallback(async () => {
     setHealthError(null);
     try {
       const health = await apiService.getSystemStatus();
-      setTerminalWsEnabled(
-        typeof (health as { terminalWebSocket?: boolean }).terminalWebSocket === 'boolean'
-          ? (health as { terminalWebSocket: boolean }).terminalWebSocket
-          : true
-      );
+      const tw = (health as { terminalWebSocket?: boolean }).terminalWebSocket;
+      setServerTerminalWs(typeof tw === 'boolean' ? tw : true);
     } catch (e) {
       setHealthError(e instanceof Error ? e.message : String(e));
-      setTerminalWsEnabled(false);
+      setServerTerminalWs(null);
     }
   }, []);
 
@@ -98,22 +96,34 @@ export default function LogonView({ onVisible }: LogonViewProps) {
       </section>
 
       {healthError && (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-          Could not read server health ({healthError}). The terminal may still work if the API is up.
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 space-y-2">
+          <p>
+            Could not read server health ({healthError}). This is not the same as <code className="text-xs bg-white/70 px-1 rounded">CLAUDE_TERMINAL_WS=0</code> — the
+            server may be down, the dev proxy may be misconfigured, or <code className="text-xs bg-white/70 px-1 rounded">VITE_DEV_API_ORIGIN</code> may not point at the API
+            (default <code className="text-xs bg-white/70 px-1 rounded">http://127.0.0.1:8787</code>).
+          </p>
+          <p className="text-xs text-amber-900/90">
+            Fix the health request first; then the WebSocket at <code className="text-[11px] bg-white/70 px-1 rounded">/api/terminal/ws</code> can connect. Restart the Node
+            process after changing <code className="text-[11px] bg-white/70 px-1 rounded">.env</code> — shell <code className="text-[11px] bg-white/70 px-1 rounded">export</code> alone does not affect an already-running server.
+          </p>
         </div>
       )}
 
-      {!terminalWsEnabled ? (
+      {serverTerminalWs === false ? (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-          Interactive terminal is disabled on the server (<code className="text-xs bg-white/70 px-1 rounded">CLAUDE_TERMINAL_WS=0</code>). Remove it
-          to allow the WebSocket PTY.
+          Interactive terminal is disabled on the server (<code className="text-xs bg-white/70 px-1 rounded">CLAUDE_TERMINAL_WS=0</code>). Remove or unset that value and
+          restart the API process to allow the WebSocket PTY.
         </div>
-      ) : (
+      ) : serverTerminalWs === true ? (
         <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 px-4 py-3 text-sm text-indigo-950 leading-relaxed">
           <strong>Interactive terminal</strong> is shown <strong>below</strong> this page. It uses one persistent session
           for the whole app — the Dashboard <strong>Raw View</strong> tab reads the same xterm buffer (plain text), and
           the <strong>Pretty Output</strong> tab parses that same live text. Use <strong>Paste from PC…</strong> on the
           terminal chrome when the browser blocks clipboard paste.
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 leading-relaxed">
+          <strong>PTY WebSocket status unknown</strong> until <code className="text-xs bg-white px-1 rounded">GET /api/health</code> succeeds. If the terminal below shows a WebSocket error, fix API reachability (same host as the UI or <code className="text-xs bg-white px-1 rounded">VITE_API_BASE_URL</code>) and ensure the API was restarted after editing <code className="text-xs bg-white px-1 rounded">.env</code>.
         </div>
       )}
     </div>

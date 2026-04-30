@@ -353,7 +353,9 @@ export const apiService = {
   async getSystemStatus() {
     const res = await fetch(`${apiBase()}/api/health`);
     if (!res.ok) {
-      throw new Error(`Health request failed (${res.status})`);
+      const snippet = (await res.text()).trim().slice(0, 240);
+      const detail = snippet ? `: ${snippet}` : '';
+      throw new Error(`Health request failed (${res.status})${detail}`);
     }
     return parseJson(res);
   },

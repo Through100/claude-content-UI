@@ -410,16 +410,21 @@ app.get('/api/workspace-file', (req, res) => {
 });
 
 app.get('/api/health', (_req, res) => {
-  res.json({
-    ok: true,
-    claudeBin: claudeBin(),
-    workdir: workdir(),
-    runTimeoutMs: runTimeoutMs(),
-    usageTimeoutMs: usageTimeoutMs(),
-    /** When false, `/api/terminal/ws` upgrades are refused (set `CLAUDE_TERMINAL_WS=0`). */
-    terminalWebSocket: process.env.CLAUDE_TERMINAL_WS !== '0',
-    time: new Date().toISOString()
-  });
+  try {
+    res.json({
+      ok: true,
+      claudeBin: claudeBin(),
+      workdir: workdir(),
+      runTimeoutMs: runTimeoutMs(),
+      usageTimeoutMs: usageTimeoutMs(),
+      /** When false, `/api/terminal/ws` upgrades are refused (set `CLAUDE_TERMINAL_WS=0`). */
+      terminalWebSocket: process.env.CLAUDE_TERMINAL_WS !== '0',
+      time: new Date().toISOString()
+    });
+  } catch (e) {
+    console.error('[claude-seo-ui] GET /api/health failed:', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
 });
 
 app.get('/api/models', (_req, res) => {
@@ -796,8 +801,13 @@ attachClaudeTerminalWebSocket(server, {
 server.listen(port, async () => {
   await startupClaude();
   console.log(`[claude-seo-ui] API + static listening on http://0.0.0.0:${port}`);
-  if (process.env.CLAUDE_TERMINAL_WS !== '0') {
-    console.log('[claude-seo-ui] PTY WebSocket: ws://…/api/terminal/ws (xterm login terminal; set CLAUDE_TERMINAL_WS=0 to disable)');
+  const rawTw = process.env.CLAUDE_TERMINAL_WS;
+  const ptyWsOn = process.env.CLAUDE_TERMINAL_WS !== '0';
+  console.log(
+    `[claude-seo-ui] PTY WebSocket: ${ptyWsOn ? 'enabled' : 'disabled'} (CLAUDE_TERMINAL_WS=${JSON.stringify(rawTw ?? '(unset)')} — unset or non-0 enables; only exact "0" disables)`
+  );
+  if (ptyWsOn) {
+    console.log('[claude-seo-ui] PTY path: /api/terminal/ws (set CLAUDE_TERMINAL_WS=0 to disable upgrades)');
   }
   if (shouldLogClaudeRuns()) {
     console.log(
