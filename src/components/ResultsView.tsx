@@ -18,6 +18,7 @@ import {
 import {
   BLOG_COMMANDS,
   RunResponse,
+  formatWorkspaceRunDirSegment,
   workspaceFilesDirSegment,
   workspaceReportMarkdownCandidates
 } from '../types';
@@ -110,13 +111,24 @@ export default function ResultsView({
   onRestartPtySession
 }: ResultsViewProps) {
   const isHistoryEmbed = embedMode === 'history';
-  const effectiveRunDirSegment = useMemo(
-    () =>
-      (workspaceOutputSegmentProp?.trim() ||
-        result?.stats?.workspaceOutputSegment?.trim() ||
-        undefined) as string | undefined,
-    [workspaceOutputSegmentProp, result?.stats?.workspaceOutputSegment]
-  );
+  const effectiveRunDirSegment = useMemo(() => {
+    const fromMeta = (
+      workspaceOutputSegmentProp?.trim() ||
+      result?.stats?.workspaceOutputSegment?.trim() ||
+      ''
+    ).trim();
+    if (fromMeta) return fromMeta;
+    const started = (result?.stats?.startedAt || result?.stats?.finishedAt || '').trim();
+    if (!started) return undefined;
+    const { commandKey, target } = parseChatThreadKey(chatThreadKey);
+    return formatWorkspaceRunDirSegment(commandKey, target, started);
+  }, [
+    workspaceOutputSegmentProp,
+    result?.stats?.workspaceOutputSegment,
+    result?.stats?.startedAt,
+    result?.stats?.finishedAt,
+    chatThreadKey
+  ]);
   const [activeTab, setActiveTab] = useState<'report' | 'pretty' | 'raw'>('pretty');
   const [fetchedReportContent, setFetchedReportContent] = useState<string | null>(null);
   const [fetchedReportPath, setFetchedReportPath] = useState<string | null>(null);
@@ -567,7 +579,14 @@ export default function ResultsView({
       setIsFetchingReport(false);
       return;
     }
-    if (reportMarkdownCandidates.length === 0) return;
+    if (reportMarkdownCandidates.length === 0) {
+      setIsFetchingReport(false);
+      setFetchedReportPath(null);
+      setFetchedReportContent(
+        `## Report could not be loaded\n\nNo report file paths could be built for this run (missing command/target context). Open **Raw View** and copy the path from Claude's \`Write(...)\` line.`
+      );
+      return;
+    }
 
     const haveSuccessCached =
       Boolean(fetchedReportPath && reportMarkdownCandidates.includes(fetchedReportPath)) &&
@@ -605,6 +624,9 @@ export default function ResultsView({
             if (res.ok) {
               const text = await res.text();
               if (cancelled) return;
+              if (!text.trim()) {
+                break;
+              }
               setFetchedReportContent(text);
               setFetchedReportPath(mdPath);
               if (!isLoadingRef.current && text.trim()) {
