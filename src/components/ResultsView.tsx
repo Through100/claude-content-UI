@@ -551,12 +551,20 @@ export default function ResultsView({
     void (async () => {
       for (const mdPath of reportMarkdownCandidates) {
         if (cancelled) return;
-        const url = apiService.workspaceFileDownloadUrl(mdPath);
+        const url = apiService.workspaceFileDownloadUrl(mdPath, { ifMissing204: true });
 
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
           if (cancelled) return;
           try {
             const res = await fetch(url);
+            /** 204 = file not present yet (ifMissing=204); avoids repeated 404 console noise. */
+            if (res.status === 204) {
+              if (attempt < maxAttempts - 1) {
+                await new Promise((r) => setTimeout(r, backoffMs(attempt)));
+                continue;
+              }
+              break;
+            }
             if (res.ok) {
               const text = await res.text();
               if (cancelled) return;
@@ -566,13 +574,6 @@ export default function ResultsView({
                 tryAutoSwitchToFullReport();
               }
               return;
-            }
-            if (res.status === 404) {
-              if (attempt < maxAttempts - 1) {
-                await new Promise((r) => setTimeout(r, backoffMs(attempt)));
-                continue;
-              }
-              break;
             }
             const err = new Error(`Report fetch ${res.status}`);
             if (cancelled) return;

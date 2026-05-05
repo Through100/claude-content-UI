@@ -140,9 +140,14 @@ async function consumeRunStream(
 }
 
 export const apiService = {
-  /** Same-origin URL to download a path under CLAUDE_WORKDIR (see GET /api/workspace-file). */
-  workspaceFileDownloadUrl(clientPath: string): string {
-    return `${apiBase()}/api/workspace-file?path=${encodeURIComponent(clientPath)}`;
+  /**
+   * Same-origin URL to download a path under CLAUDE_WORKDIR (see GET /api/workspace-file).
+   * Use `ifMissing204` for polling: missing files yield HTTP 204 instead of 404 (avoids noisy console errors).
+   */
+  workspaceFileDownloadUrl(clientPath: string, opts?: { ifMissing204?: boolean }): string {
+    const q = new URLSearchParams({ path: clientPath });
+    if (opts?.ifMissing204) q.set('ifMissing', '204');
+    return `${apiBase()}/api/workspace-file?${q.toString()}`;
   },
 
   /**

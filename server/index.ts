@@ -386,6 +386,11 @@ app.get('/api/workspace-file', (req, res) => {
       return;
     }
     if (!fs.existsSync(abs)) {
+      /** When set, missing files return 204 so the UI can poll without Chrome logging repeated 404 network errors. */
+      if (String(req.query.ifMissing ?? '').trim() === '204') {
+        res.status(204).end();
+        return;
+      }
       res.status(404).json({ error: 'File not found' });
       return;
     }
