@@ -124,8 +124,12 @@ type MarkdownReportCandidate = {
   mtimeMs: number;
 };
 
-async function listMarkdownReports(dir: string, relBase: string, depth = 0): Promise<MarkdownReportCandidate[]> {
-  if (depth > 2) return [];
+type WorkspaceFileCandidate = MarkdownReportCandidate & {
+  contentType: string;
+};
+
+async function listWorkspaceFiles(dir: string, relBase: string, depth = 0): Promise<WorkspaceFileCandidate[]> {
+  if (depth > 3) return [];
   let entries: fs.Dirent[];
   try {
     entries = await fsp.readdir(dir, { withFileTypes: true });
@@ -133,24 +137,47 @@ async function listMarkdownReports(dir: string, relBase: string, depth = 0): Pro
     return [];
   }
 
-  const out: MarkdownReportCandidate[] = [];
-  for (const entry of entries.slice(0, 300)) {
+  const out: WorkspaceFileCandidate[] = [];
+  for (const entry of entries.slice(0, 500)) {
     if (entry.name.startsWith('.')) continue;
     const abs = path.join(dir, entry.name);
     const rel = `${relBase}/${entry.name}`.replace(/\\/g, '/');
     if (entry.isDirectory()) {
-      out.push(...(await listMarkdownReports(abs, rel, depth + 1)));
+      out.push(...(await listWorkspaceFiles(abs, rel, depth + 1)));
       continue;
     }
-    if (!entry.isFile() || !/\.md(?:own)?$/i.test(entry.name)) continue;
+    if (!entry.isFile()) continue;
     try {
       const st = await fsp.stat(abs);
-      out.push({ abs, rel, name: entry.name, size: st.size, mtimeMs: st.mtimeMs });
+      out.push({
+        abs,
+        rel,
+        name: entry.name,
+        size: st.size,
+        mtimeMs: st.mtimeMs,
+        contentType: guessContentType(abs)
+      });
     } catch {
       /* ignore disappearing files */
     }
   }
   return out;
+}
+
+async function listFilesInWorkspaceSegment(segment: string): Promise<WorkspaceFileCandidate[]> {
+  const safeSegment = segment.trim().replace(/^workspace-files[\\/]+/i, '').replace(/^["'`]+|["'`]+$/g, '');
+  if (!safeSegment || safeSegment.includes('..')) return [];
+  const relDir = `workspace-files/${safeSegment}`.replace(/\\/g, '/');
+  const absDir = resolveSafePathUnderWorkdir(relDir);
+  if (!absDir) return [];
+  let st: fs.Stats;
+  try {
+    st = await fsp.stat(absDir);
+  } catch {
+    return [];
+  }
+  if (!st.isDirectory()) return [];
+  return listWorkspaceFiles(absDir, relDir);
 }
 
 function scoreMarkdownReportCandidate(c: MarkdownReportCandidate): number {
@@ -167,19 +194,8 @@ function scoreMarkdownReportCandidate(c: MarkdownReportCandidate): number {
 }
 
 async function findBestMarkdownReportInWorkspaceSegment(segment: string): Promise<MarkdownReportCandidate | null> {
-  const safeSegment = segment.trim().replace(/^workspace-files[\\/]+/i, '').replace(/^["'`]+|["'`]+$/g, '');
-  if (!safeSegment || safeSegment.includes('..')) return null;
-  const relDir = `workspace-files/${safeSegment}`.replace(/\\/g, '/');
-  const absDir = resolveSafePathUnderWorkdir(relDir);
-  if (!absDir) return null;
-  let st: fs.Stats;
-  try {
-    st = await fsp.stat(absDir);
-  } catch {
-    return null;
-  }
-  if (!st.isDirectory()) return null;
-  const candidates = await listMarkdownReports(absDir, relDir);
+  const files = await listFilesInWorkspaceSegment(segment);
+  const candidates = files.filter((f) => /\.md(?:own)?$/i.test(f.name));
   if (candidates.length === 0) return null;
   return candidates.sort((a, b) => {
     const byScore = scoreMarkdownReportCandidate(b) - scoreMarkdownReportCandidate(a);
@@ -519,6 +535,33 @@ app.get('/api/workspace-report', async (req, res) => {
     stream.pipe(res);
   } catch (e) {
     console.error('[claude-seo-ui] GET /api/workspace-report:', e);
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+/** List downloadable files inside one workspace output folder. */
+app.get('/api/workspace-files', async (req, res) => {
+  try {
+    const segment = String(req.query.segment ?? '').trim();
+    if (!segment) {
+      res.status(400).json({ error: 'Missing segment query parameter' });
+      return;
+    }
+    const files = await listFilesInWorkspaceSegment(segment);
+    res.json({
+      segment,
+      files: files
+        .sort((a, b) => a.rel.localeCompare(b.rel))
+        .map((f) => ({
+          path: f.rel,
+          name: f.name,
+          size: f.size,
+          mtimeMs: f.mtimeMs,
+          contentType: f.contentType
+        }))
+    });
+  } catch (e) {
+    console.error('[claude-seo-ui] GET /api/workspace-files:', e);
     res.status(500).json({ error: String(e) });
   }
 });

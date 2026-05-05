@@ -160,6 +160,21 @@ export const apiService = {
     return `${apiBase()}/api/workspace-report?${q.toString()}`;
   },
 
+  async listWorkspaceFiles(workspaceOutputSegment: string): Promise<
+    { path: string; name: string; size: number; mtimeMs: number; contentType: string }[]
+  > {
+    const q = new URLSearchParams({ segment: workspaceOutputSegment });
+    const res = await fetch(`${apiBase()}/api/workspace-files?${q.toString()}`);
+    const data = await parseJson<{
+      files?: { path: string; name: string; size: number; mtimeMs: number; contentType: string }[];
+      error?: string;
+    }>(res);
+    if (!res.ok) {
+      throw new Error(data.error || `Workspace file list failed (${res.status})`);
+    }
+    return Array.isArray(data.files) ? data.files : [];
+  },
+
   /**
    * Save a file into CLAUDE_WORKDIR/ui-uploads on the API host and return a path suitable for Target (e.g. blog analyze).
    */

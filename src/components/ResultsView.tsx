@@ -133,6 +133,7 @@ export default function ResultsView({
   const [fetchedReportContent, setFetchedReportContent] = useState<string | null>(null);
   const [fetchedReportPath, setFetchedReportPath] = useState<string | null>(null);
   const [isFetchingReport, setIsFetchingReport] = useState(false);
+  const [workspaceFolderFilePaths, setWorkspaceFolderFilePaths] = useState<string[]>([]);
   const hasAutoSwitchedToReportRef = useRef(false);
   /** Latest `isLoading` for async fetch callbacks (avoid stale closure when switching tabs after run ends). */
   const isLoadingRef = useRef(isLoading);
@@ -531,20 +532,69 @@ export default function ResultsView({
     return [...new Set(segments)];
   }, [chatThreadKey, effectiveRunDirSegment, isHistoryEmbed, ptySentAt]);
 
-  /** Download strip: session-scoped extracted paths only (no speculative report name list). */
-  const workspaceDownloadPaths = sessionWorkspaceArtifactPaths;
+  const workspaceFileLocatorSegments = useMemo(() => {
+    if (!isHistoryEmbed && ptySentAt == null) {
+      return [];
+    }
+    const { commandKey, target } = parseChatThreadKey(chatThreadKey);
+    const primary = effectiveRunDirSegment?.trim() || workspaceFilesDirSegment(commandKey, target);
+    return primary ? [primary] : [];
+  }, [chatThreadKey, effectiveRunDirSegment, isHistoryEmbed, ptySentAt]);
+
+  /** Download strip: paths from the actual run folder plus any session-scoped paths mentioned in output. */
+  const workspaceDownloadPaths = useMemo(() => {
+    const byKey = new Map<string, string>();
+    for (const p of [...workspaceFolderFilePaths, ...sessionWorkspaceArtifactPaths]) {
+      const t = p.trim();
+      if (!t) continue;
+      const k = t.replace(/\\/g, '/').toLowerCase();
+      if (!byKey.has(k)) byKey.set(k, t);
+    }
+    return Array.from(byKey.values()).sort((a, b) => a.localeCompare(b));
+  }, [sessionWorkspaceArtifactPaths, workspaceFolderFilePaths]);
 
   const reportMarkdownCandidatesKey = reportMarkdownCandidates.join('\n');
   const reportLocatorSegmentsKey = reportLocatorSegments.join('\n');
+  const workspaceFileLocatorSegmentsKey = workspaceFileLocatorSegments.join('\n');
 
   useEffect(() => {
     // Reset state when chat thread changes
     setFetchedReportContent(null);
     setFetchedReportPath(null);
     setIsFetchingReport(false);
+    setWorkspaceFolderFilePaths([]);
     hasAutoSwitchedToReportRef.current = false;
     setActiveTab(embedMode === 'history' ? 'report' : 'pretty');
   }, [chatThreadKey, embedMode]);
+
+  useEffect(() => {
+    if (workspaceFileLocatorSegments.length === 0) {
+      setWorkspaceFolderFilePaths([]);
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      const all: string[] = [];
+      for (const segment of workspaceFileLocatorSegments) {
+        try {
+          const files = await apiService.listWorkspaceFiles(segment);
+          for (const file of files) {
+            if (file.path.trim()) all.push(file.path);
+          }
+        } catch (e) {
+          console.warn('[claude-content-ui] workspace file list failed:', e);
+        }
+      }
+      if (cancelled) return;
+      const unique = [...new Map(all.map((p) => [p.replace(/\\/g, '/').toLowerCase(), p] as const)).values()];
+      setWorkspaceFolderFilePaths(unique.sort((a, b) => a.localeCompare(b)));
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceFileLocatorSegments, workspaceFileLocatorSegmentsKey]);
 
   useEffect(() => {
     if (!isHistoryEmbed && reportMarkdownCandidates.length === 0 && activeTab === 'report') {
