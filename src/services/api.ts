@@ -151,6 +151,16 @@ export const apiService = {
   },
 
   /**
+   * Same-origin URL that asks the API to find the best markdown report inside one workspace output folder.
+   * This is safer for History because Claude may choose a report filename outside our fallback guesses.
+   */
+  workspaceReportDownloadUrl(workspaceOutputSegment: string, opts?: { ifMissing204?: boolean }): string {
+    const q = new URLSearchParams({ segment: workspaceOutputSegment });
+    if (opts?.ifMissing204) q.set('ifMissing', '204');
+    return `${apiBase()}/api/workspace-report?${q.toString()}`;
+  },
+
+  /**
    * Save a file into CLAUDE_WORKDIR/ui-uploads on the API host and return a path suitable for Target (e.g. blog analyze).
    */
   async uploadTargetFile(file: File): Promise<{ relativePath: string; bytesWritten: number }> {

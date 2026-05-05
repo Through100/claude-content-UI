@@ -116,6 +116,80 @@ function guessContentType(filePath: string): string {
   return map[ext] || 'application/octet-stream';
 }
 
+type MarkdownReportCandidate = {
+  abs: string;
+  rel: string;
+  name: string;
+  size: number;
+  mtimeMs: number;
+};
+
+async function listMarkdownReports(dir: string, relBase: string, depth = 0): Promise<MarkdownReportCandidate[]> {
+  if (depth > 2) return [];
+  let entries: fs.Dirent[];
+  try {
+    entries = await fsp.readdir(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const out: MarkdownReportCandidate[] = [];
+  for (const entry of entries.slice(0, 300)) {
+    if (entry.name.startsWith('.')) continue;
+    const abs = path.join(dir, entry.name);
+    const rel = `${relBase}/${entry.name}`.replace(/\\/g, '/');
+    if (entry.isDirectory()) {
+      out.push(...(await listMarkdownReports(abs, rel, depth + 1)));
+      continue;
+    }
+    if (!entry.isFile() || !/\.md(?:own)?$/i.test(entry.name)) continue;
+    try {
+      const st = await fsp.stat(abs);
+      out.push({ abs, rel, name: entry.name, size: st.size, mtimeMs: st.mtimeMs });
+    } catch {
+      /* ignore disappearing files */
+    }
+  }
+  return out;
+}
+
+function scoreMarkdownReportCandidate(c: MarkdownReportCandidate): number {
+  const n = c.name.toLowerCase();
+  let score = 0;
+  if (/\b(full[-_ ]?)?report\b/.test(n)) score += 80;
+  if (/\baudit\b/.test(n)) score += 55;
+  if (/\bhealth\b/.test(n)) score += 45;
+  if (/\banalysis\b/.test(n)) score += 35;
+  if (/\bsummary\b/.test(n)) score += 15;
+  if (/\breadme\b/.test(n)) score -= 80;
+  score += Math.min(30, Math.floor(c.size / 4000));
+  return score;
+}
+
+async function findBestMarkdownReportInWorkspaceSegment(segment: string): Promise<MarkdownReportCandidate | null> {
+  const safeSegment = segment.trim().replace(/^workspace-files[\\/]+/i, '').replace(/^["'`]+|["'`]+$/g, '');
+  if (!safeSegment || safeSegment.includes('..')) return null;
+  const relDir = `workspace-files/${safeSegment}`.replace(/\\/g, '/');
+  const absDir = resolveSafePathUnderWorkdir(relDir);
+  if (!absDir) return null;
+  let st: fs.Stats;
+  try {
+    st = await fsp.stat(absDir);
+  } catch {
+    return null;
+  }
+  if (!st.isDirectory()) return null;
+  const candidates = await listMarkdownReports(absDir, relDir);
+  if (candidates.length === 0) return null;
+  return candidates.sort((a, b) => {
+    const byScore = scoreMarkdownReportCandidate(b) - scoreMarkdownReportCandidate(a);
+    if (byScore !== 0) return byScore;
+    const bySize = b.size - a.size;
+    if (bySize !== 0) return bySize;
+    return b.mtimeMs - a.mtimeMs;
+  })[0] ?? null;
+}
+
 const DEFAULT_RUN_TIMEOUT_MS = 1_800_000;
 const DEFAULT_USAGE_TIMEOUT_MS = 180_000;
 /** Reject 0/NaN/tiny values — they schedule SIGTERM immediately and look like "broken" Claude runs. */
@@ -412,6 +486,39 @@ app.get('/api/workspace-file', (req, res) => {
     stream.pipe(res);
   } catch (e) {
     console.error('[claude-seo-ui] GET /api/workspace-file:', e);
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+/** Locate and download the best markdown report inside one workspace output folder. */
+app.get('/api/workspace-report', async (req, res) => {
+  try {
+    const segment = String(req.query.segment ?? '').trim();
+    if (!segment) {
+      res.status(400).json({ error: 'Missing segment query parameter' });
+      return;
+    }
+    const found = await findBestMarkdownReportInWorkspaceSegment(segment);
+    if (!found) {
+      if (String(req.query.ifMissing ?? '').trim() === '204') {
+        res.status(204).end();
+        return;
+      }
+      res.status(404).json({ error: 'No markdown report found in workspace segment' });
+      return;
+    }
+    const name = path.basename(found.abs);
+    res.setHeader('Content-Type', guessContentType(found.abs));
+    res.setHeader('Content-Disposition', `attachment; filename="${name.replace(/"/g, '')}"`);
+    res.setHeader('X-Workspace-Path', encodeURIComponent(found.rel));
+    const stream = fs.createReadStream(found.abs);
+    stream.on('error', () => {
+      if (!res.headersSent) res.status(500).end();
+      else res.end();
+    });
+    stream.pipe(res);
+  } catch (e) {
+    console.error('[claude-seo-ui] GET /api/workspace-report:', e);
     res.status(500).json({ error: String(e) });
   }
 });

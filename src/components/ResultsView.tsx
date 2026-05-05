@@ -475,9 +475,9 @@ export default function ResultsView({
   const pathNorm = (p: string) => p.replace(/\\/g, '/').toLowerCase();
 
   /**
-   * Paths **actually mentioned** in captured output, restricted to this run’s workspace folder (per-run segment),
-   * or to `workspace-files/<cmd--target>/` when no run segment is known. Does not fall back to “any” extracted path
-   * (avoids old PTY scrollback / other targets). No speculative filenames — those stay on Full Report fetch only.
+   * Paths **actually mentioned** in captured output. Live runs are restricted to the active run folder to avoid old
+   * PTY scrollback; History output is already one saved run, so exact extracted paths are safest even when older
+   * history rows did not persist `workspaceOutputSegment`.
    */
   const sessionWorkspaceArtifactPaths = useMemo(() => {
     const { commandKey, target } = parseChatThreadKey(chatThreadKey);
@@ -492,6 +492,10 @@ export default function ResultsView({
     };
     for (const p of artifactPaths) {
       const low = pathNorm(p);
+      if (isHistoryEmbed) {
+        if (low.includes('workspace-files/')) add(p);
+        continue;
+      }
       if (runSeg) {
         if (low.includes(`workspace-files/${runSeg.toLowerCase()}/`)) add(p);
       } else if (low.includes(`workspace-files/${legacySegment.toLowerCase()}/`)) {
@@ -499,7 +503,7 @@ export default function ResultsView({
       }
     }
     return Array.from(byKey.values()).sort((a, b) => a.localeCompare(b));
-  }, [artifactPaths, chatThreadKey, effectiveRunDirSegment]);
+  }, [artifactPaths, chatThreadKey, effectiveRunDirSegment, isHistoryEmbed]);
 
   /**
    * Ordered paths to fetch for Full Report (extracted from transcript first, run folder preferred;
@@ -516,10 +520,22 @@ export default function ResultsView({
     });
   }, [sessionWorkspaceArtifactPaths, chatThreadKey, effectiveRunDirSegment, isHistoryEmbed, ptySentAt]);
 
+  const reportLocatorSegments = useMemo(() => {
+    if (!isHistoryEmbed && ptySentAt == null) {
+      return [];
+    }
+    const { commandKey, target } = parseChatThreadKey(chatThreadKey);
+    const segments = [effectiveRunDirSegment, workspaceFilesDirSegment(commandKey, target)]
+      .map((s) => s?.trim())
+      .filter((s): s is string => Boolean(s));
+    return [...new Set(segments)];
+  }, [chatThreadKey, effectiveRunDirSegment, isHistoryEmbed, ptySentAt]);
+
   /** Download strip: session-scoped extracted paths only (no speculative report name list). */
   const workspaceDownloadPaths = sessionWorkspaceArtifactPaths;
 
   const reportMarkdownCandidatesKey = reportMarkdownCandidates.join('\n');
+  const reportLocatorSegmentsKey = reportLocatorSegments.join('\n');
 
   useEffect(() => {
     // Reset state when chat thread changes
@@ -531,10 +547,10 @@ export default function ResultsView({
   }, [chatThreadKey, embedMode]);
 
   useEffect(() => {
-    if (reportMarkdownCandidates.length === 0 && activeTab === 'report') {
+    if (!isHistoryEmbed && reportMarkdownCandidates.length === 0 && activeTab === 'report') {
       setActiveTab('pretty');
     }
-  }, [reportMarkdownCandidates.length, activeTab]);
+  }, [reportMarkdownCandidates.length, activeTab, isHistoryEmbed]);
 
   const prevPtySentAtForReportRef = useRef<number | null>(null);
   /** Same thread key + second Run: `chatThreadKey` unchanged — bump `ptySentAt` still means a new Command Runner send. */
@@ -579,7 +595,7 @@ export default function ResultsView({
       setIsFetchingReport(false);
       return;
     }
-    if (reportMarkdownCandidates.length === 0) {
+    if (reportMarkdownCandidates.length === 0 && reportLocatorSegments.length === 0) {
       setIsFetchingReport(false);
       setFetchedReportPath(null);
       setFetchedReportContent(
@@ -603,19 +619,66 @@ export default function ResultsView({
     setIsFetchingReport(true);
     const maxAttempts = 28;
     const backoffMs = (attempt: number) => Math.min(3200, 500 + attempt * 160);
+    const fetchReport = async (url: string) => {
+      const ctrl = new AbortController();
+      const timeout = window.setTimeout(() => ctrl.abort(), isHistoryEmbed ? 7000 : 15000);
+      try {
+        return await fetch(url, { signal: ctrl.signal });
+      } finally {
+        window.clearTimeout(timeout);
+      }
+    };
 
     void (async () => {
+      for (const segment of reportLocatorSegments) {
+        if (cancelled) return;
+        const url = apiService.workspaceReportDownloadUrl(segment, { ifMissing204: true });
+        const attemptsForSegment = isHistoryEmbed ? 1 : maxAttempts;
+
+        for (let attempt = 0; attempt < attemptsForSegment; attempt++) {
+          if (cancelled) return;
+          try {
+            const res = await fetchReport(url);
+            if (res.status === 204) {
+              if (attempt < attemptsForSegment - 1) {
+                await new Promise((r) => setTimeout(r, backoffMs(attempt)));
+                continue;
+              }
+              break;
+            }
+            if (res.ok) {
+              const text = await res.text();
+              if (cancelled) return;
+              if (!text.trim()) break;
+              const headerPath = res.headers.get('X-Workspace-Path');
+              setFetchedReportContent(text);
+              setFetchedReportPath(headerPath ? decodeURIComponent(headerPath) : `workspace-files/${segment}`);
+              if (!isLoadingRef.current && text.trim()) {
+                tryAutoSwitchToFullReport();
+              }
+              return;
+            }
+            break;
+          } catch {
+            if (attempt < attemptsForSegment - 1) {
+              await new Promise((r) => setTimeout(r, backoffMs(attempt)));
+            }
+          }
+        }
+      }
+
       for (const mdPath of reportMarkdownCandidates) {
         if (cancelled) return;
         const url = apiService.workspaceFileDownloadUrl(mdPath, { ifMissing204: true });
+        const attemptsForPath = isHistoryEmbed ? 1 : maxAttempts;
 
-        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        for (let attempt = 0; attempt < attemptsForPath; attempt++) {
           if (cancelled) return;
           try {
-            const res = await fetch(url);
+            const res = await fetchReport(url);
             /** 204 = file not present yet (ifMissing=204); avoids repeated 404 console noise. */
             if (res.status === 204) {
-              if (attempt < maxAttempts - 1) {
+              if (attempt < attemptsForPath - 1) {
                 await new Promise((r) => setTimeout(r, backoffMs(attempt)));
                 continue;
               }
@@ -643,7 +706,7 @@ export default function ResultsView({
             );
             return;
           } catch (e) {
-            if (attempt < maxAttempts - 1) {
+            if (attempt < attemptsForPath - 1) {
               await new Promise((r) => setTimeout(r, backoffMs(attempt)));
             }
           }
@@ -651,10 +714,11 @@ export default function ResultsView({
       }
 
       if (cancelled) return;
-      const paths = reportMarkdownCandidates.map((p) => `\`${p.replace(/`/g, "'")}\``).join(', ');
+      const reportDirs = reportLocatorSegments.map((p) => `\`workspace-files/${p.replace(/`/g, "'")}/\``);
+      const paths = reportMarkdownCandidates.map((p) => `\`${p.replace(/`/g, "'")}\``);
       setFetchedReportPath(reportMarkdownCandidates[0] ?? '');
       setFetchedReportContent(
-        `## Report could not be loaded\n\nNone of the candidate markdown paths returned a file (after retries on each).\n\n**Tried:** ${paths}\n\n` +
+        `## Report could not be loaded\n\nNo markdown report was found for this history entry.\n\n**Searched folders:** ${reportDirs.join(', ') || '(none)'}\n\n**Tried paths:** ${paths.join(', ') || '(none)'}\n\n` +
           'Use **Raw View** to find the exact path from Claude’s output, or confirm the API sees the same `CLAUDE_WORKDIR` as the PTY.'
       );
     })().finally(() => {
@@ -665,7 +729,15 @@ export default function ResultsView({
       cancelled = true;
       setIsFetchingReport(false);
     };
-  }, [reportMarkdownCandidatesKey, fetchedReportContent, tryAutoSwitchToFullReport, ptySentAt, isHistoryEmbed]);
+  }, [
+    reportMarkdownCandidatesKey,
+    reportLocatorSegmentsKey,
+    reportLocatorSegments,
+    fetchedReportContent,
+    tryAutoSwitchToFullReport,
+    ptySentAt,
+    isHistoryEmbed
+  ]);
 
   const historyPrettySource = useMemo(() => {
     if (!isHistoryEmbed || !result) return { conversation: '', report: null };
