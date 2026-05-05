@@ -13,18 +13,19 @@ interface SeoCommandFormProps {
 }
 
 const FALLBACK_MODELS: ModelOption[] = [
-  { id: 'haiku', label: 'Haiku', description: 'Fast / efficient — default in this UI' },
+  { id: 'haiku', label: 'Haiku', description: 'Fast / efficient' },
   { id: 'default', label: 'Account default', description: 'Clears CLI model override (tier default)' },
   { id: 'sonnet', label: 'Sonnet', description: 'Latest Sonnet' },
   { id: 'sonnet[1m]', label: 'Sonnet (1M context)', description: 'Long context' },
   { id: 'opus', label: 'Opus', description: 'Most capable' },
-  { id: 'opus[1m]', label: 'Opus (1M context)', description: 'Long context Opus' }
+  { id: 'opus[1m]', label: 'Opus (1M context)', description: 'Long context Opus' },
+  { id: 'best', label: 'Best available', description: 'Alias for most capable (Opus-class)' }
 ];
 
 export default function SeoCommandForm({ onRun, onSessionChange, isLoading }: SeoCommandFormProps) {
   const [selectedKey, setSelectedKey] = useState(BLOG_COMMANDS[0].key);
   const [target, setTarget] = useState('');
-  const [model, setModel] = useState('haiku');
+  const [model, setModel] = useState('best');
   const [error, setError] = useState<string | null>(null);
   const [models, setModels] = useState<ModelOption[]>(FALLBACK_MODELS);
   const [uploadBusy, setUploadBusy] = useState(false);

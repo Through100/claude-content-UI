@@ -246,7 +246,7 @@ function parseRunRequest(body: unknown): ParsedRunRequest {
   const prompt = appendHeadlessHttpUrlHint(buildBlogPrompt(cmd, targetTrimmed), targetTrimmed);
   const rawModel = b.model;
   const model =
-    typeof rawModel === 'string' && rawModel.trim() !== '' ? rawModel.trim() : 'haiku';
+    typeof rawModel === 'string' && rawModel.trim() !== '' ? rawModel.trim() : 'best';
   return { ok: true as const, cmd, prompt, targetTrimmed, model };
 }
 
@@ -322,13 +322,13 @@ function buildRunBody(input: {
 }
 
 const DEFAULT_MODELS = [
-  { id: 'haiku', label: 'Haiku', description: 'Fast, efficient — default in this UI' },
+  { id: 'haiku', label: 'Haiku', description: 'Fast, efficient' },
   { id: 'default', label: 'Account default', description: 'Clears override; tier default' },
   { id: 'sonnet', label: 'Sonnet', description: 'Latest Sonnet for daily work' },
   { id: 'sonnet[1m]', label: 'Sonnet (1M context)', description: 'Long context Sonnet' },
   { id: 'opus', label: 'Opus', description: 'Most capable default Opus' },
   { id: 'opus[1m]', label: 'Opus (1M context)', description: 'Long context Opus' },
-  { id: 'best', label: 'Best available', description: 'Alias for most capable (opus-class)' }
+  { id: 'best', label: 'Best available', description: 'Alias for most capable (Opus-class)' }
 ];
 
 const app = express();

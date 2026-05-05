@@ -67,7 +67,7 @@ export function formatRunUserSummary(commandKey: string, target: string, model?:
   const label = cmd?.label ?? commandKey;
   const t = target.trim();
   const tail = t ? ` — ${t}` : '';
-  const m = model && model !== 'haiku' ? ` · ${model}` : '';
+  const m = model && model !== 'best' ? ` · ${model}` : '';
   return `${label}${tail}${m}`;
 }
 

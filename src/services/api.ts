@@ -180,7 +180,7 @@ export const apiService = {
     onStreamChunk?: (channel: 'stdout' | 'stderr', text: string) => void,
     onStreamEvent?: (ev: { type: string }) => void
   ): Promise<RunResponse> {
-    const payload = { commandKey, target, model: model || 'haiku' };
+    const payload = { commandKey, target, model: model || 'best' };
 
     if (useRunStream()) {
       return consumeRunStream(
