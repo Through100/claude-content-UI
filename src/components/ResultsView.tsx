@@ -71,6 +71,11 @@ interface ResultsViewProps {
   embedMode?: 'live' | 'history';
   /** Date.now() when the last command was sent to PTY; used to show a brief waiting hint. */
   ptySentAt?: number | null;
+  /**
+   * Run-scoped `workspace-files/<segment>/` directory (command + target + per-run time). Drives Full Report
+   * for the live Command Runner; history uses {@link RunResponse.stats.workspaceOutputSegment} when present.
+   */
+  workspaceOutputSegment?: string | null;
   /** Parent reads merged Pretty PTY transcript before the next Run (server History for interactive sessions). */
   ptyMergedCaptureRef?: React.MutableRefObject<() => string>;
   /** Same as Logon → Restart: kill PTY if needed, clear Pretty transcript, reconnect WebSocket. */
@@ -100,10 +105,18 @@ export default function ResultsView({
   lastRunThreadMeta = null,
   embedMode = 'live',
   ptySentAt = null,
+  workspaceOutputSegment: workspaceOutputSegmentProp = null,
   ptyMergedCaptureRef,
   onRestartPtySession
 }: ResultsViewProps) {
   const isHistoryEmbed = embedMode === 'history';
+  const effectiveRunDirSegment = useMemo(
+    () =>
+      (workspaceOutputSegmentProp?.trim() ||
+        result?.stats?.workspaceOutputSegment?.trim() ||
+        undefined) as string | undefined,
+    [workspaceOutputSegmentProp, result?.stats?.workspaceOutputSegment]
+  );
   const [activeTab, setActiveTab] = useState<'report' | 'pretty' | 'raw'>('pretty');
   const [fetchedReportContent, setFetchedReportContent] = useState<string | null>(null);
   const [fetchedReportPath, setFetchedReportPath] = useState<string | null>(null);
@@ -441,24 +454,36 @@ export default function ResultsView({
 
   const pathNorm = (p: string) => p.replace(/\\/g, '/').toLowerCase();
 
-  /** Paths under `workspace-files/<commandKey>--<targetSlug>/` for the active Command Runner thread (falls back if transcript only has legacy dirs). */
+  /**
+   * Paths under the run-specific folder first (`workspace-files/<segment>--run-<time>/`), then legacy
+   * `workspace-files/<cmd--target>/`, then any extracted paths.
+   */
   const scopedWorkspaceArtifactPaths = useMemo(() => {
     const { commandKey, target } = parseChatThreadKey(chatThreadKey);
-    const segment = workspaceFilesDirSegment(commandKey, target);
-    const dirNeedle = `workspace-files/${segment}/`.toLowerCase();
-    const scoped = artifactPaths.filter((p) => pathNorm(p).includes(dirNeedle));
-    return scoped.length > 0 ? scoped : artifactPaths;
-  }, [artifactPaths, chatThreadKey]);
+    const legacySegment = workspaceFilesDirSegment(commandKey, target);
+    const needles: string[] = [];
+    if (effectiveRunDirSegment) {
+      needles.push(`workspace-files/${effectiveRunDirSegment}/`.toLowerCase());
+    }
+    needles.push(`workspace-files/${legacySegment}/`.toLowerCase());
+    for (const dirNeedle of needles) {
+      const scoped = artifactPaths.filter((p) => pathNorm(p).includes(dirNeedle));
+      if (scoped.length > 0) return scoped;
+    }
+    return artifactPaths;
+  }, [artifactPaths, chatThreadKey, effectiveRunDirSegment]);
 
   /**
-   * Ordered paths to fetch for Full Report (extracted from transcript first, then command-specific guesses).
-   * Fixes History for flows like `/blog audit` (`site-health`) where the saved PTY transcript may omit the final Write path.
+   * Ordered paths to fetch for Full Report (extracted from transcript first, run folder preferred;
+   * then command-specific guesses under the run directory, then legacy cmd–target directory).
    */
   const reportMarkdownCandidates = useMemo(() => {
     const { commandKey, target } = parseChatThreadKey(chatThreadKey);
     const extractedMd = scopedWorkspaceArtifactPaths.filter((p) => /\.md$/i.test(p));
-    return workspaceReportMarkdownCandidates(commandKey, target, extractedMd);
-  }, [scopedWorkspaceArtifactPaths, chatThreadKey]);
+    return workspaceReportMarkdownCandidates(commandKey, target, extractedMd, {
+      runDirSegment: effectiveRunDirSegment
+    });
+  }, [scopedWorkspaceArtifactPaths, chatThreadKey, effectiveRunDirSegment]);
 
   /** Download strip: extracted paths plus candidate report paths for this session. */
   const workspaceDownloadPaths = useMemo(() => {

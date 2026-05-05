@@ -244,6 +244,7 @@ export const apiService = {
     rawOutput: string;
     startedAt: string;
     finishedAt: string;
+    workspaceOutputSegment?: string;
   }): Promise<void> {
     const res = await fetch(`${apiBase()}/api/history/pty`, {
       method: 'POST',

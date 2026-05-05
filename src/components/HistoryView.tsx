@@ -116,7 +116,8 @@ export default function HistoryView() {
               stats: {
                 durationMs: selectedItem.durationMs,
                 startedAt: selectedItem.timestamp,
-                finishedAt: selectedItem.timestamp // Approximation
+                finishedAt: selectedItem.timestamp, // Approximation
+                workspaceOutputSegment: selectedItem.workspaceOutputSegment
               }
             }}
             isLoading={false}

@@ -27,6 +27,7 @@ import { runBashAccountStatus, runBashCost, runBashUsage } from './usageShellPro
 import {
   BLOG_COMMANDS,
   buildBlogPrompt,
+  formatWorkspaceRunDirSegment,
   isLikelyHttpUrl,
   type BlogCommand,
   type HistoryItem,
@@ -224,7 +225,7 @@ function logClaudeRun(meta: {
 }
 
 type ParsedRunRequest =
-  | { ok: true; cmd: BlogCommand; prompt: string; targetTrimmed: string; model?: string }
+  | { ok: true; cmd: BlogCommand; targetTrimmed: string; model: string }
   | { ok: false; error: string };
 
 function parseRunRequest(body: unknown): ParsedRunRequest {
@@ -243,11 +244,10 @@ function parseRunRequest(body: unknown): ParsedRunRequest {
   if (!cmd.targetOptional && !targetTrimmed) {
     return { ok: false as const, error: 'Target is required for this command' };
   }
-  const prompt = appendHeadlessHttpUrlHint(buildBlogPrompt(cmd, targetTrimmed), targetTrimmed);
   const rawModel = b.model;
   const model =
     typeof rawModel === 'string' && rawModel.trim() !== '' ? rawModel.trim() : 'best';
-  return { ok: true as const, cmd, prompt, targetTrimmed, model };
+  return { ok: true as const, cmd, targetTrimmed, model };
 }
 
 function buildRunBody(input: {
@@ -258,8 +258,9 @@ function buildRunBody(input: {
   startedAt: string;
   t0: number;
   cwd: string;
+  workspaceOutputSegment: string;
 }): { body: RunResponse; item: HistoryItem } {
-  const { result, prompt, cmd, targetTrimmed, startedAt, t0, cwd } = input;
+  const { result, prompt, cmd, targetTrimmed, startedAt, t0, cwd, workspaceOutputSegment } = input;
   const finishedAt = new Date().toISOString();
   const durationMs = Date.now() - t0;
   logClaudeRun({
@@ -304,7 +305,7 @@ function buildRunBody(input: {
     commandExecuted: prompt,
     rawOutput,
     parsedReport,
-    stats: { durationMs, startedAt, finishedAt },
+    stats: { durationMs, startedAt, finishedAt, workspaceOutputSegment },
     error: ok ? undefined : `claude exited ${result.code}${result.signal ? ` (${result.signal})` : ''}`.trim()
   };
   const item: HistoryItem = {
@@ -316,7 +317,8 @@ function buildRunBody(input: {
     status: ok ? 'success' : 'error',
     durationMs,
     rawOutput,
-    parsedReport
+    parsedReport,
+    workspaceOutputSegment
   };
   return { body, item };
 }
@@ -461,6 +463,7 @@ type PtyHistoryAppendBody = {
   rawOutput: string;
   startedAt: string;
   finishedAt: string;
+  workspaceOutputSegment?: string;
 };
 
 function parsePtyHistoryAppend(
@@ -493,6 +496,10 @@ function parsePtyHistoryAppend(
   if (b.rawOutput.length > maxOut) {
     return { ok: false as const, error: `rawOutput exceeds ${maxOut} characters` };
   }
+  const ws =
+    typeof b.workspaceOutputSegment === 'string' && b.workspaceOutputSegment.trim()
+      ? b.workspaceOutputSegment.trim()
+      : formatWorkspaceRunDirSegment(cmd.key, targetTrimmed, String(b.startedAt));
   return {
     ok: true as const,
     data: {
@@ -500,7 +507,8 @@ function parsePtyHistoryAppend(
       target: targetTrimmed,
       rawOutput: b.rawOutput,
       startedAt: b.startedAt,
-      finishedAt: b.finishedAt
+      finishedAt: b.finishedAt,
+      workspaceOutputSegment: ws
     }
   };
 }
@@ -528,7 +536,8 @@ app.post('/api/history/pty', async (req, res) => {
       status: 'success',
       durationMs,
       rawOutput: data.rawOutput,
-      parsedReport
+      parsedReport,
+      workspaceOutputSegment: data.workspaceOutputSegment
     });
     res.json({ ok: true });
   } catch (e) {
@@ -599,8 +608,13 @@ app.post('/api/run', async (req, res) => {
     res.status(400).json({ error: parsed.error });
     return;
   }
-  const { cmd, prompt, targetTrimmed, model } = parsed;
+  const { cmd, targetTrimmed, model } = parsed;
   const startedAt = new Date().toISOString();
+  const workspaceOutputSegment = formatWorkspaceRunDirSegment(cmd.key, targetTrimmed, startedAt);
+  const prompt = appendHeadlessHttpUrlHint(
+    buildBlogPrompt(cmd, targetTrimmed, { runToken: startedAt }),
+    targetTrimmed
+  );
   const t0 = Date.now();
   const cwd = workdir();
 
@@ -619,7 +633,8 @@ app.post('/api/run', async (req, res) => {
       targetTrimmed,
       startedAt,
       t0,
-      cwd
+      cwd,
+      workspaceOutputSegment
     });
     await appendHistoryItem(item);
     res.json(body);
@@ -633,7 +648,7 @@ app.post('/api/run', async (req, res) => {
       success: false,
       commandExecuted: prompt,
       rawOutput: message,
-      stats: { durationMs, startedAt, finishedAt },
+      stats: { durationMs, startedAt, finishedAt, workspaceOutputSegment },
       error: message
     } satisfies RunResponse);
   }
@@ -645,8 +660,13 @@ app.post('/api/run/stream', async (req, res) => {
     res.status(400).json({ error: parsed.error });
     return;
   }
-  const { cmd, prompt, targetTrimmed, model } = parsed;
+  const { cmd, targetTrimmed, model } = parsed;
   const startedAt = new Date().toISOString();
+  const workspaceOutputSegment = formatWorkspaceRunDirSegment(cmd.key, targetTrimmed, startedAt);
+  const prompt = appendHeadlessHttpUrlHint(
+    buildBlogPrompt(cmd, targetTrimmed, { runToken: startedAt }),
+    targetTrimmed
+  );
   const t0 = Date.now();
   const cwd = workdir();
 
@@ -740,7 +760,8 @@ app.post('/api/run/stream', async (req, res) => {
       targetTrimmed,
       startedAt,
       t0,
-      cwd
+      cwd,
+      workspaceOutputSegment
     });
     await appendHistoryItem(item);
     sse({ type: 'done', result: body });

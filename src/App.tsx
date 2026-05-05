@@ -7,7 +7,7 @@ import AccountView from './components/AccountView';
 import LogonView from './components/LogonView';
 import UsageView from './components/UsageView';
 import { apiService } from './services/api';
-import { BLOG_COMMANDS, buildBlogPrompt } from './types';
+import { BLOG_COMMANDS, buildBlogPrompt, formatWorkspaceRunDirSegment } from './types';
 import { clearDashboardChatHistory, formatChatThreadKey } from './lib/dashboardChatHistory';
 import { savePtyPrettyArchive } from './lib/ptyPrettyArchiveStorage';
 import { usePtyBridge } from './context/PtyBridgeContext';
@@ -109,7 +109,12 @@ export default function App() {
   /** Latest merged Pretty transcript (ResultsView); read synchronously before clearing for the next Run. */
   const ptyMergedCaptureRef = useRef<() => string>(() => '');
   /** Metadata for the Command Runner turn currently accumulating in the PTY (saved when the next Run starts or tab hides). */
-  const lastPtyHistoryMetaRef = useRef<{ commandKey: string; target: string; startedAt: string } | null>(null);
+  const lastPtyHistoryMetaRef = useRef<{
+    commandKey: string;
+    target: string;
+    startedAt: string;
+    workspaceOutputSegment: string;
+  } | null>(null);
   const recordedPtyHistoryStartsRef = useRef<Set<string>>(new Set());
 
   const tryAppendPtyConversationToHistory = useCallback(async () => {
@@ -124,7 +129,8 @@ export default function App() {
         target: prev.target,
         rawOutput: merged,
         startedAt: prev.startedAt,
-        finishedAt
+        finishedAt,
+        workspaceOutputSegment: prev.workspaceOutputSegment
       });
       recordedPtyHistoryStartsRef.current.add(prev.startedAt);
     } catch (e) {
@@ -151,8 +157,11 @@ export default function App() {
     };
   }, []);
 
+  const [ptyWorkspaceOutputSegment, setPtyWorkspaceOutputSegment] = useState<string | null>(null);
+
   const onRunnerSessionChange = useCallback((commandKey: string, target: string) => {
     setChatThreadKey(formatChatThreadKey(commandKey, target));
+    setPtyWorkspaceOutputSegment(null);
   }, []);
 
   const handleRun = useCallback(
@@ -174,7 +183,10 @@ export default function App() {
     const threadKey = formatChatThreadKey(commandKey, target.trim());
     clearDashboardChatHistory(threadKey);
     savePtyPrettyArchive(threadKey, '');
-    const prompt = buildBlogPrompt(cmd, target);
+    const runStartedAt = new Date().toISOString();
+    const workspaceOutputSegment = formatWorkspaceRunDirSegment(commandKey, target.trim(), runStartedAt);
+    setPtyWorkspaceOutputSegment(workspaceOutputSegment);
+    const prompt = buildBlogPrompt(cmd, target, { runToken: runStartedAt });
     clearLiveTranscript({ resetPrettySession: true });
 
     const releaseRunnerUi = () => {
@@ -211,7 +223,8 @@ export default function App() {
       lastPtyHistoryMetaRef.current = {
         commandKey,
         target: target.trim(),
-        startedAt: new Date().toISOString()
+        startedAt: runStartedAt,
+        workspaceOutputSegment
       };
     };
 
@@ -335,6 +348,7 @@ export default function App() {
                 loadingStartedAt={ptySentAt}
                 chatThreadKey={chatThreadKey}
                 ptySentAt={ptySentAt}
+                workspaceOutputSegment={ptyWorkspaceOutputSegment ?? undefined}
                 ptyMergedCaptureRef={ptyMergedCaptureRef}
                 onRestartPtySession={terminalWsEnabled ? handleRestartPtySession : undefined}
               />

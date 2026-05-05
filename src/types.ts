@@ -51,6 +51,11 @@ export interface RunStats {
   durationMs: number;
   startedAt: string;
   finishedAt: string;
+  /**
+   * Directory name under `workspace-files/<this>/` for this run (command + target + per-run token).
+   * Used to load the correct Full Report and downloads for a specific history entry.
+   */
+  workspaceOutputSegment?: string;
 }
 
 export interface RunResponse {
@@ -72,6 +77,8 @@ export interface HistoryItem {
   durationMs: number;
   rawOutput?: string;
   parsedReport?: ParsedReport;
+  /** Same as {@link RunStats.workspaceOutputSegment}; persisted for History Full Report / downloads. */
+  workspaceOutputSegment?: string;
 }
 
 export interface GroupedHistory {
@@ -409,20 +416,53 @@ export function workspaceFilesDirSegment(commandKey: string, targetTrimmed: stri
   return `${cmdSlug}--${targetSlug}`;
 }
 
+/** Makes a single-run token safe as part of a directory name (e.g. ISO timestamps). */
+export function sanitizeWorkspaceRunToken(token: string): string {
+  return token
+    .trim()
+    .replace(/:/g, '-')
+    .replace(/\./g, '-')
+    .replace(/[^a-zA-Z0-9._-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 96);
+}
+
+/**
+ * Directory segment for one dashboard/API run: `command--target--run-<token>` so outputs do not collide
+ * across reruns with the same command + URL. `runToken` is usually `stats.startedAt` (ISO).
+ */
+export function formatWorkspaceRunDirSegment(commandKey: string, targetTrimmed: string, runToken: string): string {
+  const base = workspaceFilesDirSegment(commandKey, targetTrimmed);
+  const t = sanitizeWorkspaceRunToken(runToken);
+  if (!t) return base;
+  return `${base}--run-${t}`;
+}
+
+export type WorkspaceReportCandidatesOptions = {
+  /**
+   * Directory name only (no `workspace-files/` prefix), e.g. `site-health--example-com--run-2026-05-01T12-00-00-000Z`.
+   * When set, paths under this run folder are preferred; fallback guesses use this folder first, then the legacy command+target folder.
+   */
+  runDirSegment?: string;
+};
+
 /**
  * Ordered relative paths under CLAUDE_WORKDIR to try for Full Report when loading History or when
  * the saved transcript never mentions the final `Write(.../*.md)` line (common for long PTY runs).
- * Extracted paths from the transcript are tried first; then command-specific guesses under
- * `workspace-files/<workspaceFilesDirSegment>/`.
+ * Extracted paths from the transcript are tried first (paths under the run-specific folder first);
+ * then command-specific guesses under `workspace-files/<runDirSegment>/`, then legacy `workspace-files/<cmd--target>/`.
  */
 export function workspaceReportMarkdownCandidates(
   commandKey: string,
   targetTrimmed: string,
-  extractedRelativeMdPaths: string[]
+  extractedRelativeMdPaths: string[],
+  options?: WorkspaceReportCandidatesOptions
 ): string[] {
   const normPath = (p: string) => p.replace(/\\/g, '/').replace(/^\.\//, '').trim();
-  const slug = workspaceFilesDirSegment(commandKey, targetTrimmed);
-  const base = `workspace-files/${slug}/`;
+  const legacySlug = workspaceFilesDirSegment(commandKey, targetTrimmed);
+  const primarySlug = (options?.runDirSegment?.trim() || legacySlug).trim() || legacySlug;
+
   const out: string[] = [];
   const add = (p: string) => {
     const t = normPath(p);
@@ -434,49 +474,77 @@ export function workspaceReportMarkdownCandidates(
   const extracted = [...new Set(extractedRelativeMdPaths.map(normPath).filter(Boolean))].filter((p) =>
     /\.md$/i.test(p)
   );
-  const geo = extracted.find((p) => /geo-audit-report\.md$/i.test(lower(p)));
-  const analysis = extracted.find((p) => /analysis-report\.md$/i.test(lower(p)));
-  const rest = extracted.filter((p) => p !== geo && p !== analysis);
-  if (geo) add(geo);
-  if (analysis) add(analysis);
-  for (const p of rest) add(p);
+
+  const primaryNeedle = `workspace-files/${primarySlug}/`.toLowerCase();
+  const inRun = extracted.filter((p) => lower(p).includes(primaryNeedle));
+  const outOfRun = extracted.filter((p) => !lower(p).includes(primaryNeedle));
+
+  const addGeoAnalysisRest = (pool: string[]) => {
+    const geo = pool.find((p) => /geo-audit-report\.md$/i.test(lower(p)));
+    const analysis = pool.find((p) => /analysis-report\.md$/i.test(lower(p)));
+    const rest = pool.filter((p) => p !== geo && p !== analysis);
+    if (geo) add(geo);
+    if (analysis) add(analysis);
+    for (const p of rest) add(p);
+  };
+  addGeoAnalysisRest(inRun);
+  addGeoAnalysisRest(outOfRun);
+
+  const bases: string[] =
+    primarySlug === legacySlug
+      ? [`workspace-files/${primarySlug}/`]
+      : [`workspace-files/${primarySlug}/`, `workspace-files/${legacySlug}/`];
 
   const k = commandKey.trim().toLowerCase();
-  if (k === 'geo') {
-    add(`${base}geo-audit-report.md`);
-  }
-  if (k === 'analyze') {
-    add(`${base}analysis-report.md`);
-  }
-  if (k === 'site-health') {
-    add(`${base}site-health-report.md`);
-    add(`${base}blog-health-report.md`);
-    add(`${base}full-site-health-report.md`);
-    add(`${base}site-health-audit.md`);
-    add(`${base}audit-report.md`);
-    add(`${base}analysis-report.md`);
-  }
-  if (k === 'write') {
-    const tail = slug.includes('--') ? slug.slice(slug.indexOf('--') + 2) : 'output';
-    add(`${base}${tail}.md`);
-  }
-  if (k === 'brief' || k === 'strategy' || k === 'outline' || k === 'calendar' || k === 'seo-check') {
+  const addFallbacksForBase = (base: string) => {
+    if (k === 'geo') {
+      add(`${base}geo-audit-report.md`);
+    }
+    if (k === 'analyze') {
+      add(`${base}analysis-report.md`);
+    }
+    if (k === 'site-health') {
+      add(`${base}site-health-report.md`);
+      add(`${base}blog-health-report.md`);
+      add(`${base}full-site-health-report.md`);
+      add(`${base}site-health-audit.md`);
+      add(`${base}audit-report.md`);
+      add(`${base}analysis-report.md`);
+    }
+    if (k === 'write') {
+      /** Use legacy cmd–target slug only; run-specific `dirName` includes `--run-…` and must not become the filename stem. */
+      const tail = legacySlug.includes('--') ? legacySlug.slice(legacySlug.indexOf('--') + 2) : 'output';
+      add(`${base}${tail}.md`);
+    }
+    if (k === 'brief' || k === 'strategy' || k === 'outline' || k === 'calendar' || k === 'seo-check') {
+      add(`${base}analysis-report.md`);
+      add(`${base}report.md`);
+    }
+
     add(`${base}analysis-report.md`);
     add(`${base}report.md`);
-  }
+  };
 
-  add(`${base}analysis-report.md`);
-  add(`${base}report.md`);
+  for (const base of bases) {
+    addFallbacksForBase(base);
+  }
 
   return out;
 }
 
 /** Prompt string sent to Claude for this dashboard run. */
-export function buildBlogPrompt(cmd: BlogCommand, targetTrimmed: string): string {
+export function buildBlogPrompt(
+  cmd: BlogCommand,
+  targetTrimmed: string,
+  options?: { runToken?: string }
+): string {
   const t = targetTrimmed.trim();
   if (!t) return cmd.command.trim();
 
-  const safeDir = workspaceFilesDirSegment(cmd.key, t);
+  const token = options?.runToken?.trim();
+  const safeDir = token
+    ? formatWorkspaceRunDirSegment(cmd.key, t, token)
+    : workspaceFilesDirSegment(cmd.key, t);
 
   const instruction = `Please create a directory named \`workspace-files/${safeDir}/\` if it does not exist, and save all files generated by this task inside that directory. Do not save files to the root directory. If a file you want to write already exists, do not overwrite or edit it; instead, create a new file with a unique name (e.g., by appending a number or timestamp). After saving the files, please print a detailed summary of the changes and the exact paths to the saved files in your final response so it is recorded in the history.`;
 
