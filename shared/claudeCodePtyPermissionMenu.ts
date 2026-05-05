@@ -147,6 +147,45 @@ export function plainTailShowsAnswerablePermissionMenu(plainNormalized: string):
   return false;
 }
 
+/** Fallback snapshot for live Auto-Approve when Pretty segmentation misses a tail permission card. */
+export function extractLiveAnswerablePermissionMenuSnapshot(plainNormalized: string): string | null {
+  const trimmed = stripPtySessionEndInjections(plainNormalized).trimEnd();
+  if (!plainTailShowsAnswerablePermissionMenu(trimmed)) return null;
+
+  const scan = trimmed.slice(-PTY_PERMISSION_MENU_TAIL_CHARS);
+  const lines = scan.split('\n');
+
+  let footerLine = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (/\bEsc to cancel\b/i.test(lines[i] ?? '') && /\bTab to (?:amend|edit|change)\b/i.test(lines[i] ?? '')) {
+      footerLine = i;
+      break;
+    }
+  }
+  if (footerLine < 0) return null;
+
+  let firstYesLine = -1;
+  for (let i = footerLine - 1; i >= 0; i--) {
+    if (/^\s*(?:[?❯›>]\s*)?1\.\s+Yes\b/i.test(lines[i] ?? '')) {
+      firstYesLine = i;
+      break;
+    }
+  }
+  if (firstYesLine < 0) return null;
+
+  let questionLine = -1;
+  for (let i = firstYesLine - 1; i >= Math.max(0, firstYesLine - 32); i--) {
+    if (!/\bDo you\b/i.test(lines[i] ?? '')) continue;
+    const chunk = lines.slice(i, firstYesLine).join('\n');
+    if (/Do you\b[\s\S]{0,2400}(?:\?|？)/i.test(chunk)) {
+      questionLine = i;
+      break;
+    }
+  }
+
+  return lines.slice(questionLine >= 0 ? questionLine : firstYesLine, footerLine + 1).join('\n').trimEnd();
+}
+
 export function stripAnsiNormalizePtyMirror(raw: string): string {
   return normalizeTeletypeLines(stripAnsi(raw));
 }
