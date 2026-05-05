@@ -463,22 +463,30 @@ export default function ResultsView({
   const pathNorm = (p: string) => p.replace(/\\/g, '/').toLowerCase();
 
   /**
-   * Paths under the run-specific folder first (`workspace-files/<segment>--run-<time>/`), then legacy
-   * `workspace-files/<cmd--target>/`, then any extracted paths.
+   * Paths **actually mentioned** in captured output, restricted to this run’s workspace folder (per-run segment),
+   * or to `workspace-files/<cmd--target>/` when no run segment is known. Does not fall back to “any” extracted path
+   * (avoids old PTY scrollback / other targets). No speculative filenames — those stay on Full Report fetch only.
    */
-  const scopedWorkspaceArtifactPaths = useMemo(() => {
+  const sessionWorkspaceArtifactPaths = useMemo(() => {
     const { commandKey, target } = parseChatThreadKey(chatThreadKey);
     const legacySegment = workspaceFilesDirSegment(commandKey, target);
-    const needles: string[] = [];
-    if (effectiveRunDirSegment) {
-      needles.push(`workspace-files/${effectiveRunDirSegment}/`.toLowerCase());
+    const runSeg = effectiveRunDirSegment?.trim();
+    const byKey = new Map<string, string>();
+    const add = (p: string) => {
+      const t = p.trim();
+      if (!t) return;
+      const k = t.replace(/\\/g, '/').toLowerCase();
+      if (!byKey.has(k)) byKey.set(k, t);
+    };
+    for (const p of artifactPaths) {
+      const low = pathNorm(p);
+      if (runSeg) {
+        if (low.includes(`workspace-files/${runSeg.toLowerCase()}/`)) add(p);
+      } else if (low.includes(`workspace-files/${legacySegment.toLowerCase()}/`)) {
+        add(p);
+      }
     }
-    needles.push(`workspace-files/${legacySegment}/`.toLowerCase());
-    for (const dirNeedle of needles) {
-      const scoped = artifactPaths.filter((p) => pathNorm(p).includes(dirNeedle));
-      if (scoped.length > 0) return scoped;
-    }
-    return artifactPaths;
+    return Array.from(byKey.values()).sort((a, b) => a.localeCompare(b));
   }, [artifactPaths, chatThreadKey, effectiveRunDirSegment]);
 
   /**
@@ -490,25 +498,14 @@ export default function ResultsView({
       return [];
     }
     const { commandKey, target } = parseChatThreadKey(chatThreadKey);
-    const extractedMd = scopedWorkspaceArtifactPaths.filter((p) => /\.md$/i.test(p));
+    const extractedMd = sessionWorkspaceArtifactPaths.filter((p) => /\.md$/i.test(p));
     return workspaceReportMarkdownCandidates(commandKey, target, extractedMd, {
       runDirSegment: effectiveRunDirSegment
     });
-  }, [scopedWorkspaceArtifactPaths, chatThreadKey, effectiveRunDirSegment, isHistoryEmbed, ptySentAt]);
+  }, [sessionWorkspaceArtifactPaths, chatThreadKey, effectiveRunDirSegment, isHistoryEmbed, ptySentAt]);
 
-  /** Download strip: extracted paths plus candidate report paths for this session. */
-  const workspaceDownloadPaths = useMemo(() => {
-    const set = new Set<string>();
-    for (const p of scopedWorkspaceArtifactPaths) {
-      const t = p.trim();
-      if (t) set.add(t);
-    }
-    for (const p of reportMarkdownCandidates) {
-      const t = p.trim();
-      if (t) set.add(t);
-    }
-    return Array.from(set);
-  }, [scopedWorkspaceArtifactPaths, reportMarkdownCandidates]);
+  /** Download strip: session-scoped extracted paths only (no speculative report name list). */
+  const workspaceDownloadPaths = sessionWorkspaceArtifactPaths;
 
   const reportMarkdownCandidatesKey = reportMarkdownCandidates.join('\n');
 
