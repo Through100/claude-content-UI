@@ -146,21 +146,85 @@ function TagBlockCard({ tagKind, detail, raw }: { tagKind: TagKind; detail: stri
   );
 }
 
-/** Last column (Notes, Result, …) gets half the width; others share the rest evenly for readable wrapping. */
-function markdownTableColPercent(i: number, n: number): string {
+/** Strip markdown decoration from header cells for width heuristics. */
+function normalizeTableHeaderLabel(raw: string): string {
+  return raw
+    .replace(/\*\*/g, '')
+    .replace(/`/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * Relative weights for wide narrative columns vs narrow score bands (blog audit tables).
+ * Normalized to 100% — avoids the old bug that gave 50% width only to the last column.
+ */
+function markdownTableColWeights(header: string[]): number[] {
+  return header.map((raw) => {
+    const h = normalizeTableHeaderLabel(raw);
+    if (h === '#' || h === 'no.' || /^#\s*$/.test(raw.trim())) return 3;
+    if (h.includes('article') && !h.includes('url')) return 22;
+    if (h.includes('slug') || h.includes('url slug') || (h.includes('url') && h.includes('path'))) return 26;
+    if ((h.includes('score') || /\b\d+\s*\/\s*100\b/.test(h)) && !h.includes('article') && !h.includes('site'))
+      return 8;
+    if (
+      h === 'content' ||
+      h === 'seo' ||
+      h.includes('e-e-a-t') ||
+      h === 'technical' ||
+      h.includes('ai citation')
+    )
+      return 6;
+    if (h.includes('rating')) return 9;
+    return 10;
+  });
+}
+
+function markdownTableColPercent(i: number, header: string[]): string {
+  const n = header.length;
   if (n <= 1) return '100%';
-  if (i === n - 1) return '50%';
-  return `${50 / (n - 1)}%`;
+  const weights = markdownTableColWeights(header);
+  const sum = weights.reduce((a, b) => a + b, 0);
+  return `${((weights[i] / sum) * 100).toFixed(3)}%`;
+}
+
+/** Columns that participate in score-matrix width / tabular styling. */
+function isNumericScoreColumn(headerLabel: string): boolean {
+  const h = normalizeTableHeaderLabel(headerLabel);
+  return (
+    h === '#' ||
+    h === 'no.' ||
+    ((h.includes('score') || /\bscore\b/.test(h)) && !h.includes('article')) ||
+    h === 'content' ||
+    h === 'seo' ||
+    h.includes('e-e-a-t') ||
+    h === 'technical' ||
+    h.includes('ai citation') ||
+    h.includes('rating')
+  );
+}
+
+/** Short numeric cells only — Rating can hold “Below Standard” etc., so allow wrap there. */
+function isCompactNumericCell(headerLabel: string): boolean {
+  const h = normalizeTableHeaderLabel(headerLabel);
+  if (h.includes('rating')) return false;
+  return isNumericScoreColumn(headerLabel);
 }
 
 function MarkdownTableBlock({ header, rows }: { header: string[]; rows: string[][] }) {
   const n = header.length;
+  const wideMatrix = n >= 8;
   return (
     <div className="w-full max-w-full overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm my-1">
-      <table className="w-full min-w-[min(100%,520px)] table-fixed border-collapse text-left text-[13px] md:text-[14px] text-slate-800">
+      <table
+        className={`w-full border-collapse text-left text-[13px] md:text-[14px] text-slate-800 ${
+          wideMatrix ? 'min-w-[1080px] lg:min-w-[1180px] table-fixed' : 'min-w-[min(100%,560px)] table-fixed'
+        }`}
+      >
         <colgroup>
           {header.map((_, i) => (
-            <col key={i} style={{ width: markdownTableColPercent(i, n) }} />
+            <col key={i} style={{ width: markdownTableColPercent(i, header) }} />
           ))}
         </colgroup>
         <thead>
@@ -169,7 +233,9 @@ function MarkdownTableBlock({ header, rows }: { header: string[]; rows: string[]
               <th
                 key={i}
                 scope="col"
-                className="bg-slate-100/95 font-semibold text-slate-900 px-3 py-2.5 align-bottom border-b border-slate-200 leading-snug break-words"
+                className={`bg-slate-100/95 font-semibold text-slate-900 px-3 py-2.5 align-bottom border-b border-slate-200 leading-snug break-words ${
+                  isNumericScoreColumn(h) ? 'tabular-nums' : ''
+                }`}
               >
                 {renderInlineParts(parseInline(h), `tbl-h-${i}`)}
               </th>
@@ -179,14 +245,22 @@ function MarkdownTableBlock({ header, rows }: { header: string[]; rows: string[]
         <tbody>
           {rows.map((row, ri) => (
             <tr key={ri} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50/70">
-              {row.map((cell, ci) => (
-                <td
-                  key={ci}
-                  className="px-3 py-2 align-top leading-snug break-words [overflow-wrap:anywhere] text-slate-800"
-                >
-                  {renderInlineParts(parseInline(cell), `tbl-${ri}-${ci}`)}
-                </td>
-              ))}
+              {row.map((cell, ci) => {
+                const hc = header[ci] ?? '';
+                const compact = isCompactNumericCell(hc);
+                return (
+                  <td
+                    key={ci}
+                    className={`px-3 py-2 align-top leading-snug text-slate-800 ${
+                      compact
+                        ? 'whitespace-nowrap tabular-nums text-center'
+                        : 'break-words [overflow-wrap:anywhere]'
+                    }`}
+                  >
+                    {renderInlineParts(parseInline(cell), `tbl-${ri}-${ci}`)}
+                  </td>
+                );
+              })}
             </tr>
           ))}
         </tbody>
