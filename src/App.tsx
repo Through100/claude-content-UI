@@ -162,6 +162,13 @@ export default function App() {
   const onRunnerSessionChange = useCallback((commandKey: string, target: string) => {
     setChatThreadKey(formatChatThreadKey(commandKey, target));
     setPtyWorkspaceOutputSegment(null);
+    /** Let Run fire immediately after changing command/target — leftover cooldown looked like “skipped” reruns. */
+    commandRunnerCooldownRef.current = false;
+    setCommandRunnerLocked(false);
+    if (commandRunnerUnlockTimerRef.current != null) {
+      window.clearTimeout(commandRunnerUnlockTimerRef.current);
+      commandRunnerUnlockTimerRef.current = null;
+    }
   }, []);
 
   const handleRun = useCallback(

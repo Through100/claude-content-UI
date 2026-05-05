@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { extractArtifactPathsFromRunText } from '../../shared/extractArtifactPaths';
 import { mergePtyPlainArchive, snapMergedPtyTailToLiveFullSnapshot } from '../../shared/mergePtyPlainArchive';
 import { sanitizePtyPrettyTranscript } from '../../shared/sanitizePtyPrettyTranscript';
-import { loadPtyPrettyArchive, savePtyPrettyArchive } from '../lib/ptyPrettyArchiveStorage';
+import { savePtyPrettyArchive } from '../lib/ptyPrettyArchiveStorage';
 import {
   FileText,
   Terminal as TerminalIcon,
@@ -158,8 +158,11 @@ export default function ResultsView({
   const ptyPlainForMerge =
     ptyFullSnapshotPlain.trim().length > 0 ? ptyFullSnapshotPlain : ptyDisplayPlain;
 
-  /** Merged PTY transcript: grows with new terminal output and survives scrollback trimming; saved per topic. */
-  const [ptyMergedArchive, setPtyMergedArchive] = useState(() => loadPtyPrettyArchive(chatThreadKey));
+  /**
+   * Merged PTY transcript for Pretty (live dashboard only). Starts empty and does **not** restore
+   * per-thread archives from localStorage — past runs belong in History; switching Command/Target stays blank until Run.
+   */
+  const [ptyMergedArchive, setPtyMergedArchive] = useState('');
   /** Last Command Runner topic key we merged against (empty = not yet initialized). */
   const ptyArchiveThreadKeyRef = useRef('');
   /**
@@ -185,7 +188,7 @@ export default function ResultsView({
       }
       if (threadKeyChanged && !generationChanged) {
         topicLiveHoldRef.current = chatThreadKey;
-        return loadPtyPrettyArchive(chatThreadKey);
+        return '';
       }
       if (topicLiveHoldRef.current === chatThreadKey) {
         return prev;
