@@ -448,12 +448,17 @@ export default function ResultsView({
     );
   }, [ptyFullSnapshotPlain, ptyDisplayPlain]);
 
-  /** Headless capture plus live PTY transcript so workspace files mentioned only in interactive mode still get top download links. */
+  /**
+   * Live dashboard: only scan Pretty/PTY text for workspace paths **after** Command Runner has sent a prompt
+   * (`ptySentAt`). Otherwise speculative fallback paths + disk hits show files from older runs as soon as Target changes.
+   */
   const artifactPaths = useMemo(() => {
     const headless = [result?.rawOutput ?? '', result?.error ?? ''].filter(Boolean).join('\n\n');
-    const chunks = [headless, !isHistoryEmbed ? ptyMergedDisplayPlain : ''].filter((s) => s.trim().length > 0);
+    const ptyForArtifacts =
+      isHistoryEmbed ? '' : ptySentAt != null ? ptyMergedDisplayPlain : '';
+    const chunks = [headless, ptyForArtifacts].filter((s) => s.trim().length > 0);
     return extractArtifactPathsFromRunText(chunks.join('\n\n'));
-  }, [result?.rawOutput, result?.error, ptyMergedDisplayPlain, isHistoryEmbed]);
+  }, [result?.rawOutput, result?.error, ptyMergedDisplayPlain, isHistoryEmbed, ptySentAt]);
 
   const pathNorm = (p: string) => p.replace(/\\/g, '/').toLowerCase();
 
@@ -481,12 +486,15 @@ export default function ResultsView({
    * then command-specific guesses under the run directory, then legacy cmd–target directory).
    */
   const reportMarkdownCandidates = useMemo(() => {
+    if (!isHistoryEmbed && ptySentAt == null) {
+      return [];
+    }
     const { commandKey, target } = parseChatThreadKey(chatThreadKey);
     const extractedMd = scopedWorkspaceArtifactPaths.filter((p) => /\.md$/i.test(p));
     return workspaceReportMarkdownCandidates(commandKey, target, extractedMd, {
       runDirSegment: effectiveRunDirSegment
     });
-  }, [scopedWorkspaceArtifactPaths, chatThreadKey, effectiveRunDirSegment]);
+  }, [scopedWorkspaceArtifactPaths, chatThreadKey, effectiveRunDirSegment, isHistoryEmbed, ptySentAt]);
 
   /** Download strip: extracted paths plus candidate report paths for this session. */
   const workspaceDownloadPaths = useMemo(() => {
@@ -558,6 +566,10 @@ export default function ResultsView({
   }, [isLoading, fetchedReportContent]);
 
   useEffect(() => {
+    if (!isHistoryEmbed && ptySentAt == null) {
+      setIsFetchingReport(false);
+      return;
+    }
     if (reportMarkdownCandidates.length === 0) return;
 
     const haveSuccessCached =
@@ -634,7 +646,7 @@ export default function ResultsView({
       cancelled = true;
       setIsFetchingReport(false);
     };
-  }, [reportMarkdownCandidatesKey, fetchedReportContent, tryAutoSwitchToFullReport]);
+  }, [reportMarkdownCandidatesKey, fetchedReportContent, tryAutoSwitchToFullReport, ptySentAt, isHistoryEmbed]);
 
   const historyPrettySource = useMemo(() => {
     if (!isHistoryEmbed || !result) return { conversation: '', report: null };
@@ -821,6 +833,12 @@ export default function ResultsView({
 
   return (
     <div className="space-y-6">
+      {!isHistoryEmbed && ptySentAt == null ? (
+        <p className="text-xs text-gray-500 rounded-lg border border-dashed border-gray-200 bg-gray-50/80 px-4 py-3">
+          Workspace downloads and Full Report paths appear after you press <strong>Run Command</strong> for this command
+          and target — changing the form does not load files from earlier runs.
+        </p>
+      ) : null}
       {workspaceDownloadPaths.length > 0 ? (
         <div className="flex flex-col gap-2 rounded-xl border border-emerald-200 bg-emerald-50/70 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-xs font-bold uppercase tracking-wide text-emerald-900 shrink-0">
@@ -855,7 +873,9 @@ export default function ResultsView({
                 ? 'Open the saved markdown report from this session (tries several likely paths under workspace-files/ for History).'
                 : isHistoryEmbed
                   ? 'No workspace .md candidates for this command (check Raw View for paths).'
-                  : 'No workspace .md path detected in captured output yet. Run an analysis that saves a report, then refresh if you already updated the server (production needs npm run build after git pull).'
+                  : !ptySentAt
+                    ? 'Press Run Command first — Full Report loads after a run for this command and target.'
+                    : 'No workspace .md path detected in captured output yet. Run an analysis that saves a report, then refresh if you already updated the server (production needs npm run build after git pull).'
             }
             onClick={() => {
               if (reportMarkdownCandidates.length === 0) return;

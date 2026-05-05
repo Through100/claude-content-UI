@@ -162,6 +162,9 @@ export default function App() {
   const onRunnerSessionChange = useCallback((commandKey: string, target: string) => {
     setChatThreadKey(formatChatThreadKey(commandKey, target));
     setPtyWorkspaceOutputSegment(null);
+    /** Draft selection only — until Run, ResultsView must not show prior-run workspace links or fetch Full Report. */
+    setPtySentAt(null);
+    ptySentAtRef.current = null;
     /** Let Run fire immediately after changing command/target — leftover cooldown looked like “skipped” reruns. */
     commandRunnerCooldownRef.current = false;
     setCommandRunnerLocked(false);
