@@ -409,6 +409,68 @@ export function workspaceFilesDirSegment(commandKey: string, targetTrimmed: stri
   return `${cmdSlug}--${targetSlug}`;
 }
 
+/**
+ * Ordered relative paths under CLAUDE_WORKDIR to try for Full Report when loading History or when
+ * the saved transcript never mentions the final `Write(.../*.md)` line (common for long PTY runs).
+ * Extracted paths from the transcript are tried first; then command-specific guesses under
+ * `workspace-files/<workspaceFilesDirSegment>/`.
+ */
+export function workspaceReportMarkdownCandidates(
+  commandKey: string,
+  targetTrimmed: string,
+  extractedRelativeMdPaths: string[]
+): string[] {
+  const normPath = (p: string) => p.replace(/\\/g, '/').replace(/^\.\//, '').trim();
+  const slug = workspaceFilesDirSegment(commandKey, targetTrimmed);
+  const base = `workspace-files/${slug}/`;
+  const out: string[] = [];
+  const add = (p: string) => {
+    const t = normPath(p);
+    if (!t || !/\.md$/i.test(t)) return;
+    if (!out.includes(t)) out.push(t);
+  };
+
+  const lower = (p: string) => p.replace(/\\/g, '/').toLowerCase();
+  const extracted = [...new Set(extractedRelativeMdPaths.map(normPath).filter(Boolean))].filter((p) =>
+    /\.md$/i.test(p)
+  );
+  const geo = extracted.find((p) => /geo-audit-report\.md$/i.test(lower(p)));
+  const analysis = extracted.find((p) => /analysis-report\.md$/i.test(lower(p)));
+  const rest = extracted.filter((p) => p !== geo && p !== analysis);
+  if (geo) add(geo);
+  if (analysis) add(analysis);
+  for (const p of rest) add(p);
+
+  const k = commandKey.trim().toLowerCase();
+  if (k === 'geo') {
+    add(`${base}geo-audit-report.md`);
+  }
+  if (k === 'analyze') {
+    add(`${base}analysis-report.md`);
+  }
+  if (k === 'site-health') {
+    add(`${base}site-health-report.md`);
+    add(`${base}blog-health-report.md`);
+    add(`${base}full-site-health-report.md`);
+    add(`${base}site-health-audit.md`);
+    add(`${base}audit-report.md`);
+    add(`${base}analysis-report.md`);
+  }
+  if (k === 'write') {
+    const tail = slug.includes('--') ? slug.slice(slug.indexOf('--') + 2) : 'output';
+    add(`${base}${tail}.md`);
+  }
+  if (k === 'brief' || k === 'strategy' || k === 'outline' || k === 'calendar' || k === 'seo-check') {
+    add(`${base}analysis-report.md`);
+    add(`${base}report.md`);
+  }
+
+  add(`${base}analysis-report.md`);
+  add(`${base}report.md`);
+
+  return out;
+}
+
 /** Prompt string sent to Claude for this dashboard run. */
 export function buildBlogPrompt(cmd: BlogCommand, targetTrimmed: string): string {
   const t = targetTrimmed.trim();

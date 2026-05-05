@@ -15,7 +15,12 @@ import {
   AlertCircle,
   RotateCcw
 } from 'lucide-react';
-import { BLOG_COMMANDS, RunResponse, workspaceFilesDirSegment } from '../types';
+import {
+  BLOG_COMMANDS,
+  RunResponse,
+  workspaceFilesDirSegment,
+  workspaceReportMarkdownCandidates
+} from '../types';
 import { formatChatThreadKey, parseChatThreadKey, sanitizeRunOutputForChat } from '../lib/dashboardChatHistory';
 import { syncPrettyPtyTranscriptToDashboardThread } from '../lib/syncPtyTranscriptToDashboardChat';
 import {
@@ -31,6 +36,7 @@ import { inferClaudeActivity } from '../../shared/inferClaudeActivity';
 import { headlessOutputLooksLikeInteractivePermissionAsk } from '../../shared/headlessStalePermissionCue';
 import {
   countPtyProceedPrompts,
+  extractLiveAnswerablePermissionMenuSnapshot,
   plainTailShowsAnswerablePermissionMenu,
   plainTailShowsLivePrettyChoiceMenu,
   plainTextShowsClaudePermissionMenu,
@@ -270,7 +276,8 @@ export default function ResultsView({
   const ptyChoiceMenuSnapshot = useMemo(
     () =>
       extractLastChoiceMenuSnapshotForArchive(replyOrderingPlain) ??
-      extractLastChoiceMenuSnapshotForArchive(ptyLiveTailPlainForMenuBackstop),
+      extractLastChoiceMenuSnapshotForArchive(ptyLiveTailPlainForMenuBackstop) ??
+      extractLiveAnswerablePermissionMenuSnapshot(ptyLiveTailPlainForMenuBackstop),
     [replyOrderingPlain, ptyLiveTailPlainForMenuBackstop]
   );
 
@@ -300,7 +307,8 @@ export default function ResultsView({
       const ro = replyOrderingPlainRef.current;
       const menuSnapshot =
         (extractLastChoiceMenuSnapshotForArchive(ro) ??
-          extractLastChoiceMenuSnapshotForArchive(tail))?.trim() ??
+          extractLastChoiceMenuSnapshotForArchive(tail) ??
+          extractLiveAnswerablePermissionMenuSnapshot(tail))?.trim() ??
         ptyChoiceMenuSnapshotRef.current?.trim();
       if (!menuSnapshot) return;
       if (
@@ -442,45 +450,31 @@ export default function ResultsView({
     return scoped.length > 0 ? scoped : artifactPaths;
   }, [artifactPaths, chatThreadKey]);
 
-  /** Prefer command-specific report names, then analysis-report, else last `.md` in scope. */
-  const primarySessionMarkdownPath = useMemo(() => {
+  /**
+   * Ordered paths to fetch for Full Report (extracted from transcript first, then command-specific guesses).
+   * Fixes History for flows like `/blog audit` (`site-health`) where the saved PTY transcript may omit the final Write path.
+   */
+  const reportMarkdownCandidates = useMemo(() => {
     const { commandKey, target } = parseChatThreadKey(chatThreadKey);
-    const mds = scopedWorkspaceArtifactPaths.filter((p) => /\.md$/i.test(p));
-    if (mds.length > 0) {
-      if (commandKey === 'geo') {
-        const geo = mds.find((p) => /geo-audit-report\.md$/i.test(pathNorm(p)));
-        if (geo) return geo;
-      }
-      const prefer = mds.find((p) => /analysis-report\.md$/i.test(pathNorm(p)));
-      return prefer ?? mds[mds.length - 1];
-    }
-    /**
-     * History can store a transcript captured before “File saved:” appeared (append used to run only on tab-hide
-     * or the next Run). Guess canonical workspace paths so Full Report still works for common blog flows.
-     */
-    if (!isHistoryEmbed) return null;
-    const slug = workspaceFilesDirSegment(commandKey, target);
-    if (commandKey === 'write') {
-      const tail = slug.includes('--') ? slug.slice(slug.indexOf('--') + 2) : 'output';
-      return `workspace-files/${slug}/${tail}.md`;
-    }
-    if (commandKey === 'analyze') {
-      return `workspace-files/${slug}/analysis-report.md`;
-    }
-    return null;
-  }, [scopedWorkspaceArtifactPaths, chatThreadKey, isHistoryEmbed]);
+    const extractedMd = scopedWorkspaceArtifactPaths.filter((p) => /\.md$/i.test(p));
+    return workspaceReportMarkdownCandidates(commandKey, target, extractedMd);
+  }, [scopedWorkspaceArtifactPaths, chatThreadKey]);
 
-  /** Download strip: extracted paths plus the Full Report `.md` when it was inferred or chosen but not in the transcript. */
+  /** Download strip: extracted paths plus candidate report paths for this session. */
   const workspaceDownloadPaths = useMemo(() => {
     const set = new Set<string>();
     for (const p of scopedWorkspaceArtifactPaths) {
       const t = p.trim();
       if (t) set.add(t);
     }
-    const primary = primarySessionMarkdownPath?.trim();
-    if (primary) set.add(primary);
+    for (const p of reportMarkdownCandidates) {
+      const t = p.trim();
+      if (t) set.add(t);
+    }
     return Array.from(set);
-  }, [scopedWorkspaceArtifactPaths, primarySessionMarkdownPath]);
+  }, [scopedWorkspaceArtifactPaths, reportMarkdownCandidates]);
+
+  const reportMarkdownCandidatesKey = reportMarkdownCandidates.join('\n');
 
   useEffect(() => {
     // Reset state when chat thread changes
@@ -488,14 +482,14 @@ export default function ResultsView({
     setFetchedReportPath(null);
     setIsFetchingReport(false);
     hasAutoSwitchedToReportRef.current = false;
-    setActiveTab('pretty');
-  }, [chatThreadKey]);
+    setActiveTab(embedMode === 'history' ? 'report' : 'pretty');
+  }, [chatThreadKey, embedMode]);
 
   useEffect(() => {
-    if (!primarySessionMarkdownPath && activeTab === 'report') {
+    if (reportMarkdownCandidates.length === 0 && activeTab === 'report') {
       setActiveTab('pretty');
     }
-  }, [primarySessionMarkdownPath, activeTab]);
+  }, [reportMarkdownCandidates.length, activeTab]);
 
   const prevPtySentAtForReportRef = useRef<number | null>(null);
   /** Same thread key + second Run: `chatThreadKey` unchanged — bump `ptySentAt` still means a new Command Runner send. */
@@ -536,72 +530,72 @@ export default function ResultsView({
   }, [isLoading, fetchedReportContent]);
 
   useEffect(() => {
-    const mdPath = primarySessionMarkdownPath;
-    if (!mdPath) return;
+    if (reportMarkdownCandidates.length === 0) return;
 
     const haveSuccessCached =
-      mdPath === fetchedReportPath &&
+      Boolean(fetchedReportPath && reportMarkdownCandidates.includes(fetchedReportPath)) &&
       Boolean(fetchedReportContent?.trim()) &&
       !isReportFetchErrorPlaceholder(fetchedReportContent);
     if (haveSuccessCached) return;
 
     const haveFinalFailure =
-      mdPath === fetchedReportPath &&
       Boolean(fetchedReportContent?.trim()) &&
       isReportFetchErrorPlaceholder(fetchedReportContent);
     if (haveFinalFailure) return;
 
     let cancelled = false;
     setIsFetchingReport(true);
-    const url = apiService.workspaceFileDownloadUrl(mdPath);
     const maxAttempts = 28;
     const backoffMs = (attempt: number) => Math.min(3200, 500 + attempt * 160);
 
     void (async () => {
-      let lastErr: unknown = null;
-      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      for (const mdPath of reportMarkdownCandidates) {
         if (cancelled) return;
-        try {
-          const res = await fetch(url);
-          if (res.status === 404) {
-            if (attempt < maxAttempts - 1) {
-              await new Promise((r) => setTimeout(r, backoffMs(attempt)));
-              continue;
+        const url = apiService.workspaceFileDownloadUrl(mdPath);
+
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+          if (cancelled) return;
+          try {
+            const res = await fetch(url);
+            if (res.ok) {
+              const text = await res.text();
+              if (cancelled) return;
+              setFetchedReportContent(text);
+              setFetchedReportPath(mdPath);
+              if (!isLoadingRef.current && text.trim()) {
+                tryAutoSwitchToFullReport();
+              }
+              return;
             }
-            lastErr = new Error('Report fetch 404');
-            break;
-          }
-          if (!res.ok) {
+            if (res.status === 404) {
+              if (attempt < maxAttempts - 1) {
+                await new Promise((r) => setTimeout(r, backoffMs(attempt)));
+                continue;
+              }
+              break;
+            }
             const err = new Error(`Report fetch ${res.status}`);
             if (cancelled) return;
             setFetchedReportPath(mdPath);
             setFetchedReportContent(
               `## Report could not be loaded\n\n${err.message}\n\n**Attempted path:** \`${mdPath.replace(/`/g, "'")}\`\n\n` +
-                'Check **Raw View** for the exact `Write(...)` path or confirm the API host can read `CLAUDE_WORKDIR` (the same root the PTY session writes under).'
+                'Check **Raw View** for the exact `Write(...)` path or confirm the API host can read `CLAUDE_WORKDIR` (the same root the Claude PTY session writes under).'
             );
             return;
-          }
-          const text = await res.text();
-          if (cancelled) return;
-          setFetchedReportContent(text);
-          setFetchedReportPath(mdPath);
-          if (!isLoadingRef.current && text.trim()) {
-            tryAutoSwitchToFullReport();
-          }
-          return;
-        } catch (e) {
-          lastErr = e;
-          if (attempt < maxAttempts - 1) {
-            await new Promise((r) => setTimeout(r, backoffMs(attempt)));
+          } catch (e) {
+            if (attempt < maxAttempts - 1) {
+              await new Promise((r) => setTimeout(r, backoffMs(attempt)));
+            }
           }
         }
       }
+
       if (cancelled) return;
-      const msg = String((lastErr as Error)?.message ?? lastErr ?? 'Unknown error');
-      setFetchedReportPath(mdPath);
+      const paths = reportMarkdownCandidates.map((p) => `\`${p.replace(/`/g, "'")}\``).join(', ');
+      setFetchedReportPath(reportMarkdownCandidates[0] ?? '');
       setFetchedReportContent(
-        `## Report could not be loaded\n\n${msg}\n\n**Attempted path:** \`${mdPath.replace(/`/g, "'")}\`\n\n` +
-          'The server polls for the file for about a minute. Use **Try loading again** below, or switch away and open **Full Report** again. If it still fails, the API host may not see the same disk as the Claude PTY (check `CLAUDE_WORKDIR`). **Raw View** shows the exact `Write(...)` path.'
+        `## Report could not be loaded\n\nNone of the candidate markdown paths returned a file (after retries on each).\n\n**Tried:** ${paths}\n\n` +
+          'Use **Raw View** to find the exact path from Claude’s output, or confirm the API sees the same `CLAUDE_WORKDIR` as the PTY.'
       );
     })().finally(() => {
       if (!cancelled) setIsFetchingReport(false);
@@ -611,7 +605,7 @@ export default function ResultsView({
       cancelled = true;
       setIsFetchingReport(false);
     };
-  }, [primarySessionMarkdownPath, fetchedReportPath, fetchedReportContent, tryAutoSwitchToFullReport]);
+  }, [reportMarkdownCandidatesKey, fetchedReportContent, tryAutoSwitchToFullReport]);
 
   const historyPrettySource = useMemo(() => {
     if (!isHistoryEmbed || !result) return { conversation: '', report: null };
@@ -652,7 +646,8 @@ export default function ResultsView({
   }, []);
 
   const handlePdfClick = () => {
-    const hasReportSource = Boolean(primarySessionMarkdownPath) || Boolean(fetchedReportContent?.trim());
+    const hasReportSource =
+      reportMarkdownCandidates.length > 0 || Boolean(fetchedReportContent?.trim());
     if (!hasReportSource) {
       window.alert(
         'No report file was found for this session. Run an analysis that saves a markdown report (for example analysis-report.md), then use Download Report in PDF again.'
@@ -825,16 +820,16 @@ export default function ResultsView({
         <div className="flex bg-gray-100 p-1 rounded-xl">
           <button
             type="button"
-            disabled={!primarySessionMarkdownPath}
+            disabled={reportMarkdownCandidates.length === 0}
             title={
-              primarySessionMarkdownPath
-                ? 'Open the saved markdown report from this session'
+              reportMarkdownCandidates.length > 0
+                ? 'Open the saved markdown report from this session (tries several likely paths under workspace-files/ for History).'
                 : isHistoryEmbed
-                  ? 'No predictable workspace .md for this command in History (check Raw View for paths).'
+                  ? 'No workspace .md candidates for this command (check Raw View for paths).'
                   : 'No workspace .md path detected in captured output yet. Run an analysis that saves a report, then refresh if you already updated the server (production needs npm run build after git pull).'
             }
             onClick={() => {
-              if (!primarySessionMarkdownPath) return;
+              if (reportMarkdownCandidates.length === 0) return;
               if (isReportFetchErrorPlaceholder(fetchedReportContent ?? '')) {
                 setFetchedReportContent(null);
                 setFetchedReportPath(null);
@@ -993,7 +988,10 @@ export default function ResultsView({
                         From history — not the live Logon PTY. Same text as Raw, formatted for reading.
                       </p>
                     </div>
-                    <div className="px-4 py-6 md:px-8 md:py-8">
+                    <div className="px-4 py-6 md:px-8 md:py-8 space-y-3">
+                      <p className="text-xs text-indigo-800 bg-indigo-50/90 border border-indigo-100 rounded-lg px-3 py-2 leading-relaxed">
+                        PTY transcript in History may be shorter than a live run. For the final markdown, use <strong>Full Report</strong> (loaded from disk) and <strong>Workspace files</strong> above.
+                      </p>
                       <PrettyOutputBody text={historyPrettySource.conversation} />
                     </div>
                   </div>
