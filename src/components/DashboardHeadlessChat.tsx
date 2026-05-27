@@ -114,7 +114,7 @@ export default function DashboardHeadlessChat({ threadKey, refreshKey }: Props) 
             <React.Fragment key={t.id}>
               <div className="flex justify-end w-full">
                 <div className="max-w-[min(100%,85%)] sm:max-w-[32rem] pl-8 sm:pl-12">
-                  <div className="rounded-[1.35rem] bg-[#ececec] text-gray-900 px-4 py-2.5 md:px-5 md:py-3 text-[15px] leading-6 whitespace-pre-wrap break-words shadow-sm">
+                  <div className="rounded-[1.35rem] bg-[#ececec] text-gray-900 px-3 py-2 md:px-4 md:py-2.5 text-[13px] leading-5 whitespace-pre-wrap break-words shadow-sm">
                     {t.user}
                   </div>
                 </div>

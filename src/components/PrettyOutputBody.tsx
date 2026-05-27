@@ -19,6 +19,10 @@ type PrettyOutputBodyProps = {
   omitDividers?: boolean;
 };
 
+/** Dense body copy for Pretty Output (PTY transcripts are long). */
+const PRETTY_BODY = 'text-[13px] leading-6 text-gray-800';
+const PRETTY_BODY_RELAXED = 'text-[13px] leading-[1.65] text-gray-800';
+
 function tagIcon(kind: TagKind) {
   switch (kind) {
     case 'image':
@@ -99,8 +103,8 @@ function renderInlineParts(parts: InlinePart[], keyPrefix: string): React.ReactN
 
 function TitleBlock({ text }: { text: string }) {
   return (
-    <header className="rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/90 to-white px-5 py-4 md:px-6 md:py-5 shadow-sm">
-      <h1 className="text-2xl md:text-[1.65rem] font-bold text-gray-900 tracking-tight leading-snug border-b-2 border-indigo-200/80 pb-3">
+    <header className="rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/90 to-white px-4 py-3 md:px-5 md:py-4 shadow-sm">
+      <h1 className="text-xl md:text-2xl font-bold text-gray-900 tracking-tight leading-snug border-b-2 border-indigo-200/80 pb-2">
         {renderInlineParts(parseInline(text), 'title')}
       </h1>
     </header>
@@ -134,7 +138,7 @@ function MetaRowBlock({ label, value }: { label: string; value: string }) {
 function TagBlockCard({ tagKind, detail, raw }: { tagKind: TagKind; detail: string; raw: string }) {
   return (
     <div
-      className={`rounded-xl border px-3 py-2.5 md:px-4 md:py-3 flex gap-3 text-[14px] leading-snug shadow-sm ${tagShell(tagKind)}`}
+      className={`rounded-xl border px-3 py-2 md:px-3.5 md:py-2.5 flex gap-2.5 text-[13px] leading-snug shadow-sm ${tagShell(tagKind)}`}
       title={raw}
     >
       <span className="pt-0.5">{tagIcon(tagKind)}</span>
@@ -218,7 +222,7 @@ function MarkdownTableBlock({ header, rows }: { header: string[]; rows: string[]
   return (
     <div className="w-full max-w-full overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm my-1">
       <table
-        className={`w-full border-collapse text-left text-[13px] md:text-[14px] text-slate-800 ${
+        className={`w-full border-collapse text-left text-[12px] md:text-[13px] text-slate-800 ${
           wideMatrix ? 'min-w-[1080px] lg:min-w-[1180px] table-fixed' : 'min-w-[min(100%,560px)] table-fixed'
         }`}
       >
@@ -272,7 +276,7 @@ function MarkdownTableBlock({ header, rows }: { header: string[]; rows: string[]
 function CalloutBlock({ body }: { body: string }) {
   const lines = body.split('\n');
   return (
-    <aside className="rounded-xl border-l-4 border-indigo-500 bg-indigo-50/70 border border-indigo-100/80 px-4 py-3 text-[15px] leading-7 text-gray-800 space-y-2">
+    <aside className={`rounded-xl border-l-4 border-indigo-500 bg-indigo-50/70 border border-indigo-100/80 px-3 py-2.5 space-y-1.5 ${PRETTY_BODY_RELAXED}`}>
       {lines.map((ln, i) => (
         <p key={i} className="whitespace-pre-wrap">
           {renderInlineParts(parseInline(ln), `co-${i}`)}
@@ -314,7 +318,7 @@ function CodeFenceBlock({ lang, body }: { lang?: string; body: string }) {
       </div>
       <pre
         ref={preRef}
-        className="m-0 p-4 text-[13px] leading-relaxed font-mono text-zinc-100 overflow-x-auto whitespace-pre"
+        className="m-0 p-3 text-[12px] leading-relaxed font-mono text-zinc-100 overflow-x-auto whitespace-pre"
       >
         {body}
       </pre>
@@ -325,7 +329,7 @@ function CodeFenceBlock({ lang, body }: { lang?: string; body: string }) {
 function ListBlock({ items, ordered }: { items: InlinePart[][]; ordered?: boolean }) {
   if (ordered) {
     return (
-      <ol className="list-decimal pl-6 space-y-2 text-[15px] leading-7 text-gray-800 marker:font-medium marker:text-gray-600">
+      <ol className={`list-decimal pl-5 space-y-1.5 marker:font-medium marker:text-gray-600 ${PRETTY_BODY}`}>
         {items.map((item, j) => (
           <li key={j} className="pl-1">
             {renderInlineParts(item, `oli-${j}`)}
@@ -335,7 +339,7 @@ function ListBlock({ items, ordered }: { items: InlinePart[][]; ordered?: boolea
     );
   }
   return (
-    <ul className="list-disc pl-5 space-y-1.5 text-[15px] leading-7 text-gray-800 marker:text-gray-400">
+    <ul className={`list-disc pl-4 space-y-1 marker:text-gray-400 ${PRETTY_BODY}`}>
       {items.map((item, j) => (
         <li key={j}>{renderInlineParts(item, `uli-${j}`)}</li>
       ))}
@@ -352,10 +356,10 @@ function FaqCollapsibleBlock({ id, question, answer }: { id: string; question: s
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="w-full flex items-start gap-3 text-left px-4 py-3 md:px-4 md:py-3.5 hover:bg-gray-50/90 transition-colors"
+        className="w-full flex items-start gap-2.5 text-left px-3 py-2.5 md:px-3.5 md:py-3 hover:bg-gray-50/90 transition-colors"
       >
-        <span className="mt-0.5 text-indigo-600 font-bold text-sm shrink-0">{id}</span>
-        <span className="flex-1 min-w-0 text-[15px] font-semibold text-gray-900 leading-snug">
+        <span className="mt-0.5 text-indigo-600 font-bold text-xs shrink-0">{id}</span>
+        <span className={`flex-1 min-w-0 font-semibold text-gray-900 leading-snug ${PRETTY_BODY}`}>
           {renderInlineParts(qParts, 'faq-q')}
         </span>
         <ChevronDown
@@ -365,8 +369,8 @@ function FaqCollapsibleBlock({ id, question, answer }: { id: string; question: s
         />
       </button>
       {open && answer ? (
-        <div className="px-4 pb-4 pt-0 md:px-4 border-t border-gray-100 bg-gray-50/50">
-          <div className="text-[15px] leading-7 text-gray-700 space-y-2 pt-3">
+        <div className="px-3 pb-3 pt-0 md:px-3.5 border-t border-gray-100 bg-gray-50/50">
+          <div className={`text-gray-700 space-y-1.5 pt-2 ${PRETTY_BODY_RELAXED}`}>
             {answer.split('\n').map((ln, li) => (
               <p key={li} className="whitespace-pre-wrap">
                 {renderInlineParts(parseInline(ln), `faq-a-${li}`)}
@@ -384,17 +388,17 @@ function SectionChildView({ child, index }: { child: SectionChild; index: number
   switch (child.type) {
     case 'heading':
       return child.level === 2 ? (
-        <h3 key={k} className="text-lg md:text-xl font-semibold text-gray-900 pt-2 scroll-mt-16">
+        <h3 key={k} className="text-base md:text-lg font-semibold text-gray-900 pt-1.5 scroll-mt-16">
           {renderInlineParts(parseInline(child.text), `${k}-h2`)}
         </h3>
       ) : (
-        <h4 key={k} className="text-base font-semibold text-gray-800 pt-1 border-l-2 border-gray-200 pl-3">
+        <h4 key={k} className="text-sm font-semibold text-gray-800 pt-1 border-l-2 border-gray-200 pl-2.5">
           {renderInlineParts(parseInline(child.text), `${k}-h3`)}
         </h4>
       );
     case 'paragraph':
       return (
-        <p key={k} className="text-[15px] leading-7 text-gray-800 whitespace-pre-wrap break-words">
+        <p key={k} className={`${PRETTY_BODY_RELAXED} whitespace-pre-wrap break-words`}>
           {renderInlineParts(child.parts, `${k}-p`)}
         </p>
       );
@@ -425,13 +429,13 @@ function SectionCard({ heading, children }: { heading: { level: 2; text: string 
   return (
     <section className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
       {heading ? (
-        <div className="px-4 py-3 md:px-5 md:py-3.5 border-b border-gray-100 bg-gray-50/80">
-          <h2 className="text-lg md:text-xl font-semibold text-gray-900 leading-snug">
+        <div className="px-3 py-2.5 md:px-4 md:py-3 border-b border-gray-100 bg-gray-50/80">
+          <h2 className="text-base md:text-lg font-semibold text-gray-900 leading-snug">
             {renderInlineParts(parseInline(heading.text), 'sec-h')}
           </h2>
         </div>
       ) : null}
-      <div className={`space-y-4 px-4 py-4 md:px-6 md:py-5 ${heading ? '' : ''}`}>
+      <div className={`space-y-3 px-3 py-3 md:px-4 md:py-4 ${heading ? '' : ''}`}>
         {children.map((c, i) => (
           <SectionChildView key={`sec-${heading?.text ?? 'preamble'}-${i}-${c.type}`} child={c} index={i} />
         ))}
@@ -463,7 +467,10 @@ export default function PrettyOutputBody({ text, className = '', omitDividers = 
   }
 
   return (
-    <div className={`pretty-output-doc space-y-6 max-w-none text-gray-900 ${className}`.trim()} aria-label="Formatted output">
+    <div
+      className={`pretty-output-doc space-y-4 max-w-none text-[13px] leading-6 text-gray-900 ${className}`.trim()}
+      aria-label="Formatted output"
+    >
       {doc.map((b, i) => (
         <DocumentBlockView key={`top-${i}`} block={b} index={i} />
       ))}

@@ -788,7 +788,7 @@ export default function PtyMessengerThread({
       })() : (
         <div key={row.turn.id} className="flex justify-end w-full">
           <div className="max-w-[min(100%,85%)] sm:max-w-[32rem] pl-8 sm:pl-12">
-            <div className="rounded-[1.35rem] bg-[#ececec] text-gray-900 px-4 py-2.5 md:px-5 md:py-3 text-[15px] leading-6 whitespace-pre-wrap break-words shadow-sm">
+            <div className="rounded-[1.35rem] bg-[#ececec] text-gray-900 px-3 py-2 md:px-4 md:py-2.5 text-[13px] leading-5 whitespace-pre-wrap break-words shadow-sm">
               {row.turn.text}
             </div>
           </div>
@@ -821,7 +821,7 @@ export default function PtyMessengerThread({
               PTY reply
             </div>
             <div className="px-3 py-3 flex flex-col items-end gap-1">
-              <div className="rounded-[1.35rem] bg-indigo-100/90 text-gray-900 px-4 py-2.5 md:px-5 md:py-3 text-[15px] leading-6 whitespace-pre-wrap break-words border border-indigo-200/80">
+              <div className="rounded-[1.35rem] bg-indigo-100/90 text-gray-900 px-3 py-2 md:px-4 md:py-2.5 text-[13px] leading-5 whitespace-pre-wrap break-words border border-indigo-200/80">
                 {row.manual.text}
               </div>
               <time
@@ -912,7 +912,7 @@ export default function PtyMessengerThread({
       <div
         ref={scrollerRef}
         onScroll={onScroll}
-        className="flex flex-col gap-10 md:gap-12 px-4 py-6 md:px-10 md:py-8 max-h-[min(45vh,450px)] min-h-[220px] overflow-y-auto bg-white"
+        className="flex flex-col gap-6 md:gap-8 px-3 py-4 md:px-6 md:py-6 max-h-[min(45vh,450px)] min-h-[220px] overflow-y-auto bg-white"
         role="log"
         aria-live="polite"
         aria-relevant="additions"
