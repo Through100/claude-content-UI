@@ -51,8 +51,54 @@ const H2 = /^##\s+(.*)$/;
 const H1_TITLE = /^#\s+(.*)$/;
 const BQUOTE = /^>\s?(.*)$/;
 const BULLET = /^(\s*)[-*]\s+(.*)$/;
-/** Numbered list: `1. **Item**` (must have content after the dot). */
-const ORDERED = /^(\s*)(\d+)\.\s+(.+)$/;
+/** Claude Code PTY choice pointer before the number (`❯ 1. Beginner`). */
+const INK_POINTER_PREFIX = /^(?:[❯›>]\s*)+/;
+
+/** `1. Item`, `❯ 1. Item`, or `> 1. Item` — returns option label text. */
+function parseOrderedListLine(line: string): string | null {
+  let t = line.trimEnd().trim();
+  if (!t) return null;
+  t = t.replace(INK_POINTER_PREFIX, '').trim();
+  if (t.startsWith('>')) t = t.replace(/^>\s*/, '').trim();
+  const m = t.match(/^(\d+)\.\s+(.+)$/);
+  if (!m) return null;
+  return (m[2] ?? '').trim();
+}
+
+/** Indented description under a PTY choice row (not a new markdown block). */
+function isOrderedListContinuation(line: string): boolean {
+  const trimmed = line.trimEnd();
+  const t = trimmed.trim();
+  if (!t) return false;
+  if (parseOrderedListLine(line) !== null) return false;
+  if (/^[-*]\s+/.test(t.replace(INK_POINTER_PREFIX, ''))) return false;
+  if (/^#{1,6}\s/.test(t)) return false;
+  if (t.startsWith('```')) return false;
+  if (isThematicBreakLine(trimmed)) return false;
+  if (/^\s*\*\*[^*]+\*\*\s*:/.test(t)) return false;
+  if (TAG_LINE_ANY.test(t)) return false;
+  if (/\bEnter to select\b/i.test(t) && /\bEsc to cancel\b/i.test(t)) return false;
+  return true;
+}
+
+function appendOrderedListContinuation(item: InlinePart[], line: string): void {
+  const extra = parseInline(line.trim());
+  if (item.length) item.push({ kind: 'text', text: '\n' });
+  item.push(...extra);
+}
+
+function coalesceAdjacentOrderedLists(blocks: LinearBlock[]): LinearBlock[] {
+  const out: LinearBlock[] = [];
+  for (const b of blocks) {
+    const last = out[out.length - 1];
+    if (b.type === 'list' && b.ordered && last?.type === 'list' && last.ordered) {
+      last.items.push(...b.items);
+    } else {
+      out.push(b);
+    }
+  }
+  return out;
+}
 const METADATA = /^\s*\*\*([^*]+)\*\*\s*:\s*(.*)$/;
 const FAQ_Q = /^\s*\*\*(Q\d+|Q)\s*:\s*(.+?)\*\*\s*(.*)$/;
 const FAQ_Q2 = /^\s*\*\*(Q\d+|Q)\s*:\s*\*\*\s*(.+)$/;
@@ -369,16 +415,44 @@ export function parseLinearBlocks(source: string): LinearBlock[] {
     }
 
     if (trimmed.match(BQUOTE)) {
-      flush();
-      const bqLines: string[] = [];
-      while (i < lines.length) {
-        const L = lines[i];
-        const m = L.match(BQUOTE);
-        if (!m) break;
-        bqLines.push(m[1] ?? '');
-        i++;
+      const bqInner = (trimmed.match(BQUOTE)?.[1] ?? '').trim();
+      /** `> 1. Yes` / `> 2. No` are Ink menus, not markdown blockquotes. */
+      if (!/^\d+\.\s+/.test(bqInner)) {
+        flush();
+        const bqLines: string[] = [];
+        while (i < lines.length) {
+          const L = lines[i];
+          const m = L.match(BQUOTE);
+          if (!m) break;
+          if (/^\d+\.\s+/.test((m[1] ?? '').trim())) break;
+          bqLines.push(m[1] ?? '');
+          i++;
+        }
+        blocks.push({ type: 'callout', body: bqLines.join('\n') });
+        continue;
       }
-      blocks.push({ type: 'callout', body: bqLines.join('\n') });
+    }
+
+    const firstOrdered = parseOrderedListLine(line);
+    if (firstOrdered !== null) {
+      flush();
+      const items: InlinePart[][] = [];
+      while (i < lines.length) {
+        while (i < lines.length && lines[i].trim() === '') {
+          i++;
+        }
+        if (i >= lines.length) break;
+        const content = parseOrderedListLine(lines[i] ?? '');
+        if (content === null) break;
+        const itemParts = parseInline(content);
+        i++;
+        while (i < lines.length && isOrderedListContinuation(lines[i] ?? '')) {
+          appendOrderedListContinuation(itemParts, lines[i] ?? '');
+          i++;
+        }
+        items.push(itemParts);
+      }
+      blocks.push({ type: 'list', ordered: true, items });
       continue;
     }
 
@@ -399,26 +473,6 @@ export function parseLinearBlocks(source: string): LinearBlock[] {
         i++;
       }
       blocks.push({ type: 'list', ordered: false, items });
-      continue;
-    }
-
-    const om = trimmed.match(ORDERED);
-    if (om) {
-      flush();
-      const items: InlinePart[][] = [];
-      while (i < lines.length) {
-        /** Same loose-list rule as bullets: skip blank lines between `1.` / `2.` rows. */
-        while (i < lines.length && lines[i].trim() === '') {
-          i++;
-        }
-        if (i >= lines.length) break;
-        const L = lines[i];
-        const mm = L.trim().match(ORDERED);
-        if (!mm) break;
-        items.push(parseInline((mm[3] ?? '').trim()));
-        i++;
-      }
-      blocks.push({ type: 'list', ordered: true, items });
       continue;
     }
 
@@ -478,7 +532,7 @@ export function parseLinearBlocks(source: string): LinearBlock[] {
   }
 
   flush();
-  return blocks;
+  return coalesceAdjacentOrderedLists(blocks);
 }
 
 function mergeMetaRuns(children: SectionChild[]): SectionChild[] {
