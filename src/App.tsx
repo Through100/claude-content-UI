@@ -7,7 +7,7 @@ import AccountView from './components/AccountView';
 import LogonView from './components/LogonView';
 import UsageView from './components/UsageView';
 import { apiService } from './services/api';
-import { BLOG_COMMANDS, buildBlogPrompt, formatWorkspaceRunDirSegment } from './types';
+import { BLOG_COMMANDS, BLOG_SKILL_VERSION, buildBlogPrompt, formatWorkspaceRunDirSegment } from './types';
 import { clearDashboardChatHistory, formatChatThreadKey } from './lib/dashboardChatHistory';
 import { savePtyPrettyArchive } from './lib/ptyPrettyArchiveStorage';
 import { usePtyBridge } from './context/PtyBridgeContext';
@@ -311,7 +311,10 @@ export default function App() {
             <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
               <div>
                 <h2 className="text-3xl font-bold text-gray-900 tracking-tight">Blog Command Center</h2>
-                <p className="text-gray-500 mt-1">Run the blog skill (/blog …) via the interactive Claude session.</p>
+                <p className="text-gray-500 mt-1">
+                  Run the blog skill v{BLOG_SKILL_VERSION} (<code className="text-xs bg-gray-100 px-1 rounded">/blog …</code>) via the
+                  interactive Claude session.
+                </p>
               </div>
               <div className="flex items-center gap-2 text-xs font-bold text-gray-400 uppercase tracking-widest bg-white px-4 py-2 rounded-xl border border-gray-100 shadow-sm">
                 <span className={`w-2 h-2 rounded-full ${ptySessionReady ? 'bg-green-500' : 'bg-amber-400 animate-pulse'}`}></span>

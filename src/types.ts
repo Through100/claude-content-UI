@@ -252,6 +252,9 @@ export interface ModelOption {
   description?: string;
 }
 
+/** Installed claude-blog skill version the Dashboard command list is aligned with. */
+export const BLOG_SKILL_VERSION = '1.9.1';
+
 /** Dashboard slash-command (blog skill). */
 export interface BlogCommand {
   key: string;
@@ -379,7 +382,91 @@ export const BLOG_COMMANDS: BlogCommand[] = [
     key: 'taxonomy',
     label: 'Taxonomy — tags & categories',
     command: '/blog taxonomy',
-    placeholder: 'Optional: action or leave empty',
+    placeholder: 'Optional: suggest | sync | audit (or leave empty)',
+    targetOptional: true
+  },
+  {
+    key: 'brand',
+    label: 'Brand — BRAND.md + VOICE.md context',
+    command: '/blog brand',
+    placeholder: 'init | show | update',
+    targetOptional: true
+  },
+  {
+    key: 'discourse',
+    label: 'Discourse — 30-day practitioner research',
+    command: '/blog discourse',
+    placeholder: 'Topic; optional --days 90 or --feed-into brief|write|strategy',
+    targetOptional: false
+  },
+  {
+    key: 'update',
+    label: 'Update — refresh post with new stats',
+    command: '/blog update',
+    placeholder: 'Path to file, e.g. content/posts/guide.md',
+    targetOptional: false
+  },
+  {
+    key: 'cluster',
+    label: 'Cluster — topic cluster plan & execute',
+    command: '/blog cluster',
+    placeholder: 'plan <seed keyword> | execute [path/to/cluster-plan.json]',
+    targetOptional: true
+  },
+  {
+    key: 'notebooklm',
+    label: 'NotebookLM — source-grounded research',
+    command: '/blog notebooklm',
+    placeholder: 'Question or notebook query',
+    targetOptional: false
+  },
+  {
+    key: 'audio',
+    label: 'Audio — narration & TTS',
+    command: '/blog audio',
+    placeholder: 'generate | voices | setup (and path or topic if needed)',
+    targetOptional: true
+  },
+  {
+    key: 'google',
+    label: 'Google — PSI, CrUX, GSC, GA4, etc.',
+    command: '/blog google',
+    placeholder: 'pagespeed <url> | gsc | crux | ga4 | …',
+    targetOptional: true
+  },
+  {
+    key: 'multilingual',
+    label: 'Multilingual — write + translate + hreflang',
+    command: '/blog multilingual',
+    placeholder: '--languages es,de,fr <topic>',
+    targetOptional: false
+  },
+  {
+    key: 'translate',
+    label: 'Translate — SEO translation',
+    command: '/blog translate',
+    placeholder: '--to <locale> <path or topic>',
+    targetOptional: false
+  },
+  {
+    key: 'localize',
+    label: 'Localize — cultural adaptation',
+    command: '/blog localize',
+    placeholder: '--locale <locale> <path>',
+    targetOptional: false
+  },
+  {
+    key: 'locale-audit',
+    label: 'Locale audit — multilingual QA',
+    command: '/blog locale-audit',
+    placeholder: 'Optional path or site root (or leave empty)',
+    targetOptional: true
+  },
+  {
+    key: 'flow',
+    label: 'FLOW — evidence-led prompts',
+    command: '/blog flow',
+    placeholder: 'find | optimize | win | prompts | sync',
     targetOptional: true
   }
 ];
@@ -547,6 +634,18 @@ export function workspaceReportMarkdownCandidates(
     }
     if (k === 'brief' || k === 'strategy' || k === 'outline' || k === 'calendar' || k === 'seo-check') {
       add(`${base}analysis-report.md`);
+      add(`${base}report.md`);
+    }
+    if (k === 'cluster') {
+      add(`${base}cluster-scorecard.md`);
+      add(`${base}report.md`);
+    }
+    if (k === 'discourse') {
+      add(`${base}discourse-brief.md`);
+      add(`${base}report.md`);
+    }
+    if (k === 'locale-audit') {
+      add(`${base}locale-audit-report.md`);
       add(`${base}report.md`);
     }
 

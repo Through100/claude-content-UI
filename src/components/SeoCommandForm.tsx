@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, Play, AlertCircle, CheckCircle2, Upload } from 'lucide-react';
-import { BLOG_COMMANDS } from '../types';
+import { BLOG_COMMANDS, BLOG_SKILL_VERSION } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { apiService } from '../services/api';
 import type { ModelOption } from '../types';
@@ -95,8 +95,9 @@ export default function SeoCommandForm({ onRun, onSessionChange, isLoading }: Se
         <div>
           <h2 className="text-lg font-semibold text-gray-900">Command Runner</h2>
           <p className="text-sm text-gray-500">
-            Select a blog skill command and optional target (topic, path under <code className="text-xs bg-gray-100 px-1 rounded">CLAUDE_WORKDIR</code>, or{' '}
-            <strong>Upload</strong> to save into <code className="text-xs bg-gray-100 px-1 rounded">ui-uploads/</code> and fill Target).
+            Select a claude-blog v{BLOG_SKILL_VERSION} command and optional target (topic, path under{' '}
+            <code className="text-xs bg-gray-100 px-1 rounded">CLAUDE_WORKDIR</code>, or <strong>Upload</strong> to save into{' '}
+            <code className="text-xs bg-gray-100 px-1 rounded">ui-uploads/</code> and fill Target).
           </p>
         </div>
         
