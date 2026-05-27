@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, Play, AlertCircle, CheckCircle2, Upload } from 'lucide-react';
-import { BLOG_COMMANDS, BLOG_SKILL_VERSION } from '../types';
+import { BLOG_COMMAND_GROUPS, BLOG_COMMANDS, BLOG_SKILL_VERSION } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { apiService } from '../services/api';
 import type { ModelOption } from '../types';
@@ -128,10 +128,14 @@ export default function SeoCommandForm({ onRun, onSessionChange, isLoading }: Se
                 disabled={isLoading}
                 className="w-full pl-3 pr-10 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all outline-none appearance-none disabled:bg-gray-50 disabled:text-gray-400"
               >
-                {BLOG_COMMANDS.map((cmd) => (
-                  <option key={cmd.key} value={cmd.key}>
-                    {cmd.label}
-                  </option>
+                {BLOG_COMMAND_GROUPS.map((group) => (
+                  <optgroup key={group} label={group}>
+                    {BLOG_COMMANDS.filter((cmd) => cmd.group === group).map((cmd) => (
+                      <option key={cmd.key} value={cmd.key}>
+                        {cmd.label}
+                      </option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
               <div className="absolute inset-y-0 right-0 flex items-center px-3 pointer-events-none text-gray-400">

@@ -255,6 +255,20 @@ export interface ModelOption {
 /** Installed claude-blog skill version the Dashboard command list is aligned with. */
 export const BLOG_SKILL_VERSION = '1.9.1';
 
+/** Command Runner optgroup labels (matches claude-blog SKILL.md sections). */
+export const BLOG_COMMAND_GROUPS = [
+  'Writing & editing',
+  'Analysis & quality',
+  'Strategy & site',
+  'Assets & output',
+  'Research & context',
+  'Google APIs',
+  'International',
+  'FLOW'
+] as const;
+
+export type BlogCommandGroup = (typeof BLOG_COMMAND_GROUPS)[number];
+
 /** Dashboard slash-command (blog skill). */
 export interface BlogCommand {
   key: string;
@@ -263,6 +277,7 @@ export interface BlogCommand {
   placeholder: string;
   /** When true, the target field may be left empty (prompt is just `command`). */
   targetOptional: boolean;
+  group: BlogCommandGroup;
 }
 
 export const BLOG_COMMANDS: BlogCommand[] = [
@@ -271,203 +286,248 @@ export const BLOG_COMMANDS: BlogCommand[] = [
     label: 'Write — new post from scratch',
     command: '/blog write',
     placeholder: 'Topic or angle, e.g. "Rust async for web APIs"',
-    targetOptional: false
+    targetOptional: false,
+    group: 'Writing & editing'
   },
   {
     key: 'rewrite',
     label: 'Rewrite — optimize existing post',
     command: '/blog rewrite',
     placeholder: 'Path to file, e.g. content/posts/guide.md',
-    targetOptional: false
-  },
-  {
-    key: 'analyze',
-    label: 'Analyze — quality audit (0–100)',
-    command: '/blog analyze',
-    placeholder: 'Path to file, e.g. content/posts/guide.md',
-    targetOptional: false
-  },
-  {
-    key: 'brief',
-    label: 'Brief — detailed content brief',
-    command: '/blog brief',
-    placeholder: 'Topic, e.g. "email onboarding for SaaS"',
-    targetOptional: false
-  },
-  {
-    key: 'calendar',
-    label: 'Calendar — editorial calendar',
-    command: '/blog calendar',
-    placeholder: 'Optional: quarter, theme, or leave empty',
-    targetOptional: true
-  },
-  {
-    key: 'strategy',
-    label: 'Strategy — blog strategy & topics',
-    command: '/blog strategy',
-    placeholder: 'Niche, e.g. "B2B analytics for manufacturers"',
-    targetOptional: false
-  },
-  {
-    key: 'outline',
-    label: 'Outline — SERP-informed outline',
-    command: '/blog outline',
-    placeholder: 'Topic, e.g. "best CRM for agencies"',
-    targetOptional: false
-  },
-  {
-    key: 'seo-check',
-    label: 'SEO check — post-writing validation',
-    command: '/blog seo-check',
-    placeholder: 'Path to file, e.g. content/posts/guide.md',
-    targetOptional: false
-  },
-  {
-    key: 'schema',
-    label: 'Schema — JSON-LD markup',
-    command: '/blog schema',
-    placeholder: 'Path to file, e.g. content/posts/guide.md',
-    targetOptional: false
-  },
-  {
-    key: 'repurpose',
-    label: 'Repurpose — social, email, YouTube',
-    command: '/blog repurpose',
-    placeholder: 'Path to file, e.g. content/posts/guide.md',
-    targetOptional: false
-  },
-  {
-    key: 'geo',
-    label: 'GEO — AI citation readiness',
-    command: '/blog geo',
-    placeholder: 'Path to file, e.g. content/posts/guide.md',
-    targetOptional: false
-  },
-  {
-    key: 'image',
-    label: 'Image — Gemini image generation',
-    command: '/blog image',
-    placeholder: 'Optional prompt or leave empty',
-    targetOptional: true
-  },
-  {
-    key: 'site-health',
-    label: 'Audit — full-site blog health',
-    command: '/blog audit',
-    placeholder: 'Optional directory, e.g. content/ (or leave empty for default)',
-    targetOptional: true
-  },
-  {
-    key: 'cannibalization',
-    label: 'Cannibalization — keyword overlap',
-    command: '/blog cannibalization',
-    placeholder: 'Optional directory to scan (or leave empty)',
-    targetOptional: true
-  },
-  {
-    key: 'factcheck',
-    label: 'Factcheck — verify statistics',
-    command: '/blog factcheck',
-    placeholder: 'Path to file, e.g. content/posts/guide.md',
-    targetOptional: false
-  },
-  {
-    key: 'persona',
-    label: 'Persona — voice & personas',
-    command: '/blog persona',
-    placeholder: 'Optional: persona name or subcommand (or leave empty)',
-    targetOptional: true
-  },
-  {
-    key: 'taxonomy',
-    label: 'Taxonomy — tags & categories',
-    command: '/blog taxonomy',
-    placeholder: 'Optional: suggest | sync | audit (or leave empty)',
-    targetOptional: true
-  },
-  {
-    key: 'brand',
-    label: 'Brand — BRAND.md + VOICE.md context',
-    command: '/blog brand',
-    placeholder: 'init | show | update',
-    targetOptional: true
-  },
-  {
-    key: 'discourse',
-    label: 'Discourse — 30-day practitioner research',
-    command: '/blog discourse',
-    placeholder: 'Topic; optional --days 90 or --feed-into brief|write|strategy',
-    targetOptional: false
+    targetOptional: false,
+    group: 'Writing & editing'
   },
   {
     key: 'update',
     label: 'Update — refresh post with new stats',
     command: '/blog update',
     placeholder: 'Path to file, e.g. content/posts/guide.md',
-    targetOptional: false
+    targetOptional: false,
+    group: 'Writing & editing'
+  },
+  {
+    key: 'outline',
+    label: 'Outline — SERP-informed outline',
+    command: '/blog outline',
+    placeholder: 'Topic, e.g. "best CRM for agencies"',
+    targetOptional: false,
+    group: 'Writing & editing'
+  },
+  {
+    key: 'brief',
+    label: 'Brief — detailed content brief',
+    command: '/blog brief',
+    placeholder: 'Topic, e.g. "email onboarding for SaaS"',
+    targetOptional: false,
+    group: 'Writing & editing'
+  },
+  {
+    key: 'analyze',
+    label: 'Analyze — quality audit (0–100)',
+    command: '/blog analyze',
+    placeholder: 'Path to file, e.g. content/posts/guide.md',
+    targetOptional: false,
+    group: 'Analysis & quality'
+  },
+  {
+    key: 'analyze-rubric',
+    label: 'Analyze — editorial rubric (--rubric)',
+    command: '/blog analyze --rubric',
+    placeholder: 'Path to file, e.g. content/posts/guide.md',
+    targetOptional: false,
+    group: 'Analysis & quality'
+  },
+  {
+    key: 'analyze-cognitive-load',
+    label: 'Analyze — cognitive load (--cognitive-load)',
+    command: '/blog analyze --cognitive-load',
+    placeholder: 'Path to file, e.g. content/posts/guide.md',
+    targetOptional: false,
+    group: 'Analysis & quality'
+  },
+  {
+    key: 'factcheck',
+    label: 'Factcheck — verify statistics',
+    command: '/blog factcheck',
+    placeholder: 'Path to file, e.g. content/posts/guide.md',
+    targetOptional: false,
+    group: 'Analysis & quality'
+  },
+  {
+    key: 'geo',
+    label: 'GEO — AI citation readiness',
+    command: '/blog geo',
+    placeholder: 'Path to file or URL, e.g. content/posts/guide.md',
+    targetOptional: false,
+    group: 'Analysis & quality'
+  },
+  {
+    key: 'seo-check',
+    label: 'SEO check — post-writing validation',
+    command: '/blog seo-check',
+    placeholder: 'Path to file, e.g. content/posts/guide.md',
+    targetOptional: false,
+    group: 'Analysis & quality'
+  },
+  {
+    key: 'calendar',
+    label: 'Calendar — editorial calendar',
+    command: '/blog calendar',
+    placeholder: 'Optional: monthly | quarterly | theme (or leave empty)',
+    targetOptional: true,
+    group: 'Strategy & site'
+  },
+  {
+    key: 'strategy',
+    label: 'Strategy — blog strategy & topics',
+    command: '/blog strategy',
+    placeholder: 'Niche, e.g. "B2B analytics for manufacturers"',
+    targetOptional: false,
+    group: 'Strategy & site'
+  },
+  {
+    key: 'site-health',
+    label: 'Audit — full-site blog health',
+    command: '/blog audit',
+    placeholder: 'Optional directory, e.g. content/ (or leave empty for default)',
+    targetOptional: true,
+    group: 'Strategy & site'
+  },
+  {
+    key: 'cannibalization',
+    label: 'Cannibalization — keyword overlap',
+    command: '/blog cannibalization',
+    placeholder: 'Optional directory to scan (or leave empty)',
+    targetOptional: true,
+    group: 'Strategy & site'
   },
   {
     key: 'cluster',
     label: 'Cluster — topic cluster plan & execute',
     command: '/blog cluster',
     placeholder: 'plan <seed keyword> | execute [path/to/cluster-plan.json]',
-    targetOptional: true
+    targetOptional: true,
+    group: 'Strategy & site'
+  },
+  {
+    key: 'schema',
+    label: 'Schema — JSON-LD markup',
+    command: '/blog schema',
+    placeholder: 'Path to file, e.g. content/posts/guide.md',
+    targetOptional: false,
+    group: 'Assets & output'
+  },
+  {
+    key: 'repurpose',
+    label: 'Repurpose — social, email, YouTube',
+    command: '/blog repurpose',
+    placeholder: 'Path to file, e.g. content/posts/guide.md',
+    targetOptional: false,
+    group: 'Assets & output'
+  },
+  {
+    key: 'image',
+    label: 'Image — generate | edit | setup',
+    command: '/blog image',
+    placeholder: 'generate | edit | setup (optional path or prompt)',
+    targetOptional: true,
+    group: 'Assets & output'
+  },
+  {
+    key: 'audio',
+    label: 'Audio — generate | voices | setup',
+    command: '/blog audio',
+    placeholder: 'generate | voices | setup (and path or topic if needed)',
+    targetOptional: true,
+    group: 'Assets & output'
+  },
+  {
+    key: 'persona',
+    label: 'Persona — create | list | use | show',
+    command: '/blog persona',
+    placeholder: 'create | list | use | show (optional name)',
+    targetOptional: true,
+    group: 'Assets & output'
+  },
+  {
+    key: 'taxonomy',
+    label: 'Taxonomy — suggest | sync | audit',
+    command: '/blog taxonomy',
+    placeholder: 'suggest | sync | audit (or leave empty)',
+    targetOptional: true,
+    group: 'Assets & output'
+  },
+  {
+    key: 'brand',
+    label: 'Brand — init | show | update',
+    command: '/blog brand',
+    placeholder: 'init | show | update',
+    targetOptional: true,
+    group: 'Research & context'
+  },
+  {
+    key: 'discourse',
+    label: 'Discourse — 30-day practitioner research',
+    command: '/blog discourse',
+    placeholder: 'Topic; optional --days 90 or --feed-into brief|write|strategy',
+    targetOptional: false,
+    group: 'Research & context'
   },
   {
     key: 'notebooklm',
     label: 'NotebookLM — source-grounded research',
     command: '/blog notebooklm',
     placeholder: 'Question or notebook query',
-    targetOptional: false
-  },
-  {
-    key: 'audio',
-    label: 'Audio — narration & TTS',
-    command: '/blog audio',
-    placeholder: 'generate | voices | setup (and path or topic if needed)',
-    targetOptional: true
+    targetOptional: false,
+    group: 'Research & context'
   },
   {
     key: 'google',
-    label: 'Google — PSI, CrUX, GSC, GA4, etc.',
+    label: 'Google — setup | pagespeed | crux | gsc | …',
     command: '/blog google',
-    placeholder: 'pagespeed <url> | gsc | crux | ga4 | …',
-    targetOptional: true
+    placeholder: 'setup | pagespeed <url> | crux <url> | gsc | ga4 | …',
+    targetOptional: true,
+    group: 'Google APIs'
   },
   {
     key: 'multilingual',
     label: 'Multilingual — write + translate + hreflang',
     command: '/blog multilingual',
     placeholder: '--languages es,de,fr <topic>',
-    targetOptional: false
+    targetOptional: false,
+    group: 'International'
   },
   {
     key: 'translate',
     label: 'Translate — SEO translation',
     command: '/blog translate',
     placeholder: '--to <locale> <path or topic>',
-    targetOptional: false
+    targetOptional: false,
+    group: 'International'
   },
   {
     key: 'localize',
     label: 'Localize — cultural adaptation',
     command: '/blog localize',
     placeholder: '--locale <locale> <path>',
-    targetOptional: false
+    targetOptional: false,
+    group: 'International'
   },
   {
     key: 'locale-audit',
     label: 'Locale audit — multilingual QA',
     command: '/blog locale-audit',
     placeholder: 'Optional path or site root (or leave empty)',
-    targetOptional: true
+    targetOptional: true,
+    group: 'International'
   },
   {
     key: 'flow',
-    label: 'FLOW — evidence-led prompts',
+    label: 'FLOW — find | optimize | win | prompts | sync',
     command: '/blog flow',
     placeholder: 'find | optimize | win | prompts | sync',
-    targetOptional: true
+    targetOptional: true,
+    group: 'FLOW'
   }
 ];
 
@@ -616,7 +676,7 @@ export function workspaceReportMarkdownCandidates(
     if (k === 'geo') {
       add(`${base}geo-audit-report.md`);
     }
-    if (k === 'analyze') {
+    if (k === 'analyze' || k === 'analyze-rubric' || k === 'analyze-cognitive-load') {
       add(`${base}analysis-report.md`);
     }
     if (k === 'site-health') {
