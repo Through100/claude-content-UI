@@ -1,11 +1,37 @@
 import 'dotenv/config';
-import express from 'express';
+
+/** Avoid process exit on transient proxy/client socket drops during long SSE runs. */
+function bindProcessCrashLogging(): void {
+  const isBenignSocketErr = (err: unknown): boolean => {
+    const code = (err as NodeJS.ErrnoException)?.code;
+    return code === 'ECONNRESET' || code === 'EPIPE' || code === 'ERR_STREAM_DESTROYED';
+  };
+  process.on('uncaughtException', (err) => {
+    if (isBenignSocketErr(err)) {
+      console.warn('[claude-seo-ui] Ignoring transient socket error:', (err as Error).message);
+      return;
+    }
+    console.error('[claude-seo-ui] uncaughtException:', err);
+  });
+  process.on('unhandledRejection', (reason) => {
+    if (isBenignSocketErr(reason)) {
+      console.warn('[claude-seo-ui] Ignoring transient socket rejection:', (reason as Error).message);
+      return;
+    }
+    console.error('[claude-seo-ui] unhandledRejection:', reason);
+  });
+}
+
+bindProcessCrashLogging();
+
+import express, { type Response } from 'express';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
+import { spawn } from 'node:child_process';
 import {
   formatClaudeSpawnError,
   logClaudeAutoPermissionPolicy,
@@ -19,11 +45,11 @@ import {
 import { appendHistoryItem, groupHistory, loadHistory } from './historyStore';
 import { parseSeoOutput } from '../shared/parseSeoOutput';
 import { enrichUsagePanelWithLocalJsonWhenCliFails } from './usageLocalSnapshot';
-import { parseAccountStatusSnapshot } from './accountStatusParse';
 import { parseUsageCostSnapshot } from './usageCostParse';
 import { parseUsageQuotaSnapshot, usagePanelMainText } from './usageQuotaParse';
 import { attachClaudeTerminalWebSocket } from './terminalWs';
-import { runBashAccountStatus, runBashCost, runBashUsage } from './usageShellProbe';
+import { runAccountStatusProbeDeduped } from './accountStatusProbe';
+import { runBashCost, runBashUsage } from './usageShellProbe';
 import {
   BLOG_COMMANDS,
   buildBlogPrompt,
@@ -33,6 +59,28 @@ import {
   type HistoryItem,
   type RunResponse
 } from '../src/types';
+
+const SSE_DONE_RAW_CAP = 200_000;
+
+/** Large blog runs can exceed proxy/SSE frame limits — cap `rawOutput` in the terminal `done` event. */
+function slimRunResponseForSse(body: RunResponse): RunResponse {
+  if (body.rawOutput.length <= SSE_DONE_RAW_CAP) return body;
+  return {
+    ...body,
+    rawOutput:
+      body.rawOutput.slice(0, SSE_DONE_RAW_CAP) +
+      '\n\n[Truncated for stream delivery — full output is in History and workspace-files.]'
+  };
+}
+
+function safeSseEnd(res: Response): void {
+  if (res.writableEnded) return;
+  try {
+    res.end();
+  } catch {
+    /* client already gone */
+  }
+}
 
 /** Nudge headless runs when the target is a URL so the model does not ask for interactive WebFetch / paste (no TTY). */
 function appendHeadlessHttpUrlHint(prompt: string, targetTrimmed: string): string {
@@ -206,7 +254,7 @@ async function findBestMarkdownReportInWorkspaceSegment(segment: string): Promis
   })[0] ?? null;
 }
 
-const DEFAULT_RUN_TIMEOUT_MS = 1_800_000;
+const DEFAULT_RUN_TIMEOUT_MS = 3_600_000;
 const DEFAULT_USAGE_TIMEOUT_MS = 180_000;
 /** Reject 0/NaN/tiny values — they schedule SIGTERM immediately and look like "broken" Claude runs. */
 const MIN_TIMEOUT_MS = 1_000;
@@ -244,6 +292,33 @@ function usageTimeoutMs(): number {
     return DEFAULT_USAGE_TIMEOUT_MS;
   }
   return n;
+}
+
+function killClaudeOnSseDisconnect(): boolean {
+  return ['1', 'true', 'yes'].includes((process.env.CLAUDE_KILL_ON_SSE_DISCONNECT ?? '').toLowerCase());
+}
+
+function emptyRunDiagnosticHints(result: ClaudeRunResult, durationMs: number): string[] {
+  const hints: string[] = [];
+  const min = Math.round(durationMs / 60_000);
+  if (result.signal === 'SIGKILL' && durationMs >= 540_000 && durationMs <= 960_000) {
+    hints.push(
+      `Duration ~${min} minutes with SIGKILL often means the OS OOM killer, a force-kill (pkill -9), or an upstream proxy idle timeout near 900s (15 min). Raise reverse-proxy read timeouts for /api/run/stream to at least 3600s and check dmesg or pm2 logs for OOM.`
+    );
+  } else if (result.signal === 'SIGTERM' && durationMs >= 540_000) {
+    hints.push(
+      `Long run (${min} min) ended with SIGTERM. A browser tab close, client timeout, or proxy may have dropped the SSE connection${
+        killClaudeOnSseDisconnect()
+          ? ' — this API is configured to kill Claude when that happens (CLAUDE_KILL_ON_SSE_DISCONNECT=1).'
+          : ' — Claude should keep running unless CLAUDE_KILL_ON_SSE_DISCONNECT=1.'
+      }`
+    );
+  } else if (result.signal === 'SIGTERM' && durationMs < 60_000) {
+    hints.push(
+      `Very short run + SIGTERM often means the API timeout fired (see CLAUDE_TIMEOUT_MS; must be unset or an integer >= ${MIN_TIMEOUT_MS}ms, default ${DEFAULT_RUN_TIMEOUT_MS}ms).`
+    );
+  }
+  return hints;
 }
 
 const USAGE_RAW_SEPARATOR = '\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n';
@@ -366,10 +441,7 @@ function buildRunBody(input: {
   let rawOutput = [result.stdout, result.stderr].filter(Boolean).join('\n');
   const ok = result.code === 0;
   if (!ok && !rawOutput.trim()) {
-    const sigHint =
-      result.signal === 'SIGTERM' && durationMs < 60_000
-        ? `Very short run + SIGTERM often means the API timeout fired (see CLAUDE_TIMEOUT_MS; must be unset or an integer >= ${MIN_TIMEOUT_MS}ms, default ${DEFAULT_RUN_TIMEOUT_MS}ms).`
-        : null;
+    const hintLines = emptyRunDiagnosticHints(result, durationMs);
     rawOutput = [
       '(Claude exited before any stdout/stderr was captured. If this persists, the process may be failing immediately — e.g. missing auth, wrong cwd, or claude not on PATH.)',
       '',
@@ -377,7 +449,7 @@ function buildRunBody(input: {
       `exit code: ${result.code}`,
       result.signal ? `signal: ${result.signal}` : null,
       `duration_ms: ${durationMs}`,
-      sigHint,
+      ...hintLines,
       `cwd: ${cwd}`,
       `argv: ${JSON.stringify(result.argv)}`,
       `CLAUDE_BIN: ${claudeBin()}`,
@@ -715,18 +787,8 @@ app.post('/api/usage/exec', async (_req, res) => {
 app.get('/api/account', async (_req, res) => {
   const cwd = workdir();
   const bin = claudeBin();
-  const t = usageTimeoutMs();
   try {
-    const { output, exitCode, argv } = await runBashAccountStatus({ claudeBin: bin, cwd, timeoutMs: t });
-    const statusSnapshot = parseAccountStatusSnapshot(output);
-    res.json({
-      line: '/status',
-      execMode: 'bash_quoted_status',
-      output,
-      exitCode,
-      argv,
-      statusSnapshot
-    });
+    res.json(await runAccountStatusProbeDeduped(bin, cwd));
   } catch (e) {
     res.status(500).json({ error: String(e) });
   }
@@ -735,18 +797,8 @@ app.get('/api/account', async (_req, res) => {
 app.post('/api/account/exec', async (_req, res) => {
   const cwd = workdir();
   const bin = claudeBin();
-  const t = usageTimeoutMs();
   try {
-    const { output, exitCode, argv } = await runBashAccountStatus({ claudeBin: bin, cwd, timeoutMs: t });
-    const statusSnapshot = parseAccountStatusSnapshot(output);
-    res.json({
-      line: '/status',
-      execMode: 'bash_quoted_status',
-      output,
-      exitCode,
-      argv,
-      statusSnapshot
-    });
+    res.json(await runAccountStatusProbeDeduped(bin, cwd));
   } catch (e) {
     res.status(500).json({ error: String(e) });
   }
@@ -827,27 +879,42 @@ app.post('/api/run/stream', async (req, res) => {
   res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders?.();
 
-  const flushSse = () => {
-    try {
-      const flush = (res as express.Response & { flush?: () => void }).flush;
-      if (typeof flush === 'function') flush.call(res);
-    } catch {
-      /* ignore — not all Node / proxy stacks expose flush */
+  let clientGone = false;
+  const markClientGone = (reason: string, err?: unknown) => {
+    if (clientGone) return;
+    clientGone = true;
+    if (err) {
+      console.warn(`[claude-seo-ui] SSE client disconnected (${reason}):`, err);
+    } else {
+      console.warn(`[claude-seo-ui] SSE client disconnected (${reason})`);
     }
   };
+  req.on('error', (err) => markClientGone('request error', err));
+  res.on('error', (err) => markClientGone('response error', err));
 
   const sse = (obj: unknown) => {
-    if (res.writableEnded) return;
+    if (clientGone || res.writableEnded || res.destroyed) return;
     try {
       res.write(`data: ${JSON.stringify(obj)}\n\n`);
-      flushSse();
-    } catch {
-      /* client gone */
+    } catch (err) {
+      markClientGone('write failed', err);
     }
   };
 
-  /** First `data:` frame ASAP so reverse proxies flush (comment-only SSE pings are often buffered). */
+  const streamRunId = randomUUID();
+  sse({ type: 'started', runId: streamRunId, workspaceOutputSegment, startedAt });
   sse({ type: 'run_accepted', startedAt });
+
+  const SSE_STREAM_CHUNK_CAP = 24 * 1024;
+  const sseStreamChunk = (streamType: 'stdout' | 'stderr', text: string) => {
+    if (text.length <= SSE_STREAM_CHUNK_CAP) {
+      sse({ type: streamType, chunk: text });
+      return;
+    }
+    for (let i = 0; i < text.length; i += SSE_STREAM_CHUNK_CAP) {
+      sse({ type: streamType, chunk: text.slice(i, i + SSE_STREAM_CHUNK_CAP) });
+    }
+  };
 
   const { child, argv } = spawnClaudeChild({
     prompt,
@@ -864,28 +931,41 @@ app.post('/api/run/stream', async (req, res) => {
   };
 
   const heartbeat = setInterval(() => {
-    if (!res.writableEnded) {
-      sse({ type: 'keepalive', t: Date.now() });
+    if (!res.writableEnded && !clientGone) {
+      try {
+        sse({ type: 'ping', ts: Date.now() });
+        sse({ type: 'keepalive', t: Date.now() });
+      } catch {
+        /* ignore */
+      }
     }
-  }, 15000);
+  }, 10_000);
 
+  let claudePhase: 'running' | 'finished' = 'running';
   const killOnClient = () => {
+    if (claudePhase !== 'running' || !killClaudeOnSseDisconnect()) return;
     try {
       if (!child.killed) child.kill('SIGTERM');
     } catch {
       /* ignore */
     }
   };
-  // Listen on res, not req: req 'close' can fire as soon as the POST body is
-  // consumed (TCP half-close), killing Claude before it starts.  res 'close'
-  // only fires when the SSE response stream itself is torn down.
-  res.on('close', killOnClient);
+  res.on('close', () => {
+    markClientGone('response close');
+    if (killClaudeOnSseDisconnect()) {
+      killOnClient();
+    } else {
+      console.log(
+        `[claude-seo-ui] SSE client disconnected during run ${streamRunId} — Claude keeps running (set CLAUDE_KILL_ON_SSE_DISCONNECT=1 to stop on disconnect).`
+      );
+    }
+  });
 
   let result: ClaudeRunResult;
   try {
     result = await watchClaudeProcess(child, runTimeoutMs(), argv, {
-      onStdoutChunk: (t) => sse({ type: 'stdout', chunk: t }),
-      onStderrChunk: (t) => sse({ type: 'stderr', chunk: t })
+      onStdoutChunk: (t) => sseStreamChunk('stdout', t),
+      onStderrChunk: (t) => sseStreamChunk('stderr', t)
     });
   } catch (e) {
     const spawnDiag = formatClaudeSpawnError(e, argv);
@@ -898,8 +978,8 @@ app.post('/api/run/stream', async (req, res) => {
       argv
     };
   } finally {
+    claudePhase = 'finished';
     cleanupTimers();
-    res.off('close', killOnClient);
   }
 
   try {
@@ -914,11 +994,53 @@ app.post('/api/run/stream', async (req, res) => {
       workspaceOutputSegment
     });
     await appendHistoryItem(item);
-    sse({ type: 'done', result: body });
+    if (!clientGone) {
+      sse({ type: 'done', result: slimRunResponseForSse(body) });
+    } else {
+      console.log(
+        `[claude-seo-ui] Run ${item.id} saved to history after client disconnect (workspace: ${workspaceOutputSegment})`
+      );
+    }
   } catch (e) {
-    sse({ type: 'error', message: String(e) });
+    if (!clientGone) sse({ type: 'error', message: String(e) });
+    console.error('[claude-seo-ui] POST /api/run/stream post-run failed:', e);
   }
-  res.end();
+  safeSseEnd(res);
+});
+
+/** Best-effort kill of lingering `claude` processes (e.g. stuck `claude /status` from legacy probes). */
+app.post('/api/session/restart', async (_req, res) => {
+  const cwd = workdir();
+  if (process.platform !== 'linux') {
+    res.json({
+      ok: true,
+      attempted: false,
+      message: `No-op on ${process.platform}; client state was reset.`
+    });
+    return;
+  }
+  const command = `pkill -TERM -f '(^|[[:space:]])claude([[:space:]]|$)' || true; pgrep -fa '(^|[[:space:]])claude([[:space:]]|$)' >/tmp/claude-restart-leftovers.txt || true; if [ -s /tmp/claude-restart-leftovers.txt ]; then pkill -KILL -f '(^|[[:space:]])claude([[:space:]]|$)' || true; fi; rm -f /tmp/claude-restart-leftovers.txt`;
+  const argv = ['-lc', command];
+  const child = spawn('bash', argv, {
+    cwd,
+    env: { ...process.env },
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+  const chunks: Buffer[] = [];
+  child.stdout?.on('data', (d) => chunks.push(d));
+  child.stderr?.on('data', (d) => chunks.push(d));
+  child.on('close', (code) => {
+    const output = Buffer.concat(chunks).toString().trim();
+    res.json({
+      ok: code === 0 || code === 1,
+      attempted: true,
+      exitCode: code,
+      output: output || '(no output)'
+    });
+  });
+  child.on('error', (err) => {
+    res.status(500).json({ ok: false, error: String(err) });
+  });
 });
 
 const port = parseInt(process.env.PORT || '8787', 10);
@@ -931,6 +1053,9 @@ async function startupClaude(): Promise<void> {
   console.log(`[claude-seo-ui] CLAUDE_WORKDIR: ${cwd}`);
   console.log(
     `[claude-seo-ui] Effective timeouts: CLAUDE_TIMEOUT_MS=${runTimeoutMs()}ms, CLAUDE_USAGE_TIMEOUT_MS=${usageTimeoutMs()}ms`
+  );
+  console.log(
+    `[claude-seo-ui] SSE disconnect kills Claude: ${killClaudeOnSseDisconnect() ? 'yes (CLAUDE_KILL_ON_SSE_DISCONNECT=1)' : 'no (default — Claude continues after proxy/tab drop)'}`
   );
   logClaudeAutoPermissionPolicy();
 

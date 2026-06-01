@@ -133,6 +133,10 @@ export function watchClaudeProcess(
       child.stderr?.removeAllListeners('data');
     };
 
+    const onPipeError = (label: string) => (err: Error) => {
+      console.warn(`[claude-seo-ui] Claude ${label} stream error (ignored):`, err.message);
+    };
+
     const onError = (err: Error) => {
       if (settled) return;
       settled = true;
@@ -159,9 +163,8 @@ export function watchClaudeProcess(
     child.on('error', onError);
     child.on('close', onClose);
 
-    // Prevent process crash on stream errors (e.g. ECONNRESET)
-    child.stdout?.on('error', () => {});
-    child.stderr?.on('error', () => {});
+    child.stdout?.on('error', onPipeError('stdout'));
+    child.stderr?.on('error', onPipeError('stderr'));
 
     child.stdout?.on('data', (c: Buffer) => {
       const t = c.toString('utf8');
@@ -184,16 +187,41 @@ export interface SpawnClaudeOpts {
   bare?: boolean;
 }
 
+function shSingleQuote(s: string): string {
+  return `'${String(s).replace(/'/g, `'\"'\"'`)}'`;
+}
+
+/** Linux: run headless `claude -p` under `script` so stdout is PTY line-buffered (pipes often buffer until exit). */
+function headlessUseScriptPty(): boolean {
+  if (process.platform !== 'linux') return false;
+  return !['1', 'true', 'yes'].includes((process.env.CLAUDE_HEADLESS_NO_SCRIPT_PTY ?? '').toLowerCase());
+}
+
+function spawnViaScriptPty(innerArgv: string[], cwd: string): { child: ChildProcess; argv: string[] } {
+  const inner = innerArgv.map((a) => shSingleQuote(a)).join(' ');
+  const cmd = `if command -v script >/dev/null 2>&1; then script -qec ${inner} /dev/null; else ${inner}; fi`;
+  const argv = ['bash', '-c', cmd];
+  const child = spawn('bash', ['-c', cmd], {
+    cwd,
+    env: { ...process.env },
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+  return { child, argv };
+}
+
 /** Spawn `claude -p …` without waiting (for SSE streaming). */
 export function spawnClaudeChild(opts: SpawnClaudeOpts): { child: ChildProcess; argv: string[] } {
   const args = buildArgs(opts.prompt, opts.model, opts.bare);
-  const argv = [opts.claudeBin, ...args];
+  const directArgv = [opts.claudeBin, ...args];
+  if (headlessUseScriptPty()) {
+    return spawnViaScriptPty(directArgv, opts.cwd);
+  }
   const child = spawn(opts.claudeBin, args, {
     cwd: opts.cwd,
     env: { ...process.env },
     stdio: ['ignore', 'pipe', 'pipe']
   });
-  return { child, argv };
+  return { child, argv: directArgv };
 }
 
 export async function runClaudePrint(opts: RunClaudePrintOptions): Promise<ClaudeRunResult> {

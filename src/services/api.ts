@@ -2,7 +2,7 @@ import type { AccountStatusInfo, GroupedHistory, ModelOption, RunResponse, Usage
 
 export const apiBase = () => (import.meta.env.VITE_API_BASE_URL as string | undefined) || '';
 
-const DEFAULT_CLIENT_TIMEOUT_MS = 1_800_000;
+const DEFAULT_CLIENT_TIMEOUT_MS = 3_600_000;
 const MIN_CLIENT_TIMEOUT_MS = 1_000;
 
 function runTimeoutMs(): number {
@@ -119,7 +119,14 @@ async function consumeRunStream(
       else if (o.type === 'stderr' && typeof o.chunk === 'string') onChunk('stderr', o.chunk);
       else if (o.type === 'error') throw new Error(o.message || 'Stream error');
       else if (o.type === 'done' && o.result) final = o.result;
-      else if (o.type === 'run_accepted' || o.type === 'keepalive') onStreamEvent?.({ type: o.type });
+      else if (
+        o.type === 'run_accepted' ||
+        o.type === 'keepalive' ||
+        o.type === 'ping' ||
+        o.type === 'started'
+      ) {
+        onStreamEvent?.({ type: o.type });
+      }
     }
   }
   buf += dec.decode();
@@ -130,7 +137,14 @@ async function consumeRunStream(
     else if (o.type === 'stderr' && typeof o.chunk === 'string') onChunk('stderr', o.chunk);
     else if (o.type === 'error') throw new Error(o.message || 'Stream error');
     else if (o.type === 'done' && o.result) final = o.result;
-    else if (o.type === 'run_accepted' || o.type === 'keepalive') onStreamEvent?.({ type: o.type });
+    else if (
+      o.type === 'run_accepted' ||
+      o.type === 'keepalive' ||
+      o.type === 'ping' ||
+      o.type === 'started'
+    ) {
+      onStreamEvent?.({ type: o.type });
+    }
   }
 
   if (!final) {

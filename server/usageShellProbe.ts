@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 
 /**
  * Child env for Usage probes: strip npm_config_prefix to avoid nvm compatibility issues.
@@ -21,30 +21,21 @@ export function stripAnsiForWeb(text: string): string {
   for (let pass = 0; pass < 12; pass++) {
     const before = s;
     s = s
-      // CSI (cursor, SGR, modes, etc.): ESC [ … final byte @–~
       .replace(/\u001b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]/g, '')
-      // 8-bit CSI introducer (C1), rare but safe to remove
       .replace(/\u009b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]/g, '')
-      // OSC … BEL or ST (ESC + backslash), including hyperlinks
       .replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\x5c)/g, '')
-      // DCS / APC / PM / SOS … ST
       .replace(/\u001bP[\s\S]*?\u001b\x5c/g, '')
       .replace(/\u001b_[\s\S]*?\u001b\x5c/g, '')
       .replace(/\u001b\^[\s\S]*?\u001b\x5c/g, '')
       .replace(/\u001bX[\s\S]*?\u001b\x5c/g, '')
-      // Charset selects and SS2/SS3
       .replace(/\u001b[\(\)][\x20-\x7f]/g, '')
       .replace(/\u001b[NO][\x20-\x7f]/g, '')
-      // DEC save/restore cursor
       .replace(/\u001b[78]/g, '')
-      // Other common Fe escapes (single letter / symbol after ESC)
       .replace(/\u001b[@-Z\\-_]/g, '')
-      // DEC line attributes: ESC # {3,4,5,6,8}
       .replace(/\u001b#[\x20-\x7f]/g, '');
     if (s === before) break;
   }
   s = s.replace(/\u001b\x5c/g, '');
-  // Any remaining ESC + one 7-bit follow-up (partial sequences)
   for (let i = 0; i < 4; i++) {
     const before = s;
     s = s.replace(/\u001b[\x00-\x7f]/g, '');
@@ -71,6 +62,42 @@ export function accountStatusInnerTimeoutSpec(): string {
   return /^[0-9]+(?:\.[0-9]+)?\s*(?:s|m|h|ms)?$/i.test(raw) ? raw.replace(/\s+/g, '') : '4s';
 }
 
+/** SIGKILL grace after inner SIGTERM when using GNU `timeout -k` (stops stuck interactive `claude /status`). */
+function timeoutKillGraceSpec(): string {
+  const raw = (process.env.CLAUDE_PROBE_TIMEOUT_KILL_SPEC ?? '2s').trim() || '2s';
+  return /^[0-9]+(?:\.[0-9]+)?\s*(?:s|m|h|ms)?$/i.test(raw) ? raw.replace(/\s+/g, '') : '2s';
+}
+
+/** Kill bash probe child and descendants (interactive `claude /status` often ignores SIGTERM alone). */
+export function killProbeProcessTree(child: ChildProcess, signal: NodeJS.Signals = 'SIGKILL'): void {
+  const pid = child.pid;
+  if (!pid) {
+    try {
+      child.kill(signal);
+    } catch {
+      /* ignore */
+    }
+    return;
+  }
+  if (process.platform === 'linux') {
+    const sig = signal === 'SIGKILL' ? 'KILL' : 'TERM';
+    try {
+      spawn(
+        'bash',
+        ['-c', `pkill -${sig} -P ${pid} 2>/dev/null || true; kill -${sig === 'KILL' ? 9 : 15} ${pid} 2>/dev/null || true`],
+        { stdio: 'ignore' }
+      );
+    } catch {
+      /* ignore */
+    }
+  }
+  try {
+    child.kill(signal);
+  } catch {
+    /* ignore */
+  }
+}
+
 type SlashQuoted = '"/usage"' | '"/status"' | '"/cost"';
 
 /**
@@ -84,7 +111,8 @@ async function runBashClaudeSlashProbe(opts: {
   innerTimeoutSpec: string;
 }): Promise<{ output: string; exitCode: number | null; argv: string[] }> {
   const env = usageProbeCleanEnv();
-  const inner = `timeout ${opts.innerTimeoutSpec} ${shSingleQuote(opts.claudeBin)} ${opts.slashQuoted}`;
+  const killGrace = timeoutKillGraceSpec();
+  const inner = `timeout --foreground -k ${killGrace} ${opts.innerTimeoutSpec} ${shSingleQuote(opts.claudeBin)} ${opts.slashQuoted}`;
 
   const forceScript = ['1', 'true', 'yes'].includes((process.env.CLAUDE_USAGE_SCRIPT_PTY ?? '').toLowerCase());
   const skipScript = ['1', 'true', 'yes'].includes((process.env.CLAUDE_USAGE_NO_SCRIPT_PTY ?? '').toLowerCase());
@@ -107,25 +135,22 @@ async function runBashClaudeSlashProbe(opts: {
     child.stdout?.on('data', (d: Buffer) => chunks.push(d));
     child.stderr?.on('data', (d: Buffer) => chunks.push(d));
 
-    const timer = setTimeout(() => child.kill('SIGTERM'), opts.timeoutMs);
+    const timer = setTimeout(() => {
+      killProbeProcessTree(child, 'SIGKILL');
+    }, opts.timeoutMs);
 
-    child.on('error', () => {
+    const finish = (exitCode: number | null) => {
       clearTimeout(timer);
       resolve({
         output: stripAnsiForWeb(Buffer.concat(chunks).toString()),
-        exitCode: null,
+        exitCode,
         argv
       });
-    });
+    };
 
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      resolve({
-        output: stripAnsiForWeb(Buffer.concat(chunks).toString()),
-        exitCode: code,
-        argv
-      });
-    });
+    child.on('error', () => finish(null));
+
+    child.on('close', (code) => finish(code));
   });
 }
 
@@ -150,7 +175,7 @@ export async function runBashUsage(opts: {
   });
 }
 
-/** Same PTY tactic as {@link runBashUsage} for interactive `claude "/status"`. */
+/** Same PTY tactic as {@link runBashUsage} for interactive `claude "/status"`. Prefer {@link runAccountStatusProbe} for Account Info. */
 export async function runBashAccountStatus(opts: {
   claudeBin: string;
   cwd: string;

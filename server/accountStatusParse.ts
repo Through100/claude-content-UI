@@ -54,7 +54,15 @@ export function parseAccountStatusSnapshot(raw: string): AccountStatusSnapshot {
     }
   }
 
+  if (!snap.email) {
+    const emailMatch =
+      text.match(/(?:^|\n)\s*Email\s*:\s*(\S+@\S+)/i) ??
+      text.match(/logged\s+in\s+as\s+(\S+@\S+)/i) ??
+      text.match(/(?:account|user)\s*:\s*(\S+@\S+)/i);
+    if (emailMatch?.[1]) snap.email = emailMatch[1].trim();
+  }
+
   const filled = STATUS_LABELS.filter(({ key }) => snap[key] !== undefined && snap[key] !== '').length;
-  snap.parseOk = filled >= 3;
+  snap.parseOk = filled >= 3 || Boolean(snap.email?.includes('@'));
   return snap;
 }
