@@ -133,6 +133,12 @@ export default function ResultsView({
   const [fetchedReportContent, setFetchedReportContent] = useState<string | null>(null);
   const [fetchedReportPath, setFetchedReportPath] = useState<string | null>(null);
   const [isFetchingReport, setIsFetchingReport] = useState(false);
+  /** Bump to re-run Full Report fetch after "Try loading again" without stale-effect short-circuit. */
+  const [reportFetchRetryNonce, setReportFetchRetryNonce] = useState(0);
+  const fetchedReportContentRef = useRef<string | null>(null);
+  const fetchedReportPathRef = useRef<string | null>(null);
+  fetchedReportContentRef.current = fetchedReportContent;
+  fetchedReportPathRef.current = fetchedReportPath;
   const [workspaceFolderFilePaths, setWorkspaceFolderFilePaths] = useState<string[]>([]);
   const hasAutoSwitchedToReportRef = useRef(false);
   /** Latest `isLoading` for async fetch callbacks (avoid stale closure when switching tabs after run ends). */
@@ -557,6 +563,23 @@ export default function ResultsView({
   const reportLocatorSegmentsKey = reportLocatorSegments.join('\n');
   const workspaceFileLocatorSegmentsKey = workspaceFileLocatorSegments.join('\n');
 
+  /**
+   * Live PTY transcript grows continuously — artifact path extraction changes candidates every few
+   * hundred ms. Debounce so Full Report fetch is not cancelled in a loop (History uses a fixed snapshot).
+   */
+  const [debouncedReportMarkdownCandidatesKey, setDebouncedReportMarkdownCandidatesKey] =
+    useState(reportMarkdownCandidatesKey);
+  useEffect(() => {
+    if (isHistoryEmbed) {
+      setDebouncedReportMarkdownCandidatesKey(reportMarkdownCandidatesKey);
+      return;
+    }
+    const id = window.setTimeout(() => {
+      setDebouncedReportMarkdownCandidatesKey(reportMarkdownCandidatesKey);
+    }, 800);
+    return () => window.clearTimeout(id);
+  }, [reportMarkdownCandidatesKey, isHistoryEmbed]);
+
   useEffect(() => {
     // Reset state when chat thread changes
     setFetchedReportContent(null);
@@ -613,6 +636,7 @@ export default function ResultsView({
     hasAutoSwitchedToReportRef.current = false;
     setFetchedReportContent(null);
     setFetchedReportPath(null);
+    setReportFetchRetryNonce((n) => n + 1);
   }, [isHistoryEmbed, ptySentAt]);
 
   const tryAutoSwitchToFullReport = useCallback(() => {
@@ -637,6 +661,7 @@ export default function ResultsView({
     if (was && !isLoading && isReportFetchErrorPlaceholder(fetchedReportContent ?? '')) {
       setFetchedReportContent(null);
       setFetchedReportPath(null);
+      setReportFetchRetryNonce((n) => n + 1);
     }
   }, [isLoading, fetchedReportContent]);
 
@@ -654,15 +679,13 @@ export default function ResultsView({
       return;
     }
 
+    const cachedContent = fetchedReportContentRef.current;
     const haveSuccessCached =
-      Boolean(fetchedReportPath && reportMarkdownCandidates.includes(fetchedReportPath)) &&
-      Boolean(fetchedReportContent?.trim()) &&
-      !isReportFetchErrorPlaceholder(fetchedReportContent);
+      Boolean(cachedContent?.trim()) && !isReportFetchErrorPlaceholder(cachedContent);
     if (haveSuccessCached) return;
 
     const haveFinalFailure =
-      Boolean(fetchedReportContent?.trim()) &&
-      isReportFetchErrorPlaceholder(fetchedReportContent);
+      Boolean(cachedContent?.trim()) && isReportFetchErrorPlaceholder(cachedContent);
     if (haveFinalFailure) return;
 
     let cancelled = false;
@@ -780,13 +803,14 @@ export default function ResultsView({
       setIsFetchingReport(false);
     };
   }, [
-    reportMarkdownCandidatesKey,
+    debouncedReportMarkdownCandidatesKey,
     reportLocatorSegmentsKey,
     reportLocatorSegments,
-    fetchedReportContent,
+    reportMarkdownCandidates,
     tryAutoSwitchToFullReport,
     ptySentAt,
-    isHistoryEmbed
+    isHistoryEmbed,
+    reportFetchRetryNonce
   ]);
 
   const historyPrettySource = useMemo(() => {
@@ -1023,6 +1047,9 @@ export default function ResultsView({
               if (isReportFetchErrorPlaceholder(fetchedReportContent ?? '')) {
                 setFetchedReportContent(null);
                 setFetchedReportPath(null);
+                setReportFetchRetryNonce((n) => n + 1);
+              } else if (!fetchedReportContent?.trim() && !isFetchingReport) {
+                setReportFetchRetryNonce((n) => n + 1);
               }
               setActiveTab('report');
             }}
@@ -1132,6 +1159,7 @@ export default function ResultsView({
                           onClick={() => {
                             setFetchedReportContent(null);
                             setFetchedReportPath(null);
+                            setReportFetchRetryNonce((n) => n + 1);
                           }}
                           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-indigo-600 text-white shadow-sm hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed"
                         >
@@ -1151,10 +1179,28 @@ export default function ResultsView({
                       </div>
                     ) : null}
                   </>
-                ) : (
+                ) : isFetchingReport ? (
                   <div className="flex items-center justify-center py-12 text-indigo-500">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mr-3"></div>
                     Loading report…
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center gap-3 py-12 text-indigo-700">
+                    <p className="text-sm text-center max-w-md">
+                      No report file loaded yet. If the run just finished, wait a moment or retry — the dashboard
+                      waits for the markdown file under your workspace output folder.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFetchedReportContent(null);
+                        setFetchedReportPath(null);
+                        setReportFetchRetryNonce((n) => n + 1);
+                      }}
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-indigo-600 text-white shadow-sm hover:bg-indigo-700"
+                    >
+                      Try loading again
+                    </button>
                   </div>
                 )}
               </div>
