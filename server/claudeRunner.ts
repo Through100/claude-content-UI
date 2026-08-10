@@ -1,4 +1,11 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import {
+  buildOllamaFollowupPrompt,
+  mergeOllamaFollowupResults,
+  needsOllamaHeadlessFollowup,
+  ollamaHeadlessFollowupEnabled
+} from './ollamaFollowup';
+import { ensureOllamaServeForDashboard, isOllamaHeadlessModel, ollamaBin } from './ollamaEnsure';
 
 export interface ClaudeRunResult {
   stdout: string;
@@ -17,6 +24,8 @@ export interface RunClaudePrintOptions {
   claudeBin: string;
   /** When true, passes \`--bare\` before \`-p\` (skips skills/MCP/hooks discovery; see Claude Code headless docs). */
   bare?: boolean;
+  /** Tracks each spawned child so SSE disconnect handling covers retry and follow-up passes. */
+  registerChild?: (child: ChildProcess) => void;
 }
 
 export type ClaudeStreamChunkHandlers = {
@@ -185,7 +194,10 @@ export interface SpawnClaudeOpts {
   model?: string;
   claudeBin: string;
   bare?: boolean;
+  ollamaApiAuthMode?: OllamaApiAuthMode;
 }
+
+type OllamaApiAuthMode = 'bearer' | 'api-key' | 'both';
 
 function shSingleQuote(s: string): string {
   return `'${String(s).replace(/'/g, `'\"'\"'`)}'`;
@@ -197,20 +209,81 @@ function headlessUseScriptPty(): boolean {
   return !['1', 'true', 'yes'].includes((process.env.CLAUDE_HEADLESS_NO_SCRIPT_PTY ?? '').toLowerCase());
 }
 
-function spawnViaScriptPty(innerArgv: string[], cwd: string): { child: ChildProcess; argv: string[] } {
+function spawnViaScriptPty(
+  innerArgv: string[],
+  cwd: string,
+  env: NodeJS.ProcessEnv = process.env
+): { child: ChildProcess; argv: string[] } {
   const inner = innerArgv.map((a) => shSingleQuote(a)).join(' ');
-  const cmd = `if command -v script >/dev/null 2>&1; then script -qec ${inner} /dev/null; else ${inner}; fi`;
+  const cmd = `if command -v script >/dev/null 2>&1; then script -qec ${shSingleQuote(inner)} /dev/null; else ${inner}; fi`;
   const argv = ['bash', '-c', cmd];
   const child = spawn('bash', ['-c', cmd], {
     cwd,
-    env: { ...process.env },
+    env: { ...env },
     stdio: ['ignore', 'pipe', 'pipe']
   });
   return { child, argv };
 }
 
 /** Spawn `claude -p …` without waiting (for SSE streaming). */
+function ollamaApiKeyModeEnabled(): boolean {
+  const hasKey = Boolean(process.env.OLLAMA_API_KEY?.trim());
+  const mode = (process.env.CLAUDE_OLLAMA_API_KEY_MODE ?? '1').toLowerCase();
+  return hasKey && !['0', 'false', 'no'].includes(mode);
+}
+
+function buildOllamaApiKeyEnv(mode: OllamaApiAuthMode): NodeJS.ProcessEnv {
+  const apiKey = process.env.OLLAMA_API_KEY?.trim() ?? '';
+  const baseUrl = process.env.CLAUDE_OLLAMA_API_BASE_URL?.trim() || 'https://ollama.com';
+  const env: NodeJS.ProcessEnv = { ...process.env, ANTHROPIC_BASE_URL: baseUrl };
+
+  if (mode === 'bearer' || mode === 'both') env.ANTHROPIC_AUTH_TOKEN = apiKey;
+  else delete env.ANTHROPIC_AUTH_TOKEN;
+
+  if (mode === 'api-key' || mode === 'both') env.ANTHROPIC_API_KEY = apiKey;
+  else delete env.ANTHROPIC_API_KEY;
+
+  return env;
+}
+
+function configuredOllamaApiAuthModes(): OllamaApiAuthMode[] {
+  const raw = (process.env.CLAUDE_OLLAMA_API_AUTH ?? '').trim().toLowerCase();
+  if (raw === 'bearer' || raw === 'api-key' || raw === 'both') return [raw];
+  return ['bearer', 'api-key'];
+}
+
+function looksLikeAuthFailure(result: ClaudeRunResult): boolean {
+  return /(?:401\s+Unauthorized|Failed to authenticate|API Error:\s*401)/i.test(
+    `${result.stderr}\n${result.stdout}`
+  );
+}
+
 export function spawnClaudeChild(opts: SpawnClaudeOpts): { child: ChildProcess; argv: string[] } {
+  if (isOllamaHeadlessModel(opts.model)) {
+    if (ollamaApiKeyModeEnabled()) {
+      const env = buildOllamaApiKeyEnv(opts.ollamaApiAuthMode ?? configuredOllamaApiAuthModes()[0]);
+      const args = buildArgs(opts.prompt, opts.model, opts.bare);
+      const directArgv = [opts.claudeBin, ...args];
+      if (headlessUseScriptPty()) return spawnViaScriptPty(directArgv, opts.cwd, env);
+      const child = spawn(opts.claudeBin, args, {
+        cwd: opts.cwd,
+        env,
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
+      return { child, argv: directArgv };
+    }
+
+    const innerArgs = buildArgs(opts.prompt, 'default', opts.bare);
+    const bin = ollamaBin();
+    const launchArgs = ['launch', 'claude', '--model', opts.model!, '--yes', '--', ...innerArgs];
+    const child = spawn(bin, launchArgs, {
+      cwd: opts.cwd,
+      env: { ...process.env },
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    return { child, argv: [bin, ...launchArgs] };
+  }
+
   const args = buildArgs(opts.prompt, opts.model, opts.bare);
   const directArgv = [opts.claudeBin, ...args];
   if (headlessUseScriptPty()) {
@@ -224,15 +297,65 @@ export function spawnClaudeChild(opts: SpawnClaudeOpts): { child: ChildProcess; 
   return { child, argv: directArgv };
 }
 
+async function runSingleClaudeSpawn(
+  opts: RunClaudePrintOptions,
+  stream?: ClaudeStreamChunkHandlers
+): Promise<ClaudeRunResult> {
+  const authModes =
+    isOllamaHeadlessModel(opts.model) && ollamaApiKeyModeEnabled()
+      ? configuredOllamaApiAuthModes()
+      : [undefined];
+  let lastResult: ClaudeRunResult | null = null;
+
+  for (const [index, authMode] of authModes.entries()) {
+    if (index > 0) {
+      stream?.onStderrChunk?.(
+        `\n[claude-content-ui] Ollama API auth returned 401; retrying with ${authMode} auth.\n`
+      );
+    }
+    const { child, argv } = spawnClaudeChild({
+      prompt: opts.prompt,
+      cwd: opts.cwd,
+      model: opts.model,
+      claudeBin: opts.claudeBin,
+      bare: opts.bare,
+      ollamaApiAuthMode: authMode
+    });
+    opts.registerChild?.(child);
+    const result = await watchClaudeProcess(child, opts.timeoutMs, argv, stream);
+    lastResult = result;
+    if (!looksLikeAuthFailure(result) || index === authModes.length - 1) return result;
+  }
+
+  if (lastResult) return lastResult;
+  throw new Error('Claude run did not start.');
+}
+
+export async function runClaudePrintWithOptionalOllamaFollowup(
+  opts: RunClaudePrintOptions,
+  stream?: ClaudeStreamChunkHandlers
+): Promise<ClaudeRunResult> {
+  if (!isOllamaHeadlessModel(opts.model) || !ollamaHeadlessFollowupEnabled()) {
+    if (isOllamaHeadlessModel(opts.model) && !ollamaApiKeyModeEnabled()) {
+      await ensureOllamaServeForDashboard();
+    }
+    return runSingleClaudeSpawn(opts, stream);
+  }
+
+  if (!ollamaApiKeyModeEnabled()) await ensureOllamaServeForDashboard();
+  const first = await runSingleClaudeSpawn(opts, stream);
+  if (!needsOllamaHeadlessFollowup(first.stdout)) return first;
+
+  stream?.onStdoutChunk?.('\n\n--- claude-content-ui: Ollama headless follow-up pass ---\n\n');
+  const second = await runSingleClaudeSpawn(
+    { ...opts, prompt: buildOllamaFollowupPrompt(opts.prompt) },
+    stream
+  );
+  return mergeOllamaFollowupResults(first, second);
+}
+
 export async function runClaudePrint(opts: RunClaudePrintOptions): Promise<ClaudeRunResult> {
-  const { child, argv } = spawnClaudeChild({
-    prompt: opts.prompt,
-    cwd: opts.cwd,
-    model: opts.model,
-    claudeBin: opts.claudeBin,
-    bare: opts.bare
-  });
-  return watchClaudeProcess(child, opts.timeoutMs, argv);
+  return runClaudePrintWithOptionalOllamaFollowup(opts);
 }
 
 export async function runClaudeVersion(claudeBin: string): Promise<ClaudeRunResult> {

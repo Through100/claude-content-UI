@@ -31,17 +31,17 @@ import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import {
   formatClaudeSpawnError,
   logClaudeAutoPermissionPolicy,
   runClaudeInitOnly,
   runClaudePrint,
+  runClaudePrintWithOptionalOllamaFollowup,
   runClaudeVersion,
-  spawnClaudeChild,
-  watchClaudeProcess,
   type ClaudeRunResult
 } from './claudeRunner';
+import { isOllamaHeadlessModel } from './ollamaEnsure';
 import { appendHistoryItem, groupHistory, loadHistory } from './historyStore';
 import { parseSeoOutput } from '../shared/parseSeoOutput';
 import { enrichUsagePanelWithLocalJsonWhenCliFails } from './usageLocalSnapshot';
@@ -93,6 +93,15 @@ function appendHeadlessHttpUrlHint(prompt: string, targetTrimmed: string): strin
     '[Dashboard headless: this run is non-interactive; the server already applies normal headless tool permission settings. ' +
     'The target is an HTTP(S) URL — fetch it with WebFetch (or your environment’s URL/read tool) as soon as you need the content. ' +
     'Do not ask the operator to grant WebFetch, choose numbered menu options, or paste the full article unless a fetch actually failed or the site blocked access.]'
+  );
+}
+
+function appendOllamaCompatibilityHint(prompt: string, model: string): string {
+  if (!isOllamaHeadlessModel(model)) return prompt;
+  return (
+    `${prompt}\n\n` +
+    '[Ollama model compatibility: treat this headless run as text-only. Do not attach or inspect image bytes. ' +
+    'When a workflow normally requires screenshot or image inspection, use HTML, DOM text, metadata, links, and other text evidence instead, and clearly note the omitted visual check.]'
   );
 }
 
@@ -491,6 +500,23 @@ const DEFAULT_MODELS = [
   { id: 'claude-sonnet-5', label: 'Claude Sonnet 5', description: 'Latest Sonnet; 1M context' },
   { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', description: 'Latest Haiku; fast and efficient' },
   { id: 'default', label: 'Account default', description: 'Clears override; tier default' },
+  { id: 'deepseek-v4-pro:cloud', label: 'DeepSeek V4 Pro (Ollama cloud)', description: 'Uses Ollama cloud API' },
+  { id: 'minimax-m3:cloud', label: 'MiniMax M3 (Ollama cloud)', description: 'Uses Ollama cloud API' },
+  { id: 'kimi-k3:cloud', label: 'Kimi K3 (Ollama cloud)', description: 'Uses Ollama cloud API' },
+  { id: 'glm-5.2:cloud', label: 'GLM 5.2 (Ollama cloud)', description: 'Uses Ollama cloud API' },
+  {
+    id: 'nemotron-3-super:cloud',
+    label: 'Nemotron 3 Super (Ollama cloud)',
+    description: 'Uses Ollama cloud API'
+  },
+  { id: 'gemma4:cloud', label: 'Gemma 4 (Ollama cloud)', description: 'Uses Ollama cloud API' },
+  { id: 'qwen3.5:397b-cloud', label: 'Qwen3.5 397B (Ollama cloud)', description: 'Uses Ollama cloud API' },
+  {
+    id: 'gemini-3-flash-preview:cloud',
+    label: 'Gemini 3 Flash Preview (Ollama cloud)',
+    description: 'Uses Ollama cloud API'
+  },
+  { id: 'gpt-oss:120b-cloud', label: 'gpt-oss 120B (Ollama cloud)', description: 'Uses Ollama cloud API' },
 ];
 
 const app = express();
@@ -811,9 +837,12 @@ app.post('/api/run', async (req, res) => {
   const { cmd, targetTrimmed, model } = parsed;
   const startedAt = new Date().toISOString();
   const workspaceOutputSegment = formatWorkspaceRunDirSegment(cmd.key, targetTrimmed, startedAt);
-  const prompt = appendHeadlessHttpUrlHint(
-    buildBlogPrompt(cmd, targetTrimmed, { runToken: startedAt }),
-    targetTrimmed
+  const prompt = appendOllamaCompatibilityHint(
+    appendHeadlessHttpUrlHint(
+      buildBlogPrompt(cmd, targetTrimmed, { runToken: startedAt }),
+      targetTrimmed
+    ),
+    model
   );
   const t0 = Date.now();
   const cwd = workdir();
@@ -863,9 +892,12 @@ app.post('/api/run/stream', async (req, res) => {
   const { cmd, targetTrimmed, model } = parsed;
   const startedAt = new Date().toISOString();
   const workspaceOutputSegment = formatWorkspaceRunDirSegment(cmd.key, targetTrimmed, startedAt);
-  const prompt = appendHeadlessHttpUrlHint(
-    buildBlogPrompt(cmd, targetTrimmed, { runToken: startedAt }),
-    targetTrimmed
+  const prompt = appendOllamaCompatibilityHint(
+    appendHeadlessHttpUrlHint(
+      buildBlogPrompt(cmd, targetTrimmed, { runToken: startedAt }),
+      targetTrimmed
+    ),
+    model
   );
   const t0 = Date.now();
   const cwd = workdir();
@@ -914,13 +946,6 @@ app.post('/api/run/stream', async (req, res) => {
     }
   };
 
-  const { child, argv } = spawnClaudeChild({
-    prompt,
-    cwd,
-    model,
-    claudeBin: claudeBin()
-  });
-
   let timersCleaned = false;
   const cleanupTimers = () => {
     if (timersCleaned) return;
@@ -939,11 +964,12 @@ app.post('/api/run/stream', async (req, res) => {
     }
   }, 10_000);
 
+  let activeChild: ChildProcess | undefined;
   let claudePhase: 'running' | 'finished' = 'running';
   const killOnClient = () => {
     if (claudePhase !== 'running' || !killClaudeOnSseDisconnect()) return;
     try {
-      if (!child.killed) child.kill('SIGTERM');
+      if (activeChild && !activeChild.killed) activeChild.kill('SIGTERM');
     } catch {
       /* ignore */
     }
@@ -960,20 +986,33 @@ app.post('/api/run/stream', async (req, res) => {
   });
 
   let result: ClaudeRunResult;
+  const fallbackArgv = [claudeBin(), '-p', prompt];
   try {
-    result = await watchClaudeProcess(child, runTimeoutMs(), argv, {
-      onStdoutChunk: (t) => sseStreamChunk('stdout', t),
-      onStderrChunk: (t) => sseStreamChunk('stderr', t)
-    });
+    result = await runClaudePrintWithOptionalOllamaFollowup(
+      {
+        prompt,
+        cwd,
+        model,
+        timeoutMs: runTimeoutMs(),
+        claudeBin: claudeBin(),
+        registerChild: (child) => {
+          activeChild = child;
+        }
+      },
+      {
+        onStdoutChunk: (text) => sseStreamChunk('stdout', text),
+        onStderrChunk: (text) => sseStreamChunk('stderr', text)
+      }
+    );
   } catch (e) {
-    const spawnDiag = formatClaudeSpawnError(e, argv);
+    const spawnDiag = formatClaudeSpawnError(e, fallbackArgv);
     sse({ type: 'error', message: spawnDiag });
     result = {
       stdout: '',
       stderr: spawnDiag,
       code: null,
       signal: null,
-      argv
+      argv: fallbackArgv
     };
   } finally {
     claudePhase = 'finished';
