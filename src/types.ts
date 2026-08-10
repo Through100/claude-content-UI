@@ -253,7 +253,7 @@ export interface ModelOption {
 }
 
 /** Installed claude-blog skill version the Dashboard command list is aligned with. */
-export const BLOG_SKILL_VERSION = '1.9.1';
+export const BLOG_SKILL_VERSION = '2.1.1';
 
 /** Command Runner optgroup labels (matches claude-blog SKILL.md sections). */
 export const BLOG_COMMAND_GROUPS = [
@@ -306,6 +306,14 @@ export const BLOG_COMMANDS: BlogCommand[] = [
     group: 'Writing & editing'
   },
   {
+    key: 'style',
+    label: 'Style — learn author voice',
+    command: '/blog style learn',
+    placeholder: 'Paths to 5–10 representative posts',
+    targetOptional: false,
+    group: 'Writing & editing'
+  },
+  {
     key: 'outline',
     label: 'Outline — SERP-informed outline',
     command: '/blog outline',
@@ -350,6 +358,14 @@ export const BLOG_COMMANDS: BlogCommand[] = [
     label: 'Factcheck — verify statistics',
     command: '/blog factcheck',
     placeholder: 'Path to file, e.g. content/posts/guide.md',
+    targetOptional: false,
+    group: 'Analysis & quality'
+  },
+  {
+    key: 'decay',
+    label: 'Decay — detect traffic decline',
+    command: '/blog decay',
+    placeholder: '<current-gsc.csv> <previous-gsc.csv>',
     targetOptional: false,
     group: 'Analysis & quality'
   },

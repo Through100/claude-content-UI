@@ -224,7 +224,7 @@ export const apiService = {
     onStreamChunk?: (channel: 'stdout' | 'stderr', text: string) => void,
     onStreamEvent?: (ev: { type: string }) => void
   ): Promise<RunResponse> {
-    const payload = { commandKey, target, model: model || 'best' };
+    const payload = { commandKey, target, model: model || 'claude-fable-5' };
 
     if (useRunStream()) {
       return consumeRunStream(

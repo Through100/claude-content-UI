@@ -37,17 +37,17 @@ export default function Layout({
   onRestartPtySession
 }: LayoutProps) {
   return (
-    <div className="min-h-screen bg-[#F9FAFB] flex font-sans text-gray-900">
+    <div className="min-h-screen bg-[#F9FAFB] flex flex-col md:flex-row font-sans text-gray-900">
       {/* Sidebar */}
-      <aside className="w-64 bg-white border-r border-gray-200 flex flex-col sticky top-0 h-screen">
-        <div className="p-6 border-b border-gray-100 flex items-center gap-3">
+      <aside className="w-full md:w-64 bg-white border-b md:border-b-0 md:border-r border-gray-200 flex flex-col shrink-0 md:sticky md:top-0 md:h-screen">
+        <div className="p-4 md:p-6 border-b border-gray-100 flex items-center gap-3">
           <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
             <Terminal className="text-white w-5 h-5" />
           </div>
           <h1 className="font-bold text-lg tracking-tight">Claude Content</h1>
         </div>
         
-        <nav className="flex-1 p-4 space-y-1">
+        <nav className="flex overflow-x-auto p-2 gap-1 md:block md:flex-1 md:p-4 md:space-y-1">
           <NavItem 
             icon={<LayoutDashboard size={20} />} 
             label="Dashboard" 
@@ -80,7 +80,7 @@ export default function Layout({
           />
         </nav>
 
-        <div className="p-4 border-t border-gray-100">
+        <div className="hidden md:block p-4 border-t border-gray-100">
           <div className="bg-indigo-50 rounded-xl p-4">
             <div className="flex items-center gap-2 mb-2">
               <ShieldCheck size={16} className="text-indigo-600" />
@@ -95,7 +95,7 @@ export default function Layout({
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col min-w-0 overflow-auto">
+      <main className="w-full flex-1 flex flex-col min-w-0 overflow-auto">
         <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 sm:px-8 sticky top-0 z-10 gap-3">
           <div className="flex items-center gap-4 min-w-0">
             <span className="text-sm font-medium text-gray-700 shrink-0">Claude Content</span>
@@ -130,7 +130,7 @@ export default function Layout({
           </div>
         </header>
 
-        <div className="p-8 max-w-7xl mx-auto w-full">
+        <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full">
           {children}
           {terminalWsEnabled ? (
             <div
@@ -192,7 +192,7 @@ function NavItem({ icon, label, active = false, onClick }: { icon: React.ReactNo
   return (
     <button
       onClick={onClick}
-      className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+      className={`w-auto shrink-0 md:w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
         active 
           ? 'bg-indigo-50 text-indigo-700' 
           : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'

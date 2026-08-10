@@ -13,19 +13,17 @@ interface SeoCommandFormProps {
 }
 
 const FALLBACK_MODELS: ModelOption[] = [
-  { id: 'haiku', label: 'Haiku', description: 'Fast / efficient' },
+  { id: 'claude-fable-5', label: 'Claude Fable 5', description: 'Latest highest-capability Claude' },
+  { id: 'claude-opus-5', label: 'Claude Opus 5', description: 'Latest Opus; 1M context' },
+  { id: 'claude-sonnet-5', label: 'Claude Sonnet 5', description: 'Latest Sonnet; 1M context' },
+  { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', description: 'Latest Haiku; fast and efficient' },
   { id: 'default', label: 'Account default', description: 'Clears CLI model override (tier default)' },
-  { id: 'sonnet', label: 'Sonnet', description: 'Latest Sonnet' },
-  { id: 'sonnet[1m]', label: 'Sonnet (1M context)', description: 'Long context' },
-  { id: 'opus', label: 'Opus', description: 'Most capable' },
-  { id: 'opus[1m]', label: 'Opus (1M context)', description: 'Long context Opus' },
-  { id: 'best', label: 'Best available', description: 'Alias for most capable (Opus-class)' }
 ];
 
 export default function SeoCommandForm({ onRun, onSessionChange, isLoading }: SeoCommandFormProps) {
   const [selectedKey, setSelectedKey] = useState(BLOG_COMMANDS[0].key);
   const [target, setTarget] = useState('');
-  const [model, setModel] = useState('best');
+  const [model, setModel] = useState('claude-fable-5');
   const [error, setError] = useState<string | null>(null);
   const [models, setModels] = useState<ModelOption[]>(FALLBACK_MODELS);
   const [uploadBusy, setUploadBusy] = useState(false);
@@ -91,7 +89,7 @@ export default function SeoCommandForm({ onRun, onSessionChange, isLoading }: Se
 
   return (
     <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-      <div className="p-6 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
+      <div className="p-4 sm:p-6 border-b border-gray-100 bg-gray-50/50 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-lg font-semibold text-gray-900">Command Runner</h2>
           <p className="text-sm text-gray-500">
@@ -101,12 +99,12 @@ export default function SeoCommandForm({ onRun, onSessionChange, isLoading }: Se
           </p>
         </div>
         
-        <div className="flex items-center gap-3">
+        <div className="w-full sm:w-auto flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 min-w-0">
           <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Model</label>
           <select
             value={model}
             onChange={(e) => setModel(e.target.value)}
-            className="bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-xs font-semibold text-gray-700 outline-none focus:ring-2 focus:ring-indigo-500 transition-all shadow-sm"
+            className="w-full sm:w-auto sm:max-w-[min(42rem,60vw)] min-w-0 bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-xs font-semibold text-gray-700 outline-none focus:ring-2 focus:ring-indigo-500 transition-all shadow-sm"
           >
             {models.map(m => (
               <option key={m.id} value={m.id}>
@@ -117,7 +115,7 @@ export default function SeoCommandForm({ onRun, onSessionChange, isLoading }: Se
         </div>
       </div>
       
-      <form onSubmit={handleSubmit} className="p-6 space-y-6">
+      <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="space-y-2">
             <label className="text-sm font-semibold text-gray-700 block">Blog command</label>
@@ -199,8 +197,8 @@ export default function SeoCommandForm({ onRun, onSessionChange, isLoading }: Se
           )}
         </AnimatePresence>
 
-        <div className="flex items-center justify-between pt-2">
-          <div className="flex items-center gap-2 text-xs text-gray-500">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pt-2">
+          <div className="flex items-center gap-2 text-xs text-gray-500 min-w-0">
             <CheckCircle2 size={14} className="text-green-500" />
             <span>
               Command:{' '}

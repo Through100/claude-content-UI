@@ -411,7 +411,7 @@ function parseRunRequest(body: unknown): ParsedRunRequest {
   }
   const rawModel = b.model;
   const model =
-    typeof rawModel === 'string' && rawModel.trim() !== '' ? rawModel.trim() : 'best';
+    typeof rawModel === 'string' && rawModel.trim() !== '' ? rawModel.trim() : 'claude-fable-5';
   return { ok: true as const, cmd, targetTrimmed, model };
 }
 
@@ -486,13 +486,11 @@ function buildRunBody(input: {
 }
 
 const DEFAULT_MODELS = [
-  { id: 'haiku', label: 'Haiku', description: 'Fast, efficient' },
+  { id: 'claude-fable-5', label: 'Claude Fable 5', description: 'Latest highest-capability Claude' },
+  { id: 'claude-opus-5', label: 'Claude Opus 5', description: 'Latest Opus; 1M context' },
+  { id: 'claude-sonnet-5', label: 'Claude Sonnet 5', description: 'Latest Sonnet; 1M context' },
+  { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', description: 'Latest Haiku; fast and efficient' },
   { id: 'default', label: 'Account default', description: 'Clears override; tier default' },
-  { id: 'sonnet', label: 'Sonnet', description: 'Latest Sonnet for daily work' },
-  { id: 'sonnet[1m]', label: 'Sonnet (1M context)', description: 'Long context Sonnet' },
-  { id: 'opus', label: 'Opus', description: 'Most capable default Opus' },
-  { id: 'opus[1m]', label: 'Opus (1M context)', description: 'Long context Opus' },
-  { id: 'best', label: 'Best available', description: 'Alias for most capable (Opus-class)' }
 ];
 
 const app = express();
