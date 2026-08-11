@@ -254,6 +254,26 @@ function compactTableColWidth(headerLabel: string, header: string[]): string {
   return '14%';
 }
 
+function isBalancedAuditTable(header: string[]): boolean {
+  if (header.length !== 4) return false;
+  const normalized = header.map(normalizeTableHeaderLabel);
+  return (
+    header.filter(isLabelTableColumn).length === 1 &&
+    header.filter(isNarrativeTableColumn).length === 1 &&
+    normalized.some((h) => h.includes('score')) &&
+    normalized.some((h) => h === 'max')
+  );
+}
+
+function balancedAuditColClass(headerLabel: string): string {
+  const h = normalizeTableHeaderLabel(headerLabel);
+  if (isLabelTableColumn(headerLabel)) return 'w-[30%] md:w-[22%]';
+  if (isNarrativeTableColumn(headerLabel)) return 'w-[48%] md:w-[calc(78%_-_4.625rem)]';
+  if (h === 'max') return 'w-[10%] md:w-[2.125rem]';
+  if (h.includes('score')) return 'w-[12%] md:w-10';
+  return '';
+}
+
 /** Columns that participate in score-matrix width / tabular styling. */
 function isNumericScoreColumn(headerLabel: string): boolean {
   const h = normalizeTableHeaderLabel(headerLabel);
@@ -283,6 +303,7 @@ function MarkdownTableBlock({ header, rows }: { header: string[]; rows: string[]
   const n = header.length;
   const wideMatrix = n >= 8;
   const compactNarrativeTable = !wideMatrix && header.some(isNarrativeTableColumn);
+  const balancedAuditTable = isBalancedAuditTable(header);
   return (
     <div className="my-1 w-full max-w-full overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
       <table
@@ -298,9 +319,16 @@ function MarkdownTableBlock({ header, rows }: { header: string[]; rows: string[]
           {header.map((h, i) => (
             <col
               key={i}
-              style={{
-                width: compactNarrativeTable ? compactTableColWidth(h, header) : markdownTableColPercent(i, header),
-              }}
+              className={balancedAuditTable ? balancedAuditColClass(h) : undefined}
+              style={
+                balancedAuditTable
+                  ? undefined
+                  : {
+                      width: compactNarrativeTable
+                        ? compactTableColWidth(h, header)
+                        : markdownTableColPercent(i, header),
+                    }
+              }
             />
           ))}
         </colgroup>
