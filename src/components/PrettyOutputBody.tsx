@@ -205,6 +205,38 @@ function markdownTableColPercent(i: number, header: string[]): string {
   return `${((weights[i] / sum) * 100).toFixed(3)}%`;
 }
 
+function isNarrativeTableColumn(headerLabel: string): boolean {
+  const h = normalizeTableHeaderLabel(headerLabel);
+  return (
+    h.includes('notes') ||
+    h.includes('finding') ||
+    h.includes('recommendation') ||
+    h.includes('assessment') ||
+    h.includes('result') ||
+    h.includes('description') ||
+    h.includes('details')
+  );
+}
+
+function isLabelTableColumn(headerLabel: string): boolean {
+  const h = normalizeTableHeaderLabel(headerLabel);
+  return h.includes('category') || h.includes('check') || h.includes('issue') || h.includes('claim');
+}
+
+/**
+ * Compact audit tables work best with content-aware bands: score fields only need a few characters,
+ * the row label gets a modest share, and the long narrative column absorbs all remaining width.
+ */
+function compactTableColWidth(headerLabel: string): string {
+  const h = normalizeTableHeaderLabel(headerLabel);
+  if (h === '#' || h === 'no.') return '1.75rem';
+  if (h === 'max' || h === 'weight') return '2.125rem';
+  if ((h.includes('score') || /\bscore\b/.test(h)) && !h.includes('article')) return '2.5rem';
+  if (isLabelTableColumn(headerLabel)) return '22%';
+  if (isNarrativeTableColumn(headerLabel)) return 'auto';
+  return '14%';
+}
+
 /** Columns that participate in score-matrix width / tabular styling. */
 function isNumericScoreColumn(headerLabel: string): boolean {
   const h = normalizeTableHeaderLabel(headerLabel);
@@ -233,16 +265,24 @@ function isCompactNumericCell(headerLabel: string): boolean {
 function MarkdownTableBlock({ header, rows }: { header: string[]; rows: string[][] }) {
   const n = header.length;
   const wideMatrix = n >= 8;
+  const compactNarrativeTable = !wideMatrix && header.some(isNarrativeTableColumn);
   return (
     <div className="my-1 w-full max-w-full overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
       <table
         className={`w-full border-collapse text-left text-[11px] text-slate-800 md:text-xs ${
-          wideMatrix ? 'min-w-[1080px] table-fixed lg:min-w-[1180px]' : 'min-w-full table-auto'
+          wideMatrix
+            ? 'min-w-[1080px] table-fixed lg:min-w-[1180px]'
+            : compactNarrativeTable
+              ? 'min-w-full table-fixed'
+              : 'min-w-full table-auto'
         }`}
       >
         <colgroup>
-          {header.map((_, i) => (
-            <col key={i} style={{ width: markdownTableColPercent(i, header) }} />
+          {header.map((h, i) => (
+            <col
+              key={i}
+              style={{ width: compactNarrativeTable ? compactTableColWidth(h) : markdownTableColPercent(i, header) }}
+            />
           ))}
         </colgroup>
         <thead>
@@ -251,8 +291,10 @@ function MarkdownTableBlock({ header, rows }: { header: string[]; rows: string[]
               <th
                 key={i}
                 scope="col"
-                className={`break-words border-b border-slate-200 bg-slate-100/95 px-2 py-1.5 align-bottom font-semibold leading-snug text-slate-900 sm:px-2.5 sm:py-2 ${
-                  isNumericScoreColumn(h) ? 'tabular-nums' : ''
+                className={`border-b border-slate-200 bg-slate-100/95 py-1.5 align-bottom font-semibold leading-snug text-slate-900 sm:py-2 ${
+                  isCompactNumericCell(h)
+                    ? 'whitespace-nowrap px-1 text-center tabular-nums sm:px-1.5'
+                    : 'break-words px-2 sm:px-2.5'
                 }`}
               >
                 {renderInlineParts(parseInline(h), `tbl-h-${i}`)}
@@ -269,10 +311,10 @@ function MarkdownTableBlock({ header, rows }: { header: string[]; rows: string[]
                 return (
                   <td
                     key={ci}
-                    className={`px-2 py-1.5 align-top leading-snug text-slate-800 sm:px-2.5 sm:py-2 ${
+                    className={`py-1.5 align-top leading-snug text-slate-800 sm:py-2 ${
                       compact
-                        ? 'whitespace-nowrap tabular-nums text-center'
-                        : 'break-words'
+                        ? 'whitespace-nowrap px-1 text-center tabular-nums sm:px-1.5'
+                        : 'break-words px-2 sm:px-2.5'
                     }`}
                   >
                     {renderInlineParts(parseInline(cell), `tbl-${ri}-${ci}`)}
