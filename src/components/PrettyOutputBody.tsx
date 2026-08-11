@@ -20,8 +20,8 @@ type PrettyOutputBodyProps = {
 };
 
 /** Dense body copy for Pretty Output (PTY transcripts are long). */
-const PRETTY_BODY = 'text-[13px] leading-6 text-gray-800';
-const PRETTY_BODY_RELAXED = 'text-[13px] leading-[1.65] text-gray-800';
+const PRETTY_BODY = 'text-xs leading-5 text-gray-800';
+const PRETTY_BODY_RELAXED = 'text-xs leading-[1.6] text-gray-800';
 
 function tagIcon(kind: TagKind) {
   switch (kind) {
@@ -88,11 +88,11 @@ function renderInlineParts(parts: InlinePart[], keyPrefix: string): React.ReactN
     return (
       <span
         key={k}
-        className={`inline-flex items-center gap-1 mx-0.5 px-2 py-0.5 rounded-md border text-[13px] font-medium align-baseline ${tagShell(p.tagKind)}`}
+        className={`mx-0.5 inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 align-baseline text-xs font-medium ${tagShell(p.tagKind)}`}
         title={p.raw}
       >
         {tagIcon(p.tagKind)}
-        <span className="text-[11px] font-bold uppercase tracking-wide opacity-80">{tagLabel(p.tagKind)}</span>
+        <span className="text-[10px] font-bold uppercase tracking-wide opacity-80">{tagLabel(p.tagKind)}</span>
         {p.detail ? (
           <span className="font-normal normal-case opacity-95 truncate max-w-[14rem]">{p.detail}</span>
         ) : null}
@@ -103,8 +103,8 @@ function renderInlineParts(parts: InlinePart[], keyPrefix: string): React.ReactN
 
 function TitleBlock({ text }: { text: string }) {
   return (
-    <header className="min-w-0 rounded-xl border border-indigo-100 bg-gradient-to-br from-indigo-50/90 to-white px-3 py-3 shadow-sm sm:rounded-2xl sm:px-4 md:px-5 md:py-4">
-      <h1 className="break-words border-b-2 border-indigo-200/80 pb-2 text-lg font-bold leading-snug tracking-tight text-gray-900 [overflow-wrap:anywhere] md:text-[22px]">
+    <header className="min-w-0 rounded-xl border border-indigo-100 bg-gradient-to-br from-indigo-50/90 to-white px-2.5 py-2.5 shadow-sm sm:rounded-2xl sm:px-3 md:px-4 md:py-3">
+      <h1 className="break-words border-b-2 border-indigo-200/80 pb-2 text-base font-bold leading-snug tracking-tight text-gray-900 [overflow-wrap:anywhere] md:text-xl">
         {renderInlineParts(parseInline(text), 'title')}
       </h1>
     </header>
@@ -114,7 +114,7 @@ function TitleBlock({ text }: { text: string }) {
 function MetaPanelBlock({ rows }: { rows: { label: string; value: string }[] }) {
   return (
     <div className="rounded-xl border border-slate-200 bg-slate-50/90 px-3 py-2.5 md:px-4 md:py-3">
-      <dl className="grid gap-x-4 gap-y-2 sm:grid-cols-2 text-[13px] md:text-sm">
+      <dl className="grid gap-x-4 gap-y-2 text-xs sm:grid-cols-2 md:text-[13px]">
         {rows.map((row, i) => (
           <div key={i} className="flex flex-col sm:flex-row sm:items-baseline gap-0.5 sm:gap-2 min-w-0">
             <dt className="font-semibold text-slate-800 shrink-0">{row.label}:</dt>
@@ -128,7 +128,7 @@ function MetaPanelBlock({ rows }: { rows: { label: string; value: string }[] }) 
 
 function MetaRowBlock({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-slate-200/80 bg-slate-50/60 px-3 py-2 text-[13px] md:text-sm flex flex-wrap gap-x-2 gap-y-0.5">
+    <div className="flex flex-wrap gap-x-2 gap-y-0.5 rounded-lg border border-slate-200/80 bg-slate-50/60 px-2.5 py-2 text-xs md:px-3 md:text-[13px]">
       <span className="font-semibold text-slate-900 shrink-0">{label}:</span>
       <span className="text-slate-700 min-w-0 break-words">{renderInlineParts(parseInline(value), 'mr')}</span>
     </div>
@@ -138,7 +138,7 @@ function MetaRowBlock({ label, value }: { label: string; value: string }) {
 function TagBlockCard({ tagKind, detail, raw }: { tagKind: TagKind; detail: string; raw: string }) {
   return (
     <div
-      className={`rounded-xl border px-3 py-2 md:px-3.5 md:py-2.5 flex gap-2.5 text-[13px] leading-snug shadow-sm ${tagShell(tagKind)}`}
+      className={`flex gap-2.5 rounded-xl border px-2.5 py-2 text-xs leading-snug shadow-sm md:px-3 md:py-2.5 ${tagShell(tagKind)}`}
       title={raw}
     >
       <span className="pt-0.5">{tagIcon(tagKind)}</span>
@@ -168,6 +168,18 @@ function markdownTableColWeights(header: string[]): number[] {
   return header.map((raw) => {
     const h = normalizeTableHeaderLabel(raw);
     if (h === '#' || h === 'no.' || /^#\s*$/.test(raw.trim())) return 3;
+    if (h === 'max' || h === 'weight') return 8;
+    if (
+      h.includes('notes') ||
+      h.includes('finding') ||
+      h.includes('recommendation') ||
+      h.includes('assessment') ||
+      h.includes('result') ||
+      h.includes('description') ||
+      h.includes('details')
+    )
+      return 30;
+    if (h.includes('category') || h.includes('check') || h.includes('issue') || h.includes('claim')) return 16;
     if (h.includes('article') && !h.includes('url')) return 22;
     if (h.includes('slug') || h.includes('url slug') || (h.includes('url') && h.includes('path'))) return 26;
     if ((h.includes('score') || /\b\d+\s*\/\s*100\b/.test(h)) && !h.includes('article') && !h.includes('site'))
@@ -199,6 +211,8 @@ function isNumericScoreColumn(headerLabel: string): boolean {
   return (
     h === '#' ||
     h === 'no.' ||
+    h === 'max' ||
+    h === 'weight' ||
     ((h.includes('score') || /\bscore\b/.test(h)) && !h.includes('article')) ||
     h === 'content' ||
     h === 'seo' ||
@@ -222,8 +236,8 @@ function MarkdownTableBlock({ header, rows }: { header: string[]; rows: string[]
   return (
     <div className="my-1 w-full max-w-full overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
       <table
-        className={`w-full border-collapse text-left text-[12px] md:text-[13px] text-slate-800 ${
-          wideMatrix ? 'min-w-[1080px] lg:min-w-[1180px] table-fixed' : 'min-w-[min(100%,560px)] table-fixed'
+        className={`w-full border-collapse text-left text-[11px] text-slate-800 md:text-xs ${
+          wideMatrix ? 'min-w-[1080px] table-fixed lg:min-w-[1180px]' : 'min-w-full table-auto'
         }`}
       >
         <colgroup>
@@ -237,7 +251,7 @@ function MarkdownTableBlock({ header, rows }: { header: string[]; rows: string[]
               <th
                 key={i}
                 scope="col"
-                className={`border-b border-slate-200 bg-slate-100/95 px-2.5 py-2 align-bottom font-semibold leading-snug text-slate-900 break-words sm:px-3 sm:py-2.5 ${
+                className={`break-words border-b border-slate-200 bg-slate-100/95 px-2 py-1.5 align-bottom font-semibold leading-snug text-slate-900 sm:px-2.5 sm:py-2 ${
                   isNumericScoreColumn(h) ? 'tabular-nums' : ''
                 }`}
               >
@@ -255,10 +269,10 @@ function MarkdownTableBlock({ header, rows }: { header: string[]; rows: string[]
                 return (
                   <td
                     key={ci}
-                    className={`px-2.5 py-2 align-top leading-snug text-slate-800 sm:px-3 ${
+                    className={`px-2 py-1.5 align-top leading-snug text-slate-800 sm:px-2.5 sm:py-2 ${
                       compact
                         ? 'whitespace-nowrap tabular-nums text-center'
-                        : 'break-words [overflow-wrap:anywhere]'
+                        : 'break-words'
                     }`}
                   >
                     {renderInlineParts(parseInline(cell), `tbl-${ri}-${ci}`)}
@@ -388,7 +402,7 @@ function SectionChildView({ child, index }: { child: SectionChild; index: number
   switch (child.type) {
     case 'heading':
       return child.level === 2 ? (
-        <h3 key={k} className="scroll-mt-16 pt-1.5 text-[15px] font-semibold text-gray-900 md:text-base">
+        <h3 key={k} className="scroll-mt-16 pt-1.5 text-sm font-semibold text-gray-900 md:text-[15px]">
           {renderInlineParts(parseInline(child.text), `${k}-h2`)}
         </h3>
       ) : (
@@ -429,13 +443,13 @@ function SectionCard({ heading, children }: { heading: { level: 2; text: string 
   return (
     <section className="min-w-0 max-w-full overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm sm:rounded-2xl">
       {heading ? (
-        <div className="px-3 py-2.5 md:px-4 md:py-3 border-b border-gray-100 bg-gray-50/80">
-          <h2 className="break-words text-[15px] font-semibold leading-snug text-gray-900 [overflow-wrap:anywhere] md:text-base">
+        <div className="border-b border-gray-100 bg-gray-50/80 px-2.5 py-2 md:px-3 md:py-2.5">
+          <h2 className="break-words text-sm font-semibold leading-snug text-gray-900 [overflow-wrap:anywhere] md:text-[15px]">
             {renderInlineParts(parseInline(heading.text), 'sec-h')}
           </h2>
         </div>
       ) : null}
-      <div className={`space-y-3 px-3 py-3 md:px-4 md:py-4 ${heading ? '' : ''}`}>
+      <div className={`space-y-2.5 px-2.5 py-2.5 md:space-y-3 md:px-3 md:py-3 ${heading ? '' : ''}`}>
         {children.map((c, i) => (
           <SectionChildView key={`sec-${heading?.text ?? 'preamble'}-${i}-${c.type}`} child={c} index={i} />
         ))}
@@ -468,7 +482,7 @@ export default function PrettyOutputBody({ text, className = '', omitDividers = 
 
   return (
     <div
-      className={`pretty-output-doc min-w-0 max-w-full space-y-3 break-words text-[13px] leading-6 text-gray-900 [overflow-wrap:anywhere] sm:space-y-4 ${className}`.trim()}
+      className={`pretty-output-doc min-w-0 max-w-full space-y-2.5 break-words text-xs leading-5 text-gray-900 [overflow-wrap:anywhere] sm:space-y-3 ${className}`.trim()}
       aria-label="Formatted output"
     >
       {doc.map((b, i) => (

@@ -1139,7 +1139,7 @@ export default function ResultsView({
             className="min-w-0 space-y-4 sm:space-y-6"
           >
             <div ref={fullReportRef} className="min-w-0 max-w-full overflow-hidden rounded-xl border border-indigo-100 bg-white shadow-sm sm:rounded-2xl">
-              <div className="px-4 py-3 md:px-6 border-b border-indigo-100 bg-indigo-50/80 flex items-center justify-between">
+              <div className="flex items-center justify-between border-b border-indigo-100 bg-indigo-50/80 px-3 py-2.5 md:px-5">
                 <div>
                   <h3 className="text-sm font-bold uppercase tracking-widest text-indigo-900">📊 Full Report</h3>
                   <p className="text-xs text-indigo-700 mt-0.5">
@@ -1147,7 +1147,7 @@ export default function ResultsView({
                   </p>
                 </div>
               </div>
-              <div className="min-w-0 max-w-full overflow-x-hidden px-3 py-5 sm:px-4 sm:py-6 md:px-6 md:py-7 lg:px-8">
+              <div className="min-w-0 max-w-full overflow-x-hidden px-2 py-4 sm:px-3 sm:py-5 md:px-5 md:py-6 lg:px-6">
                 {fetchedReportContent ? (
                   <>
                     <PrettyOutputBody text={fetchedReportContent} />
