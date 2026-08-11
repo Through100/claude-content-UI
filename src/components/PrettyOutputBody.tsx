@@ -267,10 +267,10 @@ function isBalancedAuditTable(header: string[]): boolean {
 
 function balancedAuditColClass(headerLabel: string): string {
   const h = normalizeTableHeaderLabel(headerLabel);
-  if (isLabelTableColumn(headerLabel)) return 'w-[35%] md:w-[22%]';
-  if (isNarrativeTableColumn(headerLabel)) return 'w-[43%] md:w-[calc(78%_-_4.625rem)]';
-  if (h === 'max') return 'w-[10%] md:w-[2.125rem]';
-  if (h.includes('score')) return 'w-[12%] md:w-10';
+  if (isLabelTableColumn(headerLabel)) return 'w-[35%] lg:w-[22%]';
+  if (isNarrativeTableColumn(headerLabel)) return 'w-[43%] lg:w-[calc(78%_-_4.625rem)]';
+  if (h === 'max') return 'w-[10%] lg:w-[2.125rem]';
+  if (h.includes('score')) return 'w-[12%] lg:w-10';
   return '';
 }
 
