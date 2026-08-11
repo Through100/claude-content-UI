@@ -71,8 +71,8 @@ export default function HistoryView() {
 
   if (selectedItem) {
     return (
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
+      <div className="min-w-0 space-y-4 sm:space-y-6">
+        <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <button 
             onClick={() => setSelectedItem(null)}
             className="flex items-center gap-2 text-sm font-bold text-gray-500 hover:text-indigo-600 transition-colors group"
@@ -81,26 +81,26 @@ export default function HistoryView() {
             Back to History
           </button>
           
-          <div className="flex items-center gap-4 text-xs font-medium text-gray-400">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 text-[11px] font-medium text-gray-400 sm:justify-end sm:text-xs">
             <div className="flex items-center gap-1.5">
               <Calendar size={14} />
               {formatDate(selectedItem.timestamp)}
             </div>
             <div className="w-1 h-1 bg-gray-300 rounded-full"></div>
-            <div className="flex items-center gap-1.5">
-              <Globe size={14} />
-              {selectedItem.target}
+            <div className="flex min-w-0 items-center gap-1.5 break-all">
+              <Globe className="shrink-0" size={14} />
+              <span className="min-w-0 break-all">{selectedItem.target}</span>
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h2 className="text-xl font-bold text-gray-900">{selectedItem.commandLabel}</h2>
+        <div className="min-w-0 rounded-xl border border-gray-200 bg-white p-3 shadow-sm sm:rounded-2xl sm:p-4 md:p-6">
+          <div className="mb-4 flex min-w-0 flex-col gap-3 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <h2 className="text-lg font-bold text-gray-900 sm:text-xl">{selectedItem.commandLabel}</h2>
               <p className="text-sm text-gray-500 mt-1">Historical run output</p>
             </div>
-            <div className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
+            <div className={`self-start shrink-0 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
               selectedItem.status === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
             }`}>
               {selectedItem.status}

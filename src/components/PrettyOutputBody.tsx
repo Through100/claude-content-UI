@@ -103,8 +103,8 @@ function renderInlineParts(parts: InlinePart[], keyPrefix: string): React.ReactN
 
 function TitleBlock({ text }: { text: string }) {
   return (
-    <header className="rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/90 to-white px-4 py-3 md:px-5 md:py-4 shadow-sm">
-      <h1 className="text-xl md:text-2xl font-bold text-gray-900 tracking-tight leading-snug border-b-2 border-indigo-200/80 pb-2">
+    <header className="min-w-0 rounded-xl border border-indigo-100 bg-gradient-to-br from-indigo-50/90 to-white px-3 py-3 shadow-sm sm:rounded-2xl sm:px-4 md:px-5 md:py-4">
+      <h1 className="break-words border-b-2 border-indigo-200/80 pb-2 text-lg font-bold leading-snug tracking-tight text-gray-900 [overflow-wrap:anywhere] md:text-[22px]">
         {renderInlineParts(parseInline(text), 'title')}
       </h1>
     </header>
@@ -220,7 +220,7 @@ function MarkdownTableBlock({ header, rows }: { header: string[]; rows: string[]
   const n = header.length;
   const wideMatrix = n >= 8;
   return (
-    <div className="w-full max-w-full overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm my-1">
+    <div className="my-1 w-full max-w-full overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
       <table
         className={`w-full border-collapse text-left text-[12px] md:text-[13px] text-slate-800 ${
           wideMatrix ? 'min-w-[1080px] lg:min-w-[1180px] table-fixed' : 'min-w-[min(100%,560px)] table-fixed'
@@ -237,7 +237,7 @@ function MarkdownTableBlock({ header, rows }: { header: string[]; rows: string[]
               <th
                 key={i}
                 scope="col"
-                className={`bg-slate-100/95 font-semibold text-slate-900 px-3 py-2.5 align-bottom border-b border-slate-200 leading-snug break-words ${
+                className={`border-b border-slate-200 bg-slate-100/95 px-2.5 py-2 align-bottom font-semibold leading-snug text-slate-900 break-words sm:px-3 sm:py-2.5 ${
                   isNumericScoreColumn(h) ? 'tabular-nums' : ''
                 }`}
               >
@@ -255,7 +255,7 @@ function MarkdownTableBlock({ header, rows }: { header: string[]; rows: string[]
                 return (
                   <td
                     key={ci}
-                    className={`px-3 py-2 align-top leading-snug text-slate-800 ${
+                    className={`px-2.5 py-2 align-top leading-snug text-slate-800 sm:px-3 ${
                       compact
                         ? 'whitespace-nowrap tabular-nums text-center'
                         : 'break-words [overflow-wrap:anywhere]'
@@ -388,7 +388,7 @@ function SectionChildView({ child, index }: { child: SectionChild; index: number
   switch (child.type) {
     case 'heading':
       return child.level === 2 ? (
-        <h3 key={k} className="text-base md:text-lg font-semibold text-gray-900 pt-1.5 scroll-mt-16">
+        <h3 key={k} className="scroll-mt-16 pt-1.5 text-[15px] font-semibold text-gray-900 md:text-base">
           {renderInlineParts(parseInline(child.text), `${k}-h2`)}
         </h3>
       ) : (
@@ -427,10 +427,10 @@ function SectionChildView({ child, index }: { child: SectionChild; index: number
 
 function SectionCard({ heading, children }: { heading: { level: 2; text: string } | null; children: SectionChild[] }) {
   return (
-    <section className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+    <section className="min-w-0 max-w-full overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm sm:rounded-2xl">
       {heading ? (
         <div className="px-3 py-2.5 md:px-4 md:py-3 border-b border-gray-100 bg-gray-50/80">
-          <h2 className="text-base md:text-lg font-semibold text-gray-900 leading-snug">
+          <h2 className="break-words text-[15px] font-semibold leading-snug text-gray-900 [overflow-wrap:anywhere] md:text-base">
             {renderInlineParts(parseInline(heading.text), 'sec-h')}
           </h2>
         </div>
@@ -468,7 +468,7 @@ export default function PrettyOutputBody({ text, className = '', omitDividers = 
 
   return (
     <div
-      className={`pretty-output-doc space-y-4 max-w-none text-[13px] leading-6 text-gray-900 ${className}`.trim()}
+      className={`pretty-output-doc min-w-0 max-w-full space-y-3 break-words text-[13px] leading-6 text-gray-900 [overflow-wrap:anywhere] sm:space-y-4 ${className}`.trim()}
       aria-label="Formatted output"
     >
       {doc.map((b, i) => (

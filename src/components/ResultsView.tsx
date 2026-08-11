@@ -997,7 +997,7 @@ export default function ResultsView({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-4 sm:space-y-6">
       {!isHistoryEmbed && ptySentAt == null ? (
         <p className="text-xs text-gray-500 rounded-lg border border-dashed border-gray-200 bg-gray-50/80 px-4 py-3">
           Workspace downloads and Full Report paths appear after you press <strong>Run Command</strong> for this command
@@ -1028,8 +1028,8 @@ export default function ResultsView({
           </div>
         </div>
       ) : null}
-      <div className="flex items-center justify-between sticky top-0 z-10 bg-white/90 backdrop-blur-sm py-2 border-b border-gray-100 mb-4 -mx-2 px-2">
-        <div className="flex bg-gray-100 p-1 rounded-xl">
+      <div className="sticky top-0 z-10 -mx-2 mb-4 flex flex-col items-stretch gap-2 border-b border-gray-100 bg-white/90 px-2 py-2 backdrop-blur-sm sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <div className="flex flex-wrap rounded-xl bg-gray-100 p-1">
           <button
             type="button"
             disabled={reportMarkdownCandidates.length === 0}
@@ -1053,7 +1053,7 @@ export default function ResultsView({
               }
               setActiveTab('report');
             }}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-gray-500 ${
+            className={`flex items-center gap-2 px-3 py-2 sm:px-4 rounded-lg text-sm font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-gray-500 ${
               activeTab === 'report'
                 ? 'bg-white text-indigo-700 shadow-sm'
                 : 'text-gray-500 hover:text-gray-700'
@@ -1064,7 +1064,7 @@ export default function ResultsView({
           </button>
           <button
             onClick={() => setActiveTab('pretty')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+            className={`flex items-center gap-2 px-3 py-2 sm:px-4 rounded-lg text-sm font-semibold transition-all ${
               activeTab === 'pretty' ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
             }`}
           >
@@ -1073,7 +1073,7 @@ export default function ResultsView({
           </button>
           <button
             onClick={() => setActiveTab('raw')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+            className={`flex items-center gap-2 px-3 py-2 sm:px-4 rounded-lg text-sm font-semibold transition-all ${
               activeTab === 'raw' ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
             }`}
           >
@@ -1082,7 +1082,7 @@ export default function ResultsView({
           </button>
         </div>
 
-        <div className="flex items-center gap-2 sm:gap-3 flex-wrap justify-end">
+        <div className="flex flex-wrap items-center justify-start gap-2 sm:justify-end sm:gap-3">
           {!isHistoryEmbed ? (
             <>
               {onRestartPtySession ? (
@@ -1136,9 +1136,9 @@ export default function ResultsView({
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            className="space-y-6"
+            className="min-w-0 space-y-4 sm:space-y-6"
           >
-            <div ref={fullReportRef} className="rounded-2xl border border-indigo-100 bg-white shadow-sm overflow-hidden">
+            <div ref={fullReportRef} className="min-w-0 max-w-full overflow-hidden rounded-xl border border-indigo-100 bg-white shadow-sm sm:rounded-2xl">
               <div className="px-4 py-3 md:px-6 border-b border-indigo-100 bg-indigo-50/80 flex items-center justify-between">
                 <div>
                   <h3 className="text-sm font-bold uppercase tracking-widest text-indigo-900">📊 Full Report</h3>
@@ -1147,7 +1147,7 @@ export default function ResultsView({
                   </p>
                 </div>
               </div>
-              <div className="px-4 py-6 md:px-8 md:py-8 min-w-0 max-w-full overflow-x-auto">
+              <div className="min-w-0 max-w-full overflow-x-hidden px-3 py-5 sm:px-4 sm:py-6 md:px-6 md:py-7 lg:px-8">
                 {fetchedReportContent ? (
                   <>
                     <PrettyOutputBody text={fetchedReportContent} />
