@@ -232,7 +232,7 @@ function compactTableColWidth(headerLabel: string): string {
   if (h === '#' || h === 'no.') return '1.75rem';
   if (h === 'max' || h === 'weight') return '2.125rem';
   if ((h.includes('score') || /\bscore\b/.test(h)) && !h.includes('article')) return '2.5rem';
-  if (isLabelTableColumn(headerLabel)) return '22%';
+  if (isLabelTableColumn(headerLabel)) return 'clamp(6.25rem, 22%, 15rem)';
   if (isNarrativeTableColumn(headerLabel)) return 'auto';
   return '14%';
 }
@@ -294,7 +294,9 @@ function MarkdownTableBlock({ header, rows }: { header: string[]; rows: string[]
                 className={`border-b border-slate-200 bg-slate-100/95 py-1.5 align-bottom font-semibold leading-snug text-slate-900 sm:py-2 ${
                   isCompactNumericCell(h)
                     ? 'whitespace-nowrap px-1 text-center tabular-nums sm:px-1.5'
-                    : 'break-words px-2 sm:px-2.5'
+                    : isLabelTableColumn(h)
+                      ? 'break-words px-1 sm:px-2'
+                      : 'break-words px-2 sm:px-2.5'
                 }`}
               >
                 {renderInlineParts(parseInline(h), `tbl-h-${i}`)}
@@ -308,13 +310,16 @@ function MarkdownTableBlock({ header, rows }: { header: string[]; rows: string[]
               {row.map((cell, ci) => {
                 const hc = header[ci] ?? '';
                 const compact = isCompactNumericCell(hc);
+                const label = isLabelTableColumn(hc);
                 return (
                   <td
                     key={ci}
                     className={`py-1.5 align-top leading-snug text-slate-800 sm:py-2 ${
                       compact
                         ? 'whitespace-nowrap px-1 text-center tabular-nums sm:px-1.5'
-                        : 'break-words px-2 sm:px-2.5'
+                        : label
+                          ? 'break-words px-1 sm:px-2'
+                          : 'break-words px-2 sm:px-2.5'
                     }`}
                   >
                     {renderInlineParts(parseInline(cell), `tbl-${ri}-${ci}`)}
