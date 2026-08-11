@@ -227,13 +227,30 @@ function isLabelTableColumn(headerLabel: string): boolean {
  * Compact audit tables work best with content-aware bands: score fields only need a few characters,
  * the row label gets a modest share, and the long narrative column absorbs all remaining width.
  */
-function compactTableColWidth(headerLabel: string): string {
+function compactNumericColumnRem(headerLabel: string): number | null {
   const h = normalizeTableHeaderLabel(headerLabel);
-  if (h === '#' || h === 'no.') return '1.75rem';
-  if (h === 'max' || h === 'weight') return '2.125rem';
-  if ((h.includes('score') || /\bscore\b/.test(h)) && !h.includes('article')) return '2.5rem';
+  if (h === '#' || h === 'no.') return 1.75;
+  if (h === 'max' || h === 'weight') return 2.125;
+  if ((h.includes('score') || /\bscore\b/.test(h)) && !h.includes('article')) return 2.5;
+  return null;
+}
+
+function compactTableColWidth(headerLabel: string, header: string[]): string {
+  const numericRem = compactNumericColumnRem(headerLabel);
+  if (numericRem !== null) return `${numericRem}rem`;
   if (isLabelTableColumn(headerLabel)) return 'clamp(6.25rem, 22%, 15rem)';
-  if (isNarrativeTableColumn(headerLabel)) return 'auto';
+  if (isNarrativeTableColumn(headerLabel)) {
+    const labelCount = header.filter(isLabelTableColumn).length;
+    const narrativeCount = header.filter(isNarrativeTableColumn).length;
+    const onlyAdaptiveColumns = header.every(
+      (h) => isLabelTableColumn(h) || isNarrativeTableColumn(h) || compactNumericColumnRem(h) !== null
+    );
+    if (labelCount === 1 && narrativeCount === 1 && onlyAdaptiveColumns) {
+      const fixedRem = header.reduce((sum, h) => sum + (compactNumericColumnRem(h) ?? 0), 0);
+      return `calc(100% - clamp(6.25rem, 22%, 15rem) - ${fixedRem}rem)`;
+    }
+    return 'auto';
+  }
   return '14%';
 }
 
@@ -281,7 +298,9 @@ function MarkdownTableBlock({ header, rows }: { header: string[]; rows: string[]
           {header.map((h, i) => (
             <col
               key={i}
-              style={{ width: compactNarrativeTable ? compactTableColWidth(h) : markdownTableColPercent(i, header) }}
+              style={{
+                width: compactNarrativeTable ? compactTableColWidth(h, header) : markdownTableColPercent(i, header),
+              }}
             />
           ))}
         </colgroup>
