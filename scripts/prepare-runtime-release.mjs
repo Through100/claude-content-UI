@@ -24,10 +24,25 @@ for (const [directory, prefix, name, commit] of [
   [skill, `app/${skillName}/`, 'skill.tar', versions.skill.commit],
 ]) {
   const archive = path.join(output, name);
-  execFileSync('git', ['-C', directory, 'archive', '--format=tar', `--prefix=${prefix}`, `--output=${archive}`, commit]);
+  // Git archive applies checkout conversion. Override Windows defaults for
+  // both source repositories so upstream shebangs remain executable on Linux.
+  execFileSync('git', ['-c', 'core.autocrlf=false', '-c', 'core.eol=lf', '-C', directory, 'archive', '--format=tar', `--prefix=${prefix}`, `--output=${archive}`, commit]);
   execFileSync('tar', ['-xf', archive, '-C', output]);
   fs.unlinkSync(archive);
 }
+function verifyLinuxLaunchers(directory) {
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const file = path.join(directory, entry.name);
+    if (entry.isDirectory()) verifyLinuxLaunchers(file);
+    else if (entry.isFile()) {
+      const contents = fs.readFileSync(file);
+      if (contents.subarray(0, 2).toString() === '#!' && contents.subarray(0, contents.indexOf(10)).includes(13)) {
+        throw new Error(`Linux launcher has a CRLF shebang: ${file}`);
+      }
+    }
+  }
+}
+verifyLinuxLaunchers(path.join(output, 'app'));
 fs.writeFileSync(path.join(output, '.dockerignore'), '**/.git\n**/node_modules\n**/dist\n**/build\n**/.env\n**/.env.*\n!**/.env.example\n');
 const manifest = { uiCommit, ...versions, appName: skillName, appHome };
 fs.writeFileSync(path.join(output, 'release.json'), JSON.stringify(manifest, null, 2) + '\n');
