@@ -5,6 +5,7 @@
     "commit": "2500d4c765034864cede2bf215d00ccd4d7d6fb8"
   },
   "claudeCode": "2.1.289",
+  "pythonPip": "26.2.1",
   "ollama": {
     "version": "0.35.1",
     "amd64Sha256": "9fcd79ac4575b2bd31b992eee18b1000c8ad126b451627c8f8cd091714cfbb10"

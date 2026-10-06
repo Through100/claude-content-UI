@@ -75,16 +75,20 @@ elif [[ -d "${APP_HOME}/claude-blog" ]]; then
     cp "${source_dir}/data/google-updates.json" "${skill_dir}/blog/data/google-updates.json"
 
     python3.11 -m venv "${skill_dir}/blog/.venv"
+    "${skill_dir}/blog/.venv/bin/python" -m pip install --no-cache-dir --upgrade 'pip==26.2.1'
     "${skill_dir}/blog/.venv/bin/python" -m pip install --no-cache-dir --require-hashes \
         -r "${source_dir}/requirements.lock"
+    "${skill_dir}/blog/.venv/bin/python" -m pip check
     # The Google and Audio runners manage separate environments. Seed their
     # reviewed locks now so normal commands need no dependency download.
     for leaf in blog-google blog-audio; do
         leaf_dir=${skill_dir}/${leaf}
         scripts_dir=${leaf_dir}/scripts
         python3.11 -m venv "${leaf_dir}/.venv"
+        "${leaf_dir}/.venv/bin/python" -m pip install --no-cache-dir --upgrade 'pip==26.2.1'
         "${leaf_dir}/.venv/bin/python" -m pip install --no-cache-dir --require-hashes \
             -r "${scripts_dir}/requirements.lock"
+        "${leaf_dir}/.venv/bin/python" -m pip check
         sha256sum "${scripts_dir}/requirements.lock" | cut -d ' ' -f 1 \
             > "${leaf_dir}/.venv/.requirements.stamp"
     done
