@@ -1,3 +1,4 @@
+import { RUN_MODELS, DEFAULT_CLAUDE_MODEL } from '../../shared/modelCatalog';
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, Play, AlertCircle, CheckCircle2, Upload } from 'lucide-react';
 import { BLOG_COMMAND_GROUPS, BLOG_COMMANDS, BLOG_SKILL_VERSION } from '../types';
@@ -12,35 +13,12 @@ interface SeoCommandFormProps {
   isLoading: boolean;
 }
 
-const FALLBACK_MODELS: ModelOption[] = [
-  { id: 'claude-fable-5', label: 'Claude Fable 5', description: 'Latest highest-capability Claude' },
-  { id: 'claude-opus-5', label: 'Claude Opus 5', description: 'Latest Opus; 1M context' },
-  { id: 'claude-sonnet-5', label: 'Claude Sonnet 5', description: 'Latest Sonnet; 1M context' },
-  { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', description: 'Latest Haiku; fast and efficient' },
-  { id: 'default', label: 'Account default', description: 'Clears CLI model override (tier default)' },
-  { id: 'deepseek-v4-pro:cloud', label: 'DeepSeek V4 Pro (Ollama cloud)', description: 'Uses Ollama cloud API' },
-  { id: 'minimax-m3:cloud', label: 'MiniMax M3 (Ollama cloud)', description: 'Uses Ollama cloud API' },
-  { id: 'kimi-k3:cloud', label: 'Kimi K3 (Ollama cloud)', description: 'Uses Ollama cloud API' },
-  { id: 'glm-5.2:cloud', label: 'GLM 5.2 (Ollama cloud)', description: 'Uses Ollama cloud API' },
-  {
-    id: 'nemotron-3-super:cloud',
-    label: 'Nemotron 3 Super (Ollama cloud)',
-    description: 'Uses Ollama cloud API'
-  },
-  { id: 'gemma4:cloud', label: 'Gemma 4 (Ollama cloud)', description: 'Uses Ollama cloud API' },
-  { id: 'qwen3.5:397b-cloud', label: 'Qwen3.5 397B (Ollama cloud)', description: 'Uses Ollama cloud API' },
-  {
-    id: 'gemini-3-flash-preview:cloud',
-    label: 'Gemini 3 Flash Preview (Ollama cloud)',
-    description: 'Uses Ollama cloud API'
-  },
-  { id: 'gpt-oss:120b-cloud', label: 'gpt-oss 120B (Ollama cloud)', description: 'Uses Ollama cloud API' },
-];
+const FALLBACK_MODELS: ModelOption[] = RUN_MODELS;
 
 export default function SeoCommandForm({ onRun, onSessionChange, isLoading }: SeoCommandFormProps) {
   const [selectedKey, setSelectedKey] = useState(BLOG_COMMANDS[0].key);
   const [target, setTarget] = useState('');
-  const [model, setModel] = useState('claude-fable-5');
+  const [model, setModel] = useState(DEFAULT_CLAUDE_MODEL);
   const [error, setError] = useState<string | null>(null);
   const [models, setModels] = useState<ModelOption[]>(FALLBACK_MODELS);
   const [uploadBusy, setUploadBusy] = useState(false);

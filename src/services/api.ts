@@ -1,3 +1,4 @@
+import { DEFAULT_CLAUDE_MODEL } from '../../shared/modelCatalog';
 import type { AccountStatusInfo, GroupedHistory, ModelOption, RunResponse, UsageInfo } from '../types';
 
 export const apiBase = () => (import.meta.env.VITE_API_BASE_URL as string | undefined) || '';
@@ -224,7 +225,7 @@ export const apiService = {
     onStreamChunk?: (channel: 'stdout' | 'stderr', text: string) => void,
     onStreamEvent?: (ev: { type: string }) => void
   ): Promise<RunResponse> {
-    const payload = { commandKey, target, model: model || 'claude-fable-5' };
+    const payload = { commandKey, target, model: model || DEFAULT_CLAUDE_MODEL };
 
     if (useRunStream()) {
       return consumeRunStream(

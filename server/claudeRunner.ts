@@ -6,6 +6,7 @@ import {
   ollamaHeadlessFollowupEnabled
 } from './ollamaFollowup';
 import { ensureOllamaServeForDashboard, isOllamaHeadlessModel, ollamaBin } from './ollamaEnsure';
+import { ollamaApiModelId } from '../shared/modelCatalog';
 
 export interface ClaudeRunResult {
   stdout: string;
@@ -249,7 +250,7 @@ function buildOllamaApiKeyEnv(mode: OllamaApiAuthMode): NodeJS.ProcessEnv {
 function configuredOllamaApiAuthModes(): OllamaApiAuthMode[] {
   const raw = (process.env.CLAUDE_OLLAMA_API_AUTH ?? '').trim().toLowerCase();
   if (raw === 'bearer' || raw === 'api-key' || raw === 'both') return [raw];
-  return ['bearer', 'api-key'];
+  return ['bearer'];
 }
 
 function looksLikeAuthFailure(result: ClaudeRunResult): boolean {
@@ -262,7 +263,7 @@ export function spawnClaudeChild(opts: SpawnClaudeOpts): { child: ChildProcess; 
   if (isOllamaHeadlessModel(opts.model)) {
     if (ollamaApiKeyModeEnabled()) {
       const env = buildOllamaApiKeyEnv(opts.ollamaApiAuthMode ?? configuredOllamaApiAuthModes()[0]);
-      const args = buildArgs(opts.prompt, opts.model, opts.bare);
+      const args = buildArgs(opts.prompt, ollamaApiModelId(opts.model!), opts.bare);
       const directArgv = [opts.claudeBin, ...args];
       if (headlessUseScriptPty()) return spawnViaScriptPty(directArgv, opts.cwd, env);
       const child = spawn(opts.claudeBin, args, {

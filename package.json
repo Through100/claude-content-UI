@@ -16,7 +16,8 @@
     "start": "tsx server/index.ts",
     "preview": "node -r ./scripts/webcrypto-polyfill.cjs ./node_modules/vite/bin/vite.js preview",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "check:runtime": "tsx scripts/check-runtime-catalog.ts"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.0.4",

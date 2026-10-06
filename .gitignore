@@ -13,3 +13,4 @@ ui-uploads/
 
 # Container image build kept out of the repo (local / CI only)
 Dockerfile
+!deploy/runtime/Dockerfile

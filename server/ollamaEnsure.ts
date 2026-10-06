@@ -1,19 +1,10 @@
+import { OLLAMA_MODEL_IDS } from '../shared/modelCatalog';
 /** Local Ollama lifecycle for dashboard runs using Ollama cloud models. */
 import http from 'node:http';
 import { spawn } from 'node:child_process';
 
 /** Keep in sync with the Ollama entries in the API and dashboard model lists. */
-export const OLLAMA_HEADLESS_MODELS = [
-  'deepseek-v4-pro:cloud',
-  'minimax-m3:cloud',
-  'kimi-k3:cloud',
-  'glm-5.2:cloud',
-  'nemotron-3-super:cloud',
-  'gemma4:cloud',
-  'qwen3.5:397b-cloud',
-  'gemini-3-flash-preview:cloud',
-  'gpt-oss:120b-cloud'
-] as const;
+export const OLLAMA_HEADLESS_MODELS = OLLAMA_MODEL_IDS;
 
 const OLLAMA_HEADLESS_SET = new Set<string>(OLLAMA_HEADLESS_MODELS);
 

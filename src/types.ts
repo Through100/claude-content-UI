@@ -253,7 +253,7 @@ export interface ModelOption {
 }
 
 /** Installed claude-blog skill version the Dashboard command list is aligned with. */
-export const BLOG_SKILL_VERSION = '2.1.1';
+export const BLOG_SKILL_VERSION = '2.2.0';
 
 /** Command Runner optgroup labels (matches claude-blog SKILL.md sections). */
 export const BLOG_COMMAND_GROUPS = [

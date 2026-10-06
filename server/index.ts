@@ -1,3 +1,4 @@
+import { RUN_MODELS, DEFAULT_CLAUDE_MODEL, normalizeRunModel, MODEL_CATALOG_REVIEWED_AT } from '../shared/modelCatalog';
 import 'dotenv/config';
 
 /** Avoid process exit on transient proxy/client socket drops during long SSE runs. */
@@ -52,6 +53,7 @@ import { runAccountStatusProbeDeduped } from './accountStatusProbe';
 import { runBashCost, runBashUsage } from './usageShellProbe';
 import {
   BLOG_COMMANDS,
+  BLOG_SKILL_VERSION,
   buildBlogPrompt,
   formatWorkspaceRunDirSegment,
   isLikelyHttpUrl,
@@ -420,7 +422,7 @@ function parseRunRequest(body: unknown): ParsedRunRequest {
   }
   const rawModel = b.model;
   const model =
-    typeof rawModel === 'string' && rawModel.trim() !== '' ? rawModel.trim() : 'claude-fable-5';
+    normalizeRunModel(typeof rawModel === 'string' ? rawModel : undefined, DEFAULT_CLAUDE_MODEL);
   return { ok: true as const, cmd, targetTrimmed, model };
 }
 
@@ -494,30 +496,7 @@ function buildRunBody(input: {
   return { body, item };
 }
 
-const DEFAULT_MODELS = [
-  { id: 'claude-fable-5', label: 'Claude Fable 5', description: 'Latest highest-capability Claude' },
-  { id: 'claude-opus-5', label: 'Claude Opus 5', description: 'Latest Opus; 1M context' },
-  { id: 'claude-sonnet-5', label: 'Claude Sonnet 5', description: 'Latest Sonnet; 1M context' },
-  { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', description: 'Latest Haiku; fast and efficient' },
-  { id: 'default', label: 'Account default', description: 'Clears override; tier default' },
-  { id: 'deepseek-v4-pro:cloud', label: 'DeepSeek V4 Pro (Ollama cloud)', description: 'Uses Ollama cloud API' },
-  { id: 'minimax-m3:cloud', label: 'MiniMax M3 (Ollama cloud)', description: 'Uses Ollama cloud API' },
-  { id: 'kimi-k3:cloud', label: 'Kimi K3 (Ollama cloud)', description: 'Uses Ollama cloud API' },
-  { id: 'glm-5.2:cloud', label: 'GLM 5.2 (Ollama cloud)', description: 'Uses Ollama cloud API' },
-  {
-    id: 'nemotron-3-super:cloud',
-    label: 'Nemotron 3 Super (Ollama cloud)',
-    description: 'Uses Ollama cloud API'
-  },
-  { id: 'gemma4:cloud', label: 'Gemma 4 (Ollama cloud)', description: 'Uses Ollama cloud API' },
-  { id: 'qwen3.5:397b-cloud', label: 'Qwen3.5 397B (Ollama cloud)', description: 'Uses Ollama cloud API' },
-  {
-    id: 'gemini-3-flash-preview:cloud',
-    label: 'Gemini 3 Flash Preview (Ollama cloud)',
-    description: 'Uses Ollama cloud API'
-  },
-  { id: 'gpt-oss:120b-cloud', label: 'gpt-oss 120B (Ollama cloud)', description: 'Uses Ollama cloud API' },
-];
+const DEFAULT_MODELS = RUN_MODELS;
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
@@ -672,6 +651,12 @@ app.get('/api/health', (_req, res) => {
       usageTimeoutMs: usageTimeoutMs(),
       /** When false, `/api/terminal/ws` upgrades are refused (set `CLAUDE_TERMINAL_WS=0`). */
       terminalWebSocket: process.env.CLAUDE_TERMINAL_WS !== '0',
+      buildCommit: process.env.APP_BUILD_SHA || 'development',
+      skillCommit: process.env.APP_SKILL_SHA || 'development',
+      modelCatalogReviewedAt: MODEL_CATALOG_REVIEWED_AT,
+      blogSkillVersion: BLOG_SKILL_VERSION,
+      blogCommandKeys: BLOG_COMMANDS.map((c) => c.key),
+      blogCommandsCount: BLOG_COMMANDS.length,
       time: new Date().toISOString()
     });
   } catch (e) {
