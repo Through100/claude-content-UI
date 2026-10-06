@@ -10,6 +10,7 @@ import {
   type PtySession
 } from './claudePty';
 import { usageProbeCleanEnv } from './usageShellProbe';
+import { normalizeRunModel } from '../shared/modelCatalog';
 
 export type TerminalWsOpts = {
   enabled: () => boolean;
@@ -52,6 +53,7 @@ function bindClaudePtySocket(ws: WebSocket, opts: TerminalWsOpts): void {
       rows?: number;
       data?: string;
       sessionId?: string;
+      model?: string;
     };
     try {
       msg = JSON.parse(String(raw)) as typeof msg;
@@ -91,10 +93,17 @@ function bindClaudePtySocket(ws: WebSocket, opts: TerminalWsOpts): void {
         return;
       }
       session = attached;
+      if (attached.model !== normalizeRunModel(typeof msg.model === 'string' ? msg.model : undefined, 'default')) {
+        detachSession(attached.id);
+        session = null;
+        safeSend({ type: 'error', message: 'SESSION_NOT_FOUND' });
+        ws.close();
+        return;
+      }
       const cols = typeof msg.cols === 'number' ? msg.cols : attached.cols;
       const rows = typeof msg.rows === 'number' ? msg.rows : attached.rows;
       resizePty(attached, cols, rows);
-      safeSend({ type: 'created', sessionId: attached.id, resumed: true });
+      safeSend({ type: 'created', sessionId: attached.id, resumed: true, model: attached.model });
       return;
     }
 
@@ -105,6 +114,7 @@ function bindClaudePtySocket(ws: WebSocket, opts: TerminalWsOpts): void {
           claudeBin: opts.claudeBin(),
           cwd: opts.workdir(),
           env: usageProbeCleanEnv(),
+          model: typeof msg.model === 'string' ? msg.model : undefined,
           cols: typeof msg.cols === 'number' ? msg.cols : undefined,
           rows: typeof msg.rows === 'number' ? msg.rows : undefined,
           onData: (chunk) => safeSend({ type: 'data', data: chunk }),
@@ -117,7 +127,7 @@ function bindClaudePtySocket(ws: WebSocket, opts: TerminalWsOpts): void {
             }
           }
         });
-        safeSend({ type: 'created', sessionId: session.id });
+        safeSend({ type: 'created', sessionId: session.id, model: session.model });
       } catch (e) {
         safeSend({ type: 'error', message: String(e) });
         try {

@@ -1,4 +1,5 @@
-import { RUN_MODELS, DEFAULT_CLAUDE_MODEL } from '../../shared/modelCatalog';
+import { RUN_MODELS } from '../../shared/modelCatalog';
+import { readPtyModelSelection } from '../../shared/ptyModelSelection';
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, Play, AlertCircle, CheckCircle2, Upload } from 'lucide-react';
 import { BLOG_COMMAND_GROUPS, BLOG_COMMANDS, BLOG_SKILL_VERSION } from '../types';
@@ -8,6 +9,7 @@ import type { ModelOption } from '../types';
 
 interface SeoCommandFormProps {
   onRun: (commandKey: string, target: string, model?: string) => void;
+  onModelChange: (model: string) => void;
   /** Fired when command or target draft changes so Pretty Output can switch conversation threads. */
   onSessionChange?: (commandKey: string, target: string) => void;
   isLoading: boolean;
@@ -15,10 +17,10 @@ interface SeoCommandFormProps {
 
 const FALLBACK_MODELS: ModelOption[] = RUN_MODELS;
 
-export default function SeoCommandForm({ onRun, onSessionChange, isLoading }: SeoCommandFormProps) {
+export default function SeoCommandForm({ onRun, onModelChange, onSessionChange, isLoading }: SeoCommandFormProps) {
   const [selectedKey, setSelectedKey] = useState(BLOG_COMMANDS[0].key);
   const [target, setTarget] = useState('');
-  const [model, setModel] = useState(DEFAULT_CLAUDE_MODEL);
+  const [model, setModel] = useState(readPtyModelSelection);
   const [error, setError] = useState<string | null>(null);
   const [models, setModels] = useState<ModelOption[]>(FALLBACK_MODELS);
   const [uploadBusy, setUploadBusy] = useState(false);
@@ -98,7 +100,7 @@ export default function SeoCommandForm({ onRun, onSessionChange, isLoading }: Se
           <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Model</label>
           <select
             value={model}
-            onChange={(e) => setModel(e.target.value)}
+            onChange={(e) => { setModel(e.target.value); onModelChange(e.target.value); }}
             className="w-full sm:w-auto sm:max-w-[min(42rem,60vw)] min-w-0 bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-xs font-semibold text-gray-700 outline-none focus:ring-2 focus:ring-indigo-500 transition-all shadow-sm"
           >
             {models.map(m => (
@@ -111,6 +113,7 @@ export default function SeoCommandForm({ onRun, onSessionChange, isLoading }: Se
       </div>
       
       <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-6">
+        <p className="text-xs text-gray-500">Changing models starts a new conversation and keeps the previous run in History.</p>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="space-y-2">
             <label className="text-sm font-semibold text-gray-700 block">Blog command</label>

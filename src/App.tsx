@@ -14,6 +14,7 @@ import { usePtyBridge } from './context/PtyBridgeContext';
 import { PTY_BROWSER_KILL_BEFORE_UNMOUNT_KEY, PTY_BROWSER_SESSION_ID_KEY } from '../shared/ptyBrowserSession';
 import { AlertCircle, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { OLLAMA_MODEL_IDS } from '../shared/modelCatalog';
 
 const HEADER_SESSION_REFRESH_MS = 4 * 60 * 1000;
 
@@ -84,7 +85,7 @@ export default function App() {
     };
   }, [refreshHeaderSession]);
 
-  const { sendToPty, clearLiveTranscript, ptySessionReady, requestPtyReconnect, flushLiveTranscriptNow } =
+  const { sendToPty, clearLiveTranscript, ptySessionReady, ptyModel, requestPtyReconnect, flushLiveTranscriptNow, setSessionConnected } =
     usePtyBridge();
 
   const handleRestartPtySession = useCallback(() => {
@@ -116,25 +117,36 @@ export default function App() {
     workspaceOutputSegment: string;
   } | null>(null);
   const recordedPtyHistoryStartsRef = useRef<Set<string>>(new Set());
+  const ptyHistoryAppendsRef = useRef(new Map<string, Promise<void>>());
 
   const tryAppendPtyConversationToHistory = useCallback(async () => {
     const prev = lastPtyHistoryMetaRef.current;
     if (!prev || recordedPtyHistoryStartsRef.current.has(prev.startedAt)) return;
+    const pending = ptyHistoryAppendsRef.current.get(prev.startedAt);
+    if (pending) return pending;
     const merged = (ptyMergedCaptureRef.current?.() ?? '').trim();
     if (merged.length < 120) return;
     const finishedAt = new Date().toISOString();
+    const append = (async () => {
+      try {
+        await apiService.appendPtyHistoryRun({
+          commandKey: prev.commandKey,
+          target: prev.target,
+          rawOutput: merged,
+          startedAt: prev.startedAt,
+          finishedAt,
+          workspaceOutputSegment: prev.workspaceOutputSegment
+        });
+        recordedPtyHistoryStartsRef.current.add(prev.startedAt);
+      } catch (e) {
+        console.warn('[claude-content-ui] PTY history append failed:', e);
+      }
+    })();
+    ptyHistoryAppendsRef.current.set(prev.startedAt, append);
     try {
-      await apiService.appendPtyHistoryRun({
-        commandKey: prev.commandKey,
-        target: prev.target,
-        rawOutput: merged,
-        startedAt: prev.startedAt,
-        finishedAt,
-        workspaceOutputSegment: prev.workspaceOutputSegment
-      });
-      recordedPtyHistoryStartsRef.current.add(prev.startedAt);
-    } catch (e) {
-      console.warn('[claude-content-ui] PTY history append failed:', e);
+      await append;
+    } finally {
+      ptyHistoryAppendsRef.current.delete(prev.startedAt);
     }
   }, []);
 
@@ -174,9 +186,31 @@ export default function App() {
     }
   }, []);
 
+  const modelSelectionSequenceRef = useRef(0);
+  const handleModelSelection = useCallback((model: string) => {
+    setSessionConnected(false);
+    const sequence = ++modelSelectionSequenceRef.current;
+    void (async () => {
+      await tryAppendPtyConversationToHistory();
+      if (sequence !== modelSelectionSequenceRef.current) return;
+      try {
+        sessionStorage.removeItem(PTY_BROWSER_SESSION_ID_KEY);
+        sessionStorage.setItem(PTY_BROWSER_KILL_BEFORE_UNMOUNT_KEY, '1');
+      } catch {
+        /* ignore unavailable browser storage */
+      }
+      clearLiveTranscript({ resetPrettySession: true });
+      requestPtyReconnect(model);
+    })();
+  }, [ptyModel, setSessionConnected, tryAppendPtyConversationToHistory, clearLiveTranscript, requestPtyReconnect]);
+
   const handleRun = useCallback(
-    (commandKey: string, target: string) => {
+    (commandKey: string, target: string, model?: string) => {
     setError(null);
+    if (model && model !== ptyModel) {
+      setError('The selected model is starting. Wait for PTY Connected before running.');
+      return;
+    }
     if (commandRunnerCooldownRef.current) {
       return;
     }
@@ -261,7 +295,7 @@ export default function App() {
       }, 120);
     });
   },
-  [ptySessionReady, sendToPty, clearLiveTranscript, tryAppendPtyConversationToHistory]
+  [ptySessionReady, ptyModel, sendToPty, clearLiveTranscript, tryAppendPtyConversationToHistory]
   );
 
   /**
@@ -284,9 +318,12 @@ export default function App() {
           }
         }
         setActiveView(view);
+        if (view === 'logon' && OLLAMA_MODEL_IDS.includes(ptyModel)) {
+          handleModelSelection('default');
+        }
       })();
     },
-    [activeView, flushLiveTranscriptNow, tryAppendPtyConversationToHistory]
+    [activeView, ptyModel, handleModelSelection, flushLiveTranscriptNow, tryAppendPtyConversationToHistory]
   );
 
   return (
@@ -346,6 +383,7 @@ export default function App() {
 
             <SeoCommandForm
               onRun={handleRun}
+              onModelChange={handleModelSelection}
               onSessionChange={onRunnerSessionChange}
               isLoading={commandRunnerLocked}
             />

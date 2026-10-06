@@ -233,10 +233,10 @@ function ollamaApiKeyModeEnabled(): boolean {
   return hasKey && !['0', 'false', 'no'].includes(mode);
 }
 
-function buildOllamaApiKeyEnv(mode: OllamaApiAuthMode): NodeJS.ProcessEnv {
+function buildOllamaApiKeyEnv(mode: OllamaApiAuthMode, baseEnv: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const apiKey = process.env.OLLAMA_API_KEY?.trim() ?? '';
   const baseUrl = process.env.CLAUDE_OLLAMA_API_BASE_URL?.trim() || 'https://ollama.com';
-  const env: NodeJS.ProcessEnv = { ...process.env, ANTHROPIC_BASE_URL: baseUrl };
+  const env: NodeJS.ProcessEnv = { ...baseEnv, ANTHROPIC_BASE_URL: baseUrl };
 
   if (mode === 'bearer' || mode === 'both') env.ANTHROPIC_AUTH_TOKEN = apiKey;
   else delete env.ANTHROPIC_AUTH_TOKEN;
@@ -251,6 +251,19 @@ function configuredOllamaApiAuthModes(): OllamaApiAuthMode[] {
   const raw = (process.env.CLAUDE_OLLAMA_API_AUTH ?? '').trim().toLowerCase();
   if (raw === 'bearer' || raw === 'api-key' || raw === 'both') return [raw];
   return ['bearer'];
+}
+
+/** Apply the same provider and model routing to the interactive Blog runner. */
+export function buildInteractiveClaudeCommand(claudeBin: string, model: string, permissionArgs: string[], env: NodeJS.ProcessEnv) {
+  const modelArgs = model === 'default' ? [] : ['--model', model];
+  if (isOllamaHeadlessModel(model)) {
+    if (ollamaApiKeyModeEnabled()) {
+      return { binary: claudeBin, args: ['--model', ollamaApiModelId(model), ...permissionArgs],
+        env: buildOllamaApiKeyEnv(configuredOllamaApiAuthModes()[0], env) };
+    }
+    return { binary: ollamaBin(), args: ['launch', 'claude', '--model', model, '--yes', '--', ...modelArgs, ...permissionArgs], env };
+  }
+  return { binary: claudeBin, args: [...modelArgs, ...permissionArgs], env };
 }
 
 function looksLikeAuthFailure(result: ClaudeRunResult): boolean {

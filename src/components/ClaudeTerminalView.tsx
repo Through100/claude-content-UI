@@ -146,9 +146,9 @@ export default function ClaudeTerminalView({
       const { cols, rows } = term;
       const saved = readStoredPtySessionId();
       if (saved) {
-        ws.send(JSON.stringify({ type: 'resume', sessionId: saved, cols, rows }));
+        ws.send(JSON.stringify({ type: 'resume', sessionId: saved, cols, rows, model: ptyBridgeRef.current.ptyModel }));
       } else {
-        ws.send(JSON.stringify({ type: 'create', cols, rows }));
+        ws.send(JSON.stringify({ type: 'create', cols, rows, model: ptyBridgeRef.current.ptyModel }));
       }
     };
 

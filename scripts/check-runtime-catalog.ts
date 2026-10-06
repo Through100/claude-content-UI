@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { RUN_MODELS, OLLAMA_MODELS, DEFAULT_CLAUDE_MODEL, DEFAULT_OLLAMA_MODEL, normalizeRunModel, ollamaApiModelId } from '../shared/modelCatalog';
 import { isOllamaHeadlessModel } from '../server/ollamaEnsure';
-import { spawnClaudeChild } from '../server/claudeRunner';
+import { spawnClaudeChild, buildInteractiveClaudeCommand } from '../server/claudeRunner';
 
 assert.equal(new Set(RUN_MODELS.map((model) => model.id)).size, RUN_MODELS.length);
 for (const model of OLLAMA_MODELS) {
@@ -51,12 +51,29 @@ try {
       });
       if (!directApi) assert.equal(argv[1], 'launch');
       assert.equal(argv[argv.indexOf('--model') + 1], directApi ? ollamaApiModelId(model) : model);
+      const interactive = buildInteractiveClaudeCommand(process.execPath, model,
+        ['--permission-mode', 'bypassPermissions'], { ANTHROPIC_API_KEY: 'account-test-placeholder' });
+      assert.equal(interactive.args[interactive.args.indexOf('--model') + 1], directApi ? ollamaApiModelId(model) : model);
+      assert.ok(interactive.args.includes('bypassPermissions'));
+      if (directApi) {
+        assert.equal(interactive.env.ANTHROPIC_AUTH_TOKEN, 'runtime-test-placeholder');
+        assert.equal(interactive.env.ANTHROPIC_API_KEY, undefined);
+        assert.equal(interactive.env.ANTHROPIC_BASE_URL, 'https://ollama.com');
+      } else {
+        assert.equal(interactive.args[0], 'launch');
+        assert.equal(interactive.env.ANTHROPIC_API_KEY, 'account-test-placeholder');
+      }
     }
   }
 } finally {
   for (const key of Object.keys(process.env)) if (!(key in savedEnv)) delete process.env[key];
   Object.assign(process.env, savedEnv);
 }
+const accountDefault = buildInteractiveClaudeCommand('claude', 'default', [], { ANTHROPIC_API_KEY: 'account-test-placeholder' });
+assert.ok(!accountDefault.args.includes('--model'));
+assert.equal(accountDefault.env.ANTHROPIC_API_KEY, 'account-test-placeholder');
+const claudeInteractive = buildInteractiveClaudeCommand('claude', DEFAULT_CLAUDE_MODEL, [], {});
+assert.deepEqual(claudeInteractive.args, ['--model', DEFAULT_CLAUDE_MODEL]);
 import { BLOG_COMMANDS, buildBlogPrompt, formatWorkspaceRunDirSegment } from '../src/types';
 const oldKeys = ['write','rewrite','update','style','outline','brief','analyze','analyze-rubric','analyze-cognitive-load','factcheck','decay','geo','seo-check','calendar','strategy','site-health','cannibalization','cluster','schema','repurpose','image','audio','persona','taxonomy','brand','discourse','notebooklm','google','multilingual','translate','localize','locale-audit','flow'];
 for (const key of oldKeys) assert.ok(BLOG_COMMANDS.some((command) => command.key === key), `Existing command removed: ${key}`);

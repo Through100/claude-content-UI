@@ -20,6 +20,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import { fileURLToPath } from 'node:url';
+import { normalizeRunModel } from '../shared/modelCatalog';
+import { buildInteractiveClaudeCommand } from './claudeRunner';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROXY_SCRIPT = path.resolve(__dirname, '..', 'scripts', 'pty-proxy.py');
@@ -122,30 +124,32 @@ function ptySpawnFailureHint(): string {
 }
 
 /** argv for the PTY child: POSIX Python proxy, WSL-wrapped proxy, or Windows help stub. */
-function resolvePtyChildArgv(claudeBin: string): { file: string; args: string[] } {
+function resolvePtyChildArgv(claudeBin: string, model: string, env: NodeJS.ProcessEnv): { file: string; args: string[]; env: NodeJS.ProcessEnv } {
   const claudeResolved = resolveClaudeBinForPty(claudeBin);
   const claudeArgs = buildPtyClaudeArgs();
+  const command = buildInteractiveClaudeCommand(claudeResolved, model, claudeArgs, env);
   if (process.platform === 'win32' && !envTruthy(process.env.CLAUDE_PTY_WSL)) {
-    return { file: process.execPath, args: [WIN_STUB] };
+    return { file: process.execPath, args: [WIN_STUB], env: command.env };
   }
   if (process.platform === 'win32' && envTruthy(process.env.CLAUDE_PTY_WSL)) {
     const proxyWsl = windowsPathToWsl(PROXY_SCRIPT);
     const claudeWsl =
-      /^[a-zA-Z]:\\/.test(claudeResolved) || claudeResolved.startsWith('\\\\')
-        ? windowsPathToWsl(claudeResolved)
-        : claudeResolved;
+      /^[a-zA-Z]:\\/.test(command.binary) || command.binary.startsWith('\\\\')
+        ? windowsPathToWsl(command.binary)
+        : command.binary;
     const distro = process.env.CLAUDE_WSL_DISTRO?.trim();
     const args = distro
-      ? ['-d', distro, '-e', 'python3', proxyWsl, claudeWsl, ...claudeArgs]
-      : ['-e', 'python3', proxyWsl, claudeWsl, ...claudeArgs];
-    return { file: 'wsl.exe', args };
+      ? ['-d', distro, '-e', 'python3', proxyWsl, claudeWsl, ...command.args]
+      : ['-e', 'python3', proxyWsl, claudeWsl, ...command.args];
+    return { file: 'wsl.exe', args, env: command.env };
   }
   const py = resolvePtyPythonSpawn();
-  return { file: py.file, args: [...py.args, PROXY_SCRIPT, claudeResolved, ...claudeArgs] };
+  return { file: py.file, args: [...py.args, PROXY_SCRIPT, command.binary, ...command.args], env: command.env };
 }
 
 export interface PtySession {
   id: string;
+  model: string;
   child: ChildProcess;
   lastActivity: number;
   cols: number;
@@ -176,6 +180,7 @@ export function createPtySession(opts: {
   claudeBin: string;
   cwd: string;
   env: NodeJS.ProcessEnv;
+  model?: string;
   cols?: number;
   rows?: number;
   onData: (chunk: string) => void;
@@ -184,6 +189,7 @@ export function createPtySession(opts: {
   const id = randomUUID();
   const cols = opts.cols ?? 220;
   const rows = opts.rows ?? 50;
+  const model = normalizeRunModel(opts.model, 'default');
 
   const ptyEnv: NodeJS.ProcessEnv = { ...opts.env, PTY_COLS: String(cols), PTY_ROWS: String(rows) };
   // Match a normal SSH session: UTF-8 locale so Unicode borders and bullets are not mojibake.
@@ -194,10 +200,10 @@ export function createPtySession(opts: {
 
   const utf8Decoder = new StringDecoder('utf8');
 
-  const { file: childFile, args: childArgs } = resolvePtyChildArgv(opts.claudeBin);
+  const { file: childFile, args: childArgs, env: childEnv } = resolvePtyChildArgv(opts.claudeBin, model, ptyEnv);
   const child = spawn(childFile, childArgs, {
     cwd: opts.cwd,
-    env: ptyEnv,
+    env: childEnv,
     // fd 0: stdin from server → PTY  (piped)
     // fd 1: PTY output → server      (piped)
     // fd 2: stderr for diagnostics   (piped — we forward to onData)
@@ -207,6 +213,7 @@ export function createPtySession(opts: {
 
   const session: PtySession = {
     id,
+    model,
     child,
     lastActivity: Date.now(),
     cols,

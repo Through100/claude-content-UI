@@ -8,6 +8,7 @@ import React, {
 } from 'react';
 import type { Terminal } from '@xterm/xterm';
 import { serializeXtermBufferPlain } from '../../shared/serializeXtermBuffer';
+import { readPtyModelSelection, savePtyModelSelection } from '../../shared/ptyModelSelection';
 
 const MAX_LIVE_TRANSCRIPT = 600_000;
 
@@ -15,6 +16,7 @@ export type PtyBridgeContextValue = {
   /** Returns false if the PTY WebSocket transport is not accepting input (nothing was sent). */
   sendToPty: (text: string) => boolean;
   ptySessionReady: boolean;
+  ptyModel: string;
   registerTransport: (fn: (text: string) => boolean) => void;
   setSessionConnected: (connected: boolean) => void;
   /**
@@ -52,7 +54,7 @@ export type PtyBridgeContextValue = {
    * The Logon terminal is mounted off-screen; this reconnects without switching views.
    */
   ptyReconnectNonce: number;
-  requestPtyReconnect: () => void;
+  requestPtyReconnect: (model?: string) => void;
 };
 
 const PtyBridgeContext = createContext<PtyBridgeContextValue | null>(null);
@@ -62,6 +64,7 @@ const noopTransport = (_text: string) => false;
 export function PtyBridgeProvider({ children }: { children: React.ReactNode }) {
   const transportRef = useRef<(text: string) => boolean>(noopTransport);
   const [ptySessionReady, setPtySessionReady] = useState(false);
+  const [ptyModel, setPtyModel] = useState(readPtyModelSelection);
   const [ptyDisplayPlain, setPtyDisplayPlain] = useState('');
   const [ptyFullSnapshotPlain, setPtyFullSnapshotPlain] = useState('');
   const [ptySessionGeneration, setPtySessionGeneration] = useState(0);
@@ -197,7 +200,12 @@ export function PtyBridgeProvider({ children }: { children: React.ReactNode }) {
     return transportRef.current(text);
   }, []);
 
-  const requestPtyReconnect = useCallback(() => {
+  const requestPtyReconnect = useCallback((model?: string) => {
+    setPtySessionReady(false);
+    if (model) {
+      savePtyModelSelection(model);
+      setPtyModel(model);
+    }
     setPtyReconnectNonce((n) => n + 1);
   }, []);
 
@@ -205,6 +213,7 @@ export function PtyBridgeProvider({ children }: { children: React.ReactNode }) {
     () => ({
       sendToPty,
       ptySessionReady,
+      ptyModel,
       registerTransport,
       setSessionConnected,
       ptyDisplayPlain,
@@ -225,6 +234,7 @@ export function PtyBridgeProvider({ children }: { children: React.ReactNode }) {
     [
       sendToPty,
       ptySessionReady,
+      ptyModel,
       registerTransport,
       setSessionConnected,
       ptyDisplayPlain,
