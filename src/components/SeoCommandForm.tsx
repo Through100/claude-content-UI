@@ -86,7 +86,7 @@ export default function SeoCommandForm({ onRun, onModelChange, onSessionChange, 
 
   return (
     <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-      <div className="p-4 sm:p-6 border-b border-gray-100 bg-gray-50/50 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="p-4 sm:p-6 border-b border-gray-100 bg-gray-50/50 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div>
           <h2 className="text-lg font-semibold text-gray-900">Command Runner</h2>
           <p className="text-sm text-gray-500">
@@ -96,12 +96,12 @@ export default function SeoCommandForm({ onRun, onModelChange, onSessionChange, 
           </p>
         </div>
         
-        <div className="w-full sm:w-auto flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 min-w-0">
+        <div className="w-full xl:w-auto flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 min-w-0">
           <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Model</label>
           <select
             value={model}
             onChange={(e) => { setModel(e.target.value); onModelChange(e.target.value); }}
-            className="w-full sm:w-auto sm:max-w-[min(42rem,60vw)] min-w-0 bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-xs font-semibold text-gray-700 outline-none focus:ring-2 focus:ring-indigo-500 transition-all shadow-sm"
+            className="w-full xl:w-auto xl:max-w-[min(42rem,60vw)] min-w-0 bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-xs font-semibold text-gray-700 outline-none focus:ring-2 focus:ring-indigo-500 transition-all shadow-sm"
           >
             {models.map(m => (
               <option key={m.id} value={m.id}>
@@ -195,7 +195,7 @@ export default function SeoCommandForm({ onRun, onModelChange, onSessionChange, 
           )}
         </AnimatePresence>
 
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pt-2">
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between pt-2">
           <div className="flex items-center gap-2 text-xs text-gray-500 min-w-0">
             <CheckCircle2 size={14} className="text-green-500" />
             <span>
