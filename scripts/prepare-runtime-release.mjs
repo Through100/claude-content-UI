@@ -34,7 +34,7 @@ function verifyLinuxLaunchers(directory) {
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
     const file = path.join(directory, entry.name);
     if (entry.isDirectory()) verifyLinuxLaunchers(file);
-    else if (entry.isFile()) {
+    else if (entry.isFile() && !entry.name.endsWith('.ps1')) {
       const contents = fs.readFileSync(file);
       if (contents.subarray(0, 2).toString() === '#!' && contents.subarray(0, contents.indexOf(10)).includes(13)) {
         throw new Error(`Linux launcher has a CRLF shebang: ${file}`);
